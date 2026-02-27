@@ -1004,62 +1004,19 @@ def antigravity_gemini_models_payload_for_models_json() -> Dict[str, Any]:
     return p
 
 def restart_openclaw_gateway(home: Path) -> None:
-    info("Restarting OpenClaw gateway...")
+    info("Restarting OpenClaw gateway (systemd)...")
 
-    # 1) Graceful stop (best-effort)
-    subprocess.run(
-        ["bash", "-lc", "cd /opt/openclaw && npx openclaw gateway stop --port 18789"],
+    # Restart via systemctl
+    r = subprocess.run(
+        ["sudo", "systemctl", "restart", "openclaw"],
         check=False,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
     )
+    if r.returncode != 0:
+        warn(f"systemctl restart failed: {r.stderr.strip()}")
 
-    # 2) Force stop leftovers (best-effort)
-    subprocess.run(
-        ["pkill", "-f", "openclaw-gateway"],
-        check=False,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    subprocess.run(
-        ["pkill", "-f", "npm exec openclaw gateway"],
-        check=False,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-
-    # 3) Wait old process/port to fully release
-    for _ in range(20):
-        p = subprocess.run(
-            ["pgrep", "-f", "openclaw-gateway"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        s = subprocess.run(
-            ["bash", "-lc", "ss -ltnp 2>/dev/null | grep ':18789'"],
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        if p.returncode != 0 and s.returncode != 0:
-            break
-        time.sleep(1)
-
-    logs_dir = home / "logs"
-    logs_dir.mkdir(parents=True, exist_ok=True)
-    log_file = logs_dir / "openclaw.log"
-
-    # 4) Start gateway
-    with log_file.open("ab") as lf:
-        subprocess.Popen(
-            ["bash", "-lc", "cd /opt/openclaw && npx openclaw gateway --port 18789 run"],
-            stdout=lf,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-        )
-
-    # 5) Wait bootstrap
+    # Wait for port 18789 to come up
     pid = ""
     for _ in range(30):
         p = subprocess.run(
@@ -1069,7 +1026,7 @@ def restart_openclaw_gateway(home: Path) -> None:
             text=True,
         )
         s = subprocess.run(
-            ["bash", "-lc", "ss -ltnp 2>/dev/null | grep ':18789'"],
+            ["bash", "-c", "ss -ltnp 2>/dev/null | grep ':18789'"],
             check=False,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -1082,7 +1039,7 @@ def restart_openclaw_gateway(home: Path) -> None:
     if pid:
         ok(f"OpenClaw gateway restarted (PID {pid})")
     else:
-        warn("OpenClaw gateway may not have started — check ~/logs/openclaw.log")
+        warn("OpenClaw gateway may not have started — check: sudo systemctl status openclaw")
 
 
 def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], profile: str = "") -> None:
