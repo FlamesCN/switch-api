@@ -100,12 +100,45 @@ OPENCLAW_QUOTIO_PROFILE_TO_PRIMARY = {
 OPENCLAW_QUOTIO_PROFILE_NAMES = tuple(OPENCLAW_QUOTIO_PROFILE_TO_PRIMARY.keys())
 
 DUCK_DROID_MODEL = "gemini-3.1-pro-preview"
+# Antigravity-tools provider
+ANTIGRAVITY_BASE_URL = "https://tools.ancientechoes.ai"
+ANTIGRAVITY_BASE_URL_V1 = "https://tools.ancientechoes.ai/v1"
+ANTIGRAVITY_BASE_URL_V1BETA = "https://tools.ancientechoes.ai/v1beta"
+
+ANTIGRAVITY_AVAILABLE_MODELS = (
+    "claude-opus-4-6-thinking",
+    "claude-sonnet-4-6",
+    "claude-sonnet-4-6-thinking",
+    "gemini-3.1-pro-high",
+    "gemini-3.1-pro-low",
+    "gemini-3.1-flash-image",
+    "gemini-3-pro-image",
+    "gemini-3-pro-high",
+    "gemini-3-pro-low",
+    "gemini-3-flash",
+    "gpt-oss-120b-medium",
+)
+
+# Antigravity OpenClaw profiles (same model set as quotio)
+OPENCLAW_ANTIGRAVITY_PROFILE_TO_PRIMARY = {
+    "default": "antigravity/claude-opus-4-6-thinking",
+    "opus": "antigravity/claude-opus-4-6-thinking",
+    "sonnet": "antigravity/claude-sonnet-4-6",
+    "gemini": "antigravity-gemini/gemini-3.1-pro-high",
+    "gemini3": "antigravity-gemini/gemini-3.1-pro-high",
+    "gemini-3": "antigravity-gemini/gemini-3.1-pro-high",
+    "gemini3-pro-high": "antigravity-gemini/gemini-3.1-pro-high",
+}
+OPENCLAW_ANTIGRAVITY_PROFILE_NAMES = tuple(OPENCLAW_ANTIGRAVITY_PROFILE_TO_PRIMARY.keys())
+
+ANTIGRAVITY_DROID_MODEL = "gemini-3.1-pro-high"
+
 QUOTIO_DROID_MODEL = "gemini-3.1-pro-high"
 
 TOOLS = ("cc", "openclaw", "codex", "droid")
 TOOLS_WITH_ALL = ("cc", "openclaw", "codex", "droid", "all")
-PROVIDERS = ("duck", "quotio")
-APP_VERSION = "1.0.0"
+PROVIDERS = ("duck", "quotio", "antigravity")
+APP_VERSION = "1.1.0"
 
 RED = "\033[0;31m"
 GREEN = "\033[0;32m"
@@ -187,6 +220,7 @@ def load_exports_from_bashrc(home: Path) -> None:
         "QUOTIO_API_KEY",
         "GEMINI_BASE_URL",
         "GEMINI_MODEL",
+        "ANTIGRAVITY_API_KEY",
     }
 
     pattern = re.compile(r"^\s*export\s+([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
@@ -297,6 +331,7 @@ def enrich_store_from_env(store: Dict[str, str]) -> Dict[str, str]:
         "duck_gemini": os.environ.get("DUCK_GEMINI_API_KEY", ""),
         "duck_codex": os.environ.get("DUCKCODING_API_KEY", ""),
         "quotio": os.environ.get("QUOTIO_API_KEY", ""),
+        "antigravity": os.environ.get("ANTIGRAVITY_API_KEY", ""),
     }
     for k, v in explicit.items():
         if v:
@@ -333,6 +368,8 @@ def get_keys(store: Dict[str, str]) -> Dict[str, str]:
         or store.get("duck_codex", ""),
         "quotio": os.environ.get("QUOTIO_API_KEY")
         or store.get("quotio", ""),
+        "antigravity": os.environ.get("ANTIGRAVITY_API_KEY")
+        or store.get("antigravity", ""),
     }
 
 
@@ -365,7 +402,20 @@ def provider_model_catalog() -> Dict[str, Any]:
                     },
                     "note": "switch-api only rewrites codex model when 4.5-series Claude patterns are detected",
                 },
-            }
+            },
+            "antigravity": {
+                "available_models": list(ANTIGRAVITY_AVAILABLE_MODELS),
+                "base_url": ANTIGRAVITY_BASE_URL,
+                "openclaw": {
+                    "providers": {
+                        "antigravity": ["claude-opus-4-6-thinking", "claude-sonnet-4-6"],
+                        "antigravity-gemini": ["gemini-3.1-pro-high", "gemini-3.1-pro-low", "gemini-3.1-flash-image", "gemini-3-pro-image", "gemini-3-flash"],
+                    },
+                },
+                "droid": {
+                    "default_model": ANTIGRAVITY_DROID_MODEL,
+                },
+            },
         }
     }
 
@@ -437,6 +487,22 @@ def resolve_openclaw_quotio_profile(profile: str) -> Tuple[str, str]:
     return target, f"OpenClaw quotio profile {p} -> {target}"
 
 
+
+def resolve_openclaw_antigravity_profile(profile: str) -> Tuple[str, str]:
+    p = (profile or "").strip().lower()
+    if not p:
+        target = OPENCLAW_ANTIGRAVITY_PROFILE_TO_PRIMARY["default"]
+        return target, f"OpenClaw antigravity profile default -> {target}"
+
+    if p not in OPENCLAW_ANTIGRAVITY_PROFILE_TO_PRIMARY:
+        raise SwitchError(
+            f"Unknown openclaw antigravity profile: {profile} (use one of: {', '.join(OPENCLAW_ANTIGRAVITY_PROFILE_NAMES)})"
+        )
+
+    target = OPENCLAW_ANTIGRAVITY_PROFILE_TO_PRIMARY[p]
+    return target, f"OpenClaw antigravity profile {p} -> {target}"
+
+
 class Config:
     def __init__(self, home: Path):
         self.home = home
@@ -459,6 +525,8 @@ def detect_provider(tool: str, cfg: Config) -> str:
             return "no-config"
         data = load_json(cfg.cc_settings)
         url = ((data.get("env") or {}).get("ANTHROPIC_BASE_URL") or "").strip()
+        if "tools.ancientechoes" in url:
+            return "antigravity"
         if "ancientechoes" in url:
             return "quotio"
         if "duckcoding" in url:
@@ -475,6 +543,8 @@ def detect_provider(tool: str, cfg: Config) -> str:
             )
             or ""
         )
+        if model.startswith("antigravity/") or model.startswith("antigravity-gemini/"):
+            return "antigravity"
         if model.startswith("quotio/") or model.startswith("quotio-gemini/"):
             return "quotio"
         if model.startswith("duckcoding/"):
@@ -487,6 +557,8 @@ def detect_provider(tool: str, cfg: Config) -> str:
         text = read_text(cfg.cx_config)
         m = re.search(r'^\s*model_provider\s*=\s*"([^"]+)"\s*$', text, re.M)
         provider = m.group(1) if m else "unknown"
+        if provider == "antigravity":
+            return "antigravity"
         if provider == "quotio":
             return "quotio"
         if provider == "duckcoding":
@@ -495,6 +567,8 @@ def detect_provider(tool: str, cfg: Config) -> str:
 
     if tool == "droid":
         base = os.environ.get("GEMINI_BASE_URL", "")
+        if "tools.ancientechoes" in base:
+            return "antigravity"
         if "ancientechoes" in base:
             return "quotio"
         if "duckcoding" in base:
@@ -513,10 +587,13 @@ def show_status(cfg: Config) -> None:
             icon = "🦆"
         elif p == "quotio":
             icon = "🔗"
+        elif p == "antigravity":
+            icon = "🚀"
         print(f"  {tool:<10} {icon}  {p}")
     print(f"{CYAN}═══════════════════════════{NC}")
     print("  🦆 = DuckCoding (jp.duckcoding.com)")
     print("  🔗 = Quotio Tunnel (api.ancientechoes.ai)")
+    print("  🚀 = Antigravity-tools (tools.ancientechoes.ai)")
 
 
 # ----------------------------- switchers -----------------------------
@@ -533,7 +610,7 @@ def switch_cc(provider: str, cfg: Config, keys: Dict[str, str]) -> None:
         env["ANTHROPIC_AUTH_TOKEN"] = ensure_key(
             "DUCK_ANTHROPIC_API_KEY/ANTHROPIC_API_KEY", keys["duck_anthropic"]
         )
-    else:
+    elif provider == "quotio":
         env["ANTHROPIC_BASE_URL"] = QUOTIO_BASE_URL
         env["ANTHROPIC_AUTH_TOKEN"] = ensure_key("QUOTIO_API_KEY", keys["quotio"])
 
@@ -542,6 +619,17 @@ def switch_cc(provider: str, cfg: Config, keys: Dict[str, str]) -> None:
         if reason:
             warn(reason)
         info("Quotio Claude allowlist: claude-opus-4-6-thinking, claude-sonnet-4-6")
+
+    elif provider == "antigravity":
+        env["ANTHROPIC_BASE_URL"] = ANTIGRAVITY_BASE_URL
+        env["ANTHROPIC_AUTH_TOKEN"] = ensure_key("ANTIGRAVITY_API_KEY", keys["antigravity"])
+
+        # Reuse quotio model resolution (same model set)
+        target_model, reason = resolve_cc_model_for_quotio(current_model)
+        data["model"] = target_model
+        if reason:
+            warn(reason)
+        info("Antigravity Claude allowlist: claude-opus-4-6-thinking, claude-sonnet-4-6")
 
     save_json(cfg.cc_settings, data)
     ok(f"Claude Code → {provider}")
@@ -621,6 +709,107 @@ def quotio_gemini_models_payload() -> Dict[str, Any]:
 
 def quotio_gemini_models_payload_for_models_json() -> Dict[str, Any]:
     p = quotio_gemini_models_payload()
+    models = []
+    for item in p["models"]:
+        it = dict(item)
+        it["cost"] = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}
+        it["api"] = "google-generative-ai"
+        models.append(it)
+    p["models"] = models
+    return p
+
+
+
+def antigravity_openai_models_payload() -> Dict[str, Any]:
+    return {
+        "baseUrl": ANTIGRAVITY_BASE_URL_V1,
+        "api": "openai-completions",
+        "apiKey": "",
+        "models": [
+            {
+                "id": "claude-opus-4-6-thinking",
+                "name": "Claude Opus 4.6 Thinking (Antigravity)",
+                "reasoning": True,
+                "input": ["text"],
+                "contextWindow": 200000,
+                "maxTokens": 32768,
+            },
+            {
+                "id": "claude-sonnet-4-6",
+                "name": "Claude Sonnet 4.6 (Antigravity)",
+                "reasoning": True,
+                "input": ["text"],
+                "contextWindow": 200000,
+                "maxTokens": 32768,
+            },
+        ],
+    }
+
+
+def antigravity_openai_models_payload_for_models_json() -> Dict[str, Any]:
+    p = antigravity_openai_models_payload()
+    models = []
+    for item in p["models"]:
+        it = dict(item)
+        it["cost"] = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}
+        it["api"] = "openai-completions"
+        models.append(it)
+    p["models"] = models
+    return p
+
+
+def antigravity_gemini_models_payload() -> Dict[str, Any]:
+    return {
+        "baseUrl": ANTIGRAVITY_BASE_URL_V1BETA,
+        "api": "google-generative-ai",
+        "apiKey": "",
+        "models": [
+            {
+                "id": "gemini-3.1-pro-high",
+                "name": "Gemini 3.1 Pro High (Antigravity)",
+                "reasoning": True,
+                "input": ["text"],
+                "contextWindow": 1048576,
+                "maxTokens": 65536,
+            },
+            {
+                "id": "gemini-3.1-pro-low",
+                "name": "Gemini 3.1 Pro Low (Antigravity)",
+                "reasoning": True,
+                "input": ["text"],
+                "contextWindow": 1048576,
+                "maxTokens": 65536,
+            },
+            {
+                "id": "gemini-3.1-flash-image",
+                "name": "Gemini 3.1 Flash Image (Antigravity)",
+                "reasoning": True,
+                "input": ["text", "image"],
+                "contextWindow": 1048576,
+                "maxTokens": 65536,
+            },
+            {
+                "id": "gemini-3-pro-image",
+                "name": "Gemini 3 Pro Image (Antigravity)",
+                "reasoning": True,
+                "input": ["text", "image"],
+                "contextWindow": 1048576,
+                "maxTokens": 65536,
+            },
+            {
+                "id": "gemini-3-flash",
+                "name": "Gemini 3 Flash (Antigravity)",
+                "reasoning": True,
+                "input": ["text"],
+                "contextWindow": 1048576,
+                "maxTokens": 65536,
+            },
+        ],
+    }
+
+
+def antigravity_gemini_models_payload_for_models_json() -> Dict[str, Any]:
+    p = antigravity_gemini_models_payload()
     models = []
     for item in p["models"]:
         it = dict(item)
@@ -712,7 +901,7 @@ def restart_openclaw_gateway(home: Path) -> None:
         warn("OpenClaw gateway may not have started — check ~/logs/openclaw.log")
 
 
-def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], quotio_profile: str = "") -> None:
+def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], profile: str = "") -> None:
     info(f"Switching OpenClaw → {provider}")
 
     backup(cfg.oc_config)
@@ -738,9 +927,9 @@ def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], quotio_pro
         duck_provider_models["baseUrl"] = DUCK_BASE_URL_V1
         duck_provider_models["apiKey"] = duck_key
 
-    else:
+    elif provider == "quotio":
         q_key = ensure_key("QUOTIO_API_KEY", keys["quotio"], "required for OpenClaw quotio")
-        target_primary, reason = resolve_openclaw_quotio_profile(quotio_profile)
+        target_primary, reason = resolve_openclaw_quotio_profile(profile)
         oc_agents["primary"] = target_primary
         if reason:
             info(reason)
@@ -762,6 +951,31 @@ def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], quotio_pro
         qgm = quotio_gemini_models_payload_for_models_json()
         qgm["apiKey"] = q_key
         model_providers["quotio-gemini"] = qgm
+
+
+    elif provider == "antigravity":
+        a_key = ensure_key("ANTIGRAVITY_API_KEY", keys["antigravity"], "required for OpenClaw antigravity")
+        target_primary, reason = resolve_openclaw_antigravity_profile(profile)
+        oc_agents["primary"] = target_primary
+        if reason:
+            info(reason)
+        info("Antigravity OpenClaw models: claude-opus-4-6-thinking, claude-sonnet-4-6, gemini-3.1-pro-high, ...")
+
+        ao = antigravity_openai_models_payload()
+        ao["apiKey"] = a_key
+        oc_providers["antigravity"] = ao
+
+        ag = antigravity_gemini_models_payload()
+        ag["apiKey"] = a_key
+        oc_providers["antigravity-gemini"] = ag
+
+        aom = antigravity_openai_models_payload_for_models_json()
+        aom["apiKey"] = a_key
+        model_providers["antigravity"] = aom
+
+        agm = antigravity_gemini_models_payload_for_models_json()
+        agm["apiKey"] = a_key
+        model_providers["antigravity-gemini"] = agm
 
     save_json(cfg.oc_config, oc)
     save_json(cfg.oc_models, models_json)
@@ -786,7 +1000,7 @@ def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], quotio_pro
         }
         last_good["duckcoding"] = "duckcoding:manual"
         info("Updated OpenClaw auth store for duckcoding")
-    else:
+    elif provider == "quotio":
         q_key = ensure_key("QUOTIO_API_KEY", keys["quotio"], "required for OpenClaw quotio")
 
         auth["quotio"] = {"type": "api_key", "key": q_key}
@@ -812,6 +1026,33 @@ def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], quotio_pro
 
         info("Updated OpenClaw auth store for quotio (quotio + quotio-gemini)")
 
+
+    elif provider == "antigravity":
+        a_key = ensure_key("ANTIGRAVITY_API_KEY", keys["antigravity"], "required for OpenClaw antigravity")
+
+        auth["antigravity"] = {"type": "api_key", "key": a_key}
+        auth["antigravity-gemini"] = {"type": "api_key", "key": a_key}
+
+        profiles["antigravity:manual"] = {
+            "type": "token",
+            "provider": "antigravity",
+            "token": a_key,
+        }
+        profiles["antigravity-gemini:manual"] = {
+            "type": "token",
+            "provider": "antigravity-gemini",
+            "token": a_key,
+        }
+
+        last_good["antigravity"] = "antigravity:manual"
+        last_good["antigravity-gemini"] = "antigravity-gemini:manual"
+
+        primary_provider = str(oc_agents.get("primary", "antigravity") or "antigravity").split("/", 1)[0]
+        if primary_provider in ("antigravity", "antigravity-gemini"):
+            last_good[primary_provider] = f"{primary_provider}:manual"
+
+        info("Updated OpenClaw auth store for antigravity")
+
     save_json(cfg.oc_auth, auth)
     save_json(cfg.oc_auth_profiles, auth_profiles)
 
@@ -822,7 +1063,8 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str]) -> None:
     backup(cfg.cx_config)
 
     text = read_text(cfg.cx_config)
-    model_provider = "duckcoding" if provider == "duck" else "quotio"
+    provider_map = {"duck": "duckcoding", "quotio": "quotio", "antigravity": "antigravity"}
+    model_provider = provider_map[provider]
 
     if re.search(r"^\s*model_provider\s*=\s*\"[^\"]+\"\s*$", text, flags=re.M):
         text = re.sub(
@@ -883,6 +1125,53 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str]) -> None:
             text += block
             info("Added quotio provider to codex config")
 
+    if provider == "antigravity":
+        # same model safety mapping as quotio
+        model_match2 = re.search(r'^\s*model\s*=\s*"([^"]+)"\s*$', text, flags=re.M)
+        current_model2 = model_match2.group(1).strip() if model_match2 else ""
+        target_model2 = ""
+
+        codex_fallbacks2 = {
+            "claude-haiku-4-5": "claude-sonnet-4-6",
+            "claude-haiku-4-5-20251001": "claude-sonnet-4-6",
+            "claude-opus-4-5": "claude-opus-4-6-thinking",
+            "claude-opus-4-5-20251101-thinking": "claude-opus-4-6-thinking",
+        }
+
+        if current_model2 in codex_fallbacks2:
+            target_model2 = codex_fallbacks2[current_model2]
+        else:
+            lm2 = current_model2.lower()
+            if "haiku-4-5" in lm2:
+                target_model2 = "claude-sonnet-4-6"
+            elif "opus-4-5" in lm2:
+                target_model2 = "claude-opus-4-6-thinking"
+
+        if target_model2:
+            if model_match2:
+                text = re.sub(
+                    r'^\s*model\s*=\s*"[^"]+"\s*$',
+                    f'model = "{target_model2}"',
+                    text,
+                    count=1,
+                    flags=re.M,
+                )
+            else:
+                text = f'model = "{target_model2}"\n' + text
+            warn(f"Codex model {current_model2} mapped to {target_model2} for antigravity")
+
+        if not re.search(r"^\[model_providers\.antigravity\]\s*$", text, flags=re.M):
+            block = (
+                "\n\n# Antigravity-tools\n"
+                "[model_providers.antigravity]\n"
+                'name = "antigravity"\n'
+                f'base_url = "{ANTIGRAVITY_BASE_URL_V1}"\n'
+                'wire_api = "responses"\n'
+                'env_key = "ANTIGRAVITY_API_KEY"\n'
+            )
+            text += block
+            info("Added antigravity provider to codex config")
+
     write_text(cfg.cx_config, text)
     ok(f"Codex → {provider}")
 
@@ -932,7 +1221,7 @@ def switch_droid(provider: str, cfg: Config, keys: Dict[str, str]) -> None:
         os.environ["GEMINI_BASE_URL"] = DUCK_BASE_URL_V1
         os.environ["GEMINI_API_KEY"] = d_key
         os.environ["GEMINI_MODEL"] = DUCK_DROID_MODEL
-    else:
+    elif provider == "quotio":
         q_key = ensure_key("QUOTIO_API_KEY", keys["quotio"], "required for Droid quotio")
         update_bashrc_exports(
             cfg.bashrc,
@@ -946,6 +1235,20 @@ def switch_droid(provider: str, cfg: Config, keys: Dict[str, str]) -> None:
         os.environ["GEMINI_API_KEY"] = q_key
         os.environ["GEMINI_MODEL"] = QUOTIO_DROID_MODEL
 
+    elif provider == "antigravity":
+        a_key = ensure_key("ANTIGRAVITY_API_KEY", keys["antigravity"], "required for Droid antigravity")
+        update_bashrc_exports(
+            cfg.bashrc,
+            {
+                "GEMINI_BASE_URL": ANTIGRAVITY_BASE_URL_V1BETA,
+                "GEMINI_API_KEY": a_key,
+                "GEMINI_MODEL": ANTIGRAVITY_DROID_MODEL,
+            },
+        )
+        os.environ["GEMINI_BASE_URL"] = ANTIGRAVITY_BASE_URL_V1BETA
+        os.environ["GEMINI_API_KEY"] = a_key
+        os.environ["GEMINI_MODEL"] = ANTIGRAVITY_DROID_MODEL
+
     ok(f"Droid → {provider} (run 'source ~/.bashrc' to apply in current shell)")
 
 
@@ -957,6 +1260,7 @@ def usage() -> None:
     print("  switch-api all <provider>")
     print("  switch-api <tool> <provider>")
     print("  switch-api openclaw quotio <profile>")
+    print("  switch-api openclaw antigravity <profile>")
     print("")
     print("Categories:")
     print("  1) status:")
@@ -970,6 +1274,8 @@ def usage() -> None:
     print("       switch-api cc duck")
     print("       switch-api openclaw quotio")
     print("       switch-api openclaw quotio gemini3")
+    print("       switch-api openclaw antigravity")
+    print("       switch-api openclaw antigravity gemini3")
     print("       switch-api codex duck")
     print("       switch-api droid quotio")
     print("")
@@ -1015,12 +1321,16 @@ def parse_args(argv: Iterable[str]) -> Tuple[str, str, str]:
 
     if len(args) == 3:
         tool, provider, profile = args
-        if tool != "openclaw" or provider != "quotio":
-            err("Three-argument mode only supports: switch-api openclaw quotio <profile>")
+        if tool != "openclaw" or provider not in ("quotio", "antigravity"):
+            err("Three-argument mode only supports: switch-api openclaw quotio|antigravity <profile>")
             usage()
             raise SystemExit(1)
-        if profile.lower() not in OPENCLAW_QUOTIO_PROFILE_NAMES:
+        if provider == "quotio" and profile.lower() not in OPENCLAW_QUOTIO_PROFILE_NAMES:
             err(f"Unknown openclaw quotio profile: {profile}")
+            usage()
+            raise SystemExit(1)
+        if provider == "antigravity" and profile.lower() not in OPENCLAW_ANTIGRAVITY_PROFILE_NAMES:
+            err(f"Unknown openclaw antigravity profile: {profile}")
             usage()
             raise SystemExit(1)
         return (tool, provider, profile)
@@ -1050,6 +1360,9 @@ def main() -> int:
 
     if provider == "quotio" and not keys["quotio"]:
         raise SwitchError("QUOTIO_API_KEY is not set! Edit ~/.bashrc and run: source ~/.bashrc")
+
+    if provider == "antigravity" and not keys["antigravity"]:
+        raise SwitchError("ANTIGRAVITY_API_KEY is not set! Edit ~/.bashrc and run: source ~/.bashrc")
 
     if tool == "cc":
         switch_cc(provider, cfg, keys)
