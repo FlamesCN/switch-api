@@ -25,6 +25,7 @@
 ## Provider 说明
 
 - **duck** — DuckCoding 中转 `https://jp.duckcoding.com`，支持 Claude Opus / Gemini 3 / GPT 等
+  - 三个独立 API Key：`duck_anthropic`（Claude）、`duck_gemini`（Gemini）、`duck_codex`（Codex）
 - **quotio** — Quotio 本地隧道 `https://api.ancientechoes.ai`，支持 Claude Opus / Gemini 3 等
   - 依赖本地电脑运行 Quotio (port 8317) + Cloudflare Tunnel
 - **antigravity** — Antigravity-tools `https://tools.ancientechoes.ai`，支持 Claude / Gemini 全系列
@@ -63,12 +64,12 @@
 
 ## 命令行用法
 
-脚本位置：`~/bin/switch-api`（Python 脚本，v1.1.0）
+脚本位置：`~/bin/switch-api`（Python 脚本，v1.4.0）
 
 ### 语法
 
 ```bash
-switch-api <参数1> [参数2] [参数3]
+switch-api [--force] <参数1> [参数2] [参数3]
 ```
 
 **方式一：双参数（指定工具 + Provider）**
@@ -85,6 +86,7 @@ switch-api <provider>
 
 **方式三：三参数（OpenClaw + Profile）**
 ```bash
+switch-api openclaw duck <profile>
 switch-api openclaw quotio <profile>
 switch-api openclaw antigravity <profile>
 ```
@@ -94,6 +96,9 @@ switch-api openclaw antigravity <profile>
 ```bash
 switch-api status
 ```
+
+**选项：**
+- `--force` — 跳过 pre-flight 连接检查（隧道检测）
 
 ### 完整命令列表
 
@@ -115,11 +120,13 @@ switch-api cc quotio
 switch-api cc antigravity
 
 # ─── 只切 OpenClaw ─────────────────────────────
-switch-api openclaw duck
+switch-api openclaw duck                    # 默认 Claude Opus 4.6
+switch-api openclaw duck gemini3            # Duck Gemini 3 ⚠️
+switch-api openclaw duck sonnet             # Duck Sonnet 4.6
 switch-api openclaw quotio                  # 默认 Opus 4.6 Thinking
-switch-api openclaw quotio gemini3          # Quotio Gemini 3
+switch-api openclaw quotio gemini3          # Quotio Gemini 3 ⚠️
 switch-api openclaw antigravity             # 默认 Opus 4.6 Thinking
-switch-api openclaw antigravity gemini3     # Antigravity Gemini 3
+switch-api openclaw antigravity gemini3     # Antigravity Gemini 3 ⚠️
 
 # ─── 只切 Codex ────────────────────────────────
 switch-api codex duck
@@ -149,6 +156,8 @@ switch-api droid antigravity
 ```
 /switch cc duck
 /switch cc antigravity
+/switch openclaw duck
+/switch openclaw duck gemini3
 /switch openclaw antigravity
 /switch openclaw antigravity gemini3
 /switch openclaw quotio gemini3
@@ -165,6 +174,46 @@ switch-api droid antigravity
 
 ---
 
+## Pre-flight 连接检查 & 自动回滚
+
+### Pre-flight（切换前）
+- 对目标 provider 的 `/v1/models` 发 HTTP 请求（8 秒超时）
+- 检测 Cloudflare 隧道错误（error code 1010/1033 等），即使 HTTP 状态码看似正常（403/200）
+- 不可达 → 拒绝切换，所有配置文件保持不变
+- `--force` 可跳过此检查
+
+### Post-restart 回滚（OpenClaw 重启后）
+- 切换前将 4 个配置文件快照保存到内存
+- Gateway 重启后再探测一次（5 秒超时）
+- 如果 provider 在重启期间挂了 → 自动恢复快照、重新启动 gateway
+
+---
+
+## OpenClaw 模型兼容性
+
+OpenClaw 工具 schema 使用 `patternProperties`，Gemini API 不支持此特性（返回 HTTP 400）。
+
+### 默认行为
+- 所有 provider 的 OpenClaw 默认主模型均为 **Claude**（安全）
+- `duck` → `duckcoding-claude/claude-opus-4-6`
+- `quotio` → `quotio/claude-opus-4-6-thinking`
+- `antigravity` → `antigravity/claude-opus-4-6-thinking`
+
+### Gemini profile
+- `gemini3` 等 profile 会切换到 Gemini 模型，并显示兼容性警告
+- 如果遇到 HTTP 400 错误，切回默认（Claude）profile
+
+### OpenClaw provider 结构
+每个 provider 在 OpenClaw 中注册两个 sub-provider：
+
+| Provider | Claude sub-provider | Gemini sub-provider |
+|----------|-------------------|-------------------|
+| duck | `duckcoding-claude` | `duckcoding` |
+| quotio | `quotio` | `quotio-gemini` |
+| antigravity | `antigravity` | `antigravity-gemini` |
+
+---
+
 ## 模型映射策略
 
 ### Claude Code 映射（Quotio / Antigravity 通用）
@@ -173,13 +222,6 @@ switch-api droid antigravity
   - `claude-opus-4-5*` → `claude-opus-4-6-thinking`
   - `claude-haiku-4-5*` → `claude-sonnet-4-6`
 - 若当前模型不在白名单 → `claude-opus-4-6-thinking`
-
-### OpenClaw 映射
-- 默认主模型：`<provider>/claude-opus-4-6-thinking`
-- 支持 profile 切换（`gemini3` → `<provider>-gemini/gemini-3.1-pro-high`）
-- 同时注册两个 sub-provider：
-  - `<provider>`（Claude 4.6 系列，OpenAI 协议）
-  - `<provider>-gemini`（Gemini 3/3.1 系列，Google Generative AI 协议）
 
 ### Codex 映射
 - 检测到 `claude-haiku-4-5*` / `claude-opus-4-5*` 会自动映射到 4.6 系列
@@ -209,6 +251,7 @@ switch-api droid antigravity
 
 ## 安全检查
 
+- 切换前 pre-flight 探测目标 provider 连接性
 - 切换到 `quotio` 时检查 `QUOTIO_API_KEY`
 - 切换到 `antigravity` 时检查 `ANTIGRAVITY_API_KEY`
 - 密钥快照保存到 `~/.config/switch-api/credentials.json`（权限 600）
@@ -219,7 +262,7 @@ switch-api droid antigravity
 ## 文件清单
 
 ```
-~/bin/switch-api                              主切换脚本 (v1.1.0)
+~/bin/switch-api                              主切换脚本 (v1.4.0)
 ~/.bashrc                                     环境变量 (API Keys) + 快捷别名
 ~/.claude/settings.json                       Claude Code 配置
 ~/.openclaw/openclaw.json                     OpenClaw 主配置
