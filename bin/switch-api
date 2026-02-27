@@ -1,0 +1,754 @@
+#!/usr/bin/env python3
+"""
+switch-api — Unified API provider switcher (DuckCoding ↔ Quotio)
+
+Supported targets:
+- all (full switch)
+- cc
+- openclaw
+- codex
+- droid
+
+Command categories:
+1) Status:
+   switch-api status
+2) Full switch:
+   switch-api duck
+   switch-api quotio
+   switch-api all duck
+   switch-api all quotio
+3) Single tool switch:
+   switch-api cc duck
+   switch-api openclaw quotio
+   switch-api codex duck
+   switch-api droid quotio
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, Iterable, Tuple
+
+# ----------------------------- constants -----------------------------
+DUCK_BASE_URL = "https://jp.duckcoding.com"
+DUCK_BASE_URL_V1 = "https://jp.duckcoding.com/v1"
+QUOTIO_BASE_URL = "https://api.ancientechoes.ai"
+QUOTIO_BASE_URL_V1 = "https://api.ancientechoes.ai/v1"
+QUOTIO_BASE_URL_V1BETA = "https://api.ancientechoes.ai/v1beta"
+
+TOOLS = ("cc", "openclaw", "codex", "droid")
+TOOLS_WITH_ALL = ("cc", "openclaw", "codex", "droid", "all")
+PROVIDERS = ("duck", "quotio")
+APP_VERSION = "1.0.0"
+
+RED = "\033[0;31m"
+GREEN = "\033[0;32m"
+YELLOW = "\033[1;33m"
+BLUE = "\033[0;34m"
+CYAN = "\033[0;36m"
+NC = "\033[0m"
+
+
+class SwitchError(RuntimeError):
+    pass
+
+
+def info(msg: str) -> None:
+    print(f"{BLUE}[INFO]{NC} {msg}")
+
+
+def ok(msg: str) -> None:
+    print(f"{GREEN}[OK]{NC} {msg}")
+
+
+def warn(msg: str) -> None:
+    print(f"{YELLOW}[WARN]{NC} {msg}")
+
+
+def err(msg: str) -> None:
+    print(f"{RED}[ERROR]{NC} {msg}", file=sys.stderr)
+
+
+def resolve_home() -> Path:
+    home = os.environ.get("HOME", "")
+    if home and Path(home).is_dir():
+        return Path(home)
+
+    user = ""
+    try:
+        user = subprocess.run(
+            ["id", "-un"], capture_output=True, text=True, check=False
+        ).stdout.strip()
+    except Exception:
+        user = ""
+
+    if user:
+        try:
+            passwd = subprocess.run(
+                ["getent", "passwd", user], capture_output=True, text=True, check=False
+            ).stdout.strip()
+            if passwd:
+                fields = passwd.split(":")
+                if len(fields) >= 6 and fields[5] and Path(fields[5]).is_dir():
+                    os.environ["HOME"] = fields[5]
+                    return Path(fields[5])
+        except Exception:
+            pass
+
+        candidate = Path(f"/home/{user}")
+        if candidate.is_dir():
+            os.environ["HOME"] = str(candidate)
+            return candidate
+
+    raise SwitchError("Cannot resolve HOME directory")
+
+
+def load_exports_from_bashrc(home: Path) -> None:
+    """
+    Load simple `export KEY=value` lines from ~/.bashrc without sourcing shell logic.
+    We only load specific variables used by this switch tool.
+    """
+    bashrc = home / ".bashrc"
+    if not bashrc.exists():
+        return
+
+    target_vars = {
+        "ANTHROPIC_API_KEY",
+        "DUCK_ANTHROPIC_API_KEY",
+        "GEMINI_API_KEY",
+        "DUCK_GEMINI_API_KEY",
+        "DUCKCODING_API_KEY",
+        "QUOTIO_API_KEY",
+        "GEMINI_BASE_URL",
+    }
+
+    pattern = re.compile(r"^\s*export\s+([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
+
+    for raw_line in bashrc.read_text(encoding="utf-8", errors="ignore").splitlines():
+        m = pattern.match(raw_line)
+        if not m:
+            continue
+
+        key, value = m.group(1), m.group(2).strip()
+        if key not in target_vars:
+            continue
+
+        # Avoid evaluating shell expressions; keep only plain literal assignments
+        if any(tok in value for tok in ("$(", "`", "&&", "||", ";")):
+            continue
+
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+        else:
+            # remove inline comments for unquoted values
+            value = value.split(" #", 1)[0].strip()
+
+        os.environ[key] = value
+
+
+def timestamp() -> str:
+    return datetime.now().strftime("%Y%m%d-%H%M%S")
+
+
+def backup(path: Path) -> None:
+    if path.exists():
+        dst = path.with_name(f"{path.name}.bak.switch-{timestamp()}")
+        shutil.copy2(path, dst)
+
+
+def load_json(path: Path) -> Dict[str, Any]:
+    if not path.exists():
+        raise SwitchError(f"Config file not found: {path}")
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception as ex:
+        raise SwitchError(f"Failed to parse JSON: {path}: {ex}")
+
+
+def save_json(path: Path, data: Dict[str, Any]) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    os.replace(tmp, path)
+
+
+def read_text(path: Path) -> str:
+    if not path.exists():
+        raise SwitchError(f"Config file not found: {path}")
+    return path.read_text(encoding="utf-8", errors="ignore")
+
+
+def write_text(path: Path, content: str) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(content, encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def ensure_key(name: str, value: str, extra: str = "") -> str:
+    if value:
+        return value
+    hint = f" ({extra})" if extra else ""
+    raise SwitchError(f"{name} is not set{hint}")
+
+
+def load_credential_store(path: Path) -> Dict[str, str]:
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return {str(k): str(v) for k, v in data.items() if isinstance(v, str) and v}
+    except Exception:
+        pass
+    return {}
+
+
+def save_credential_store(path: Path, data: Dict[str, str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        path.parent.chmod(0o700)
+    except Exception:
+        pass
+
+    payload = {k: v for k, v in data.items() if isinstance(v, str) and v}
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    try:
+        tmp.chmod(0o600)
+    except Exception:
+        pass
+    os.replace(tmp, path)
+
+
+def enrich_store_from_env(store: Dict[str, str]) -> Dict[str, str]:
+    merged = dict(store)
+
+    # explicit env vars always take precedence for persistence
+    explicit = {
+        "duck_anthropic": os.environ.get("DUCK_ANTHROPIC_API_KEY", ""),
+        "duck_gemini": os.environ.get("DUCK_GEMINI_API_KEY", ""),
+        "duck_codex": os.environ.get("DUCKCODING_API_KEY", ""),
+        "quotio": os.environ.get("QUOTIO_API_KEY", ""),
+    }
+    for k, v in explicit.items():
+        if v:
+            merged[k] = v
+
+    # conservative inference only when target slot is still empty
+    if not merged.get("duck_anthropic") and os.environ.get("ANTHROPIC_API_KEY"):
+        merged["duck_anthropic"] = os.environ["ANTHROPIC_API_KEY"]
+
+    if not merged.get("duck_gemini"):
+        base = os.environ.get("GEMINI_BASE_URL", "")
+        gkey = os.environ.get("GEMINI_API_KEY", "")
+        if gkey and "duckcoding" in base:
+            merged["duck_gemini"] = gkey
+
+    if not merged.get("quotio"):
+        base = os.environ.get("GEMINI_BASE_URL", "")
+        gkey = os.environ.get("GEMINI_API_KEY", "")
+        if gkey and "ancientechoes" in base:
+            merged["quotio"] = gkey
+
+    return merged
+
+
+def get_keys(store: Dict[str, str]) -> Dict[str, str]:
+    return {
+        "duck_anthropic": os.environ.get("DUCK_ANTHROPIC_API_KEY")
+        or store.get("duck_anthropic", "")
+        or os.environ.get("ANTHROPIC_API_KEY", ""),
+        "duck_gemini": os.environ.get("DUCK_GEMINI_API_KEY")
+        or store.get("duck_gemini", "")
+        or os.environ.get("GEMINI_API_KEY", ""),
+        "duck_codex": os.environ.get("DUCKCODING_API_KEY")
+        or store.get("duck_codex", ""),
+        "quotio": os.environ.get("QUOTIO_API_KEY")
+        or store.get("quotio", ""),
+    }
+
+
+class Config:
+    def __init__(self, home: Path):
+        self.home = home
+        self.cc_settings = home / ".claude/settings.json"
+        self.oc_config = home / ".openclaw/openclaw.json"
+        self.oc_models = home / ".openclaw/agents/main/agent/models.json"
+        self.oc_auth = home / ".openclaw/agents/main/agent/auth.json"
+        self.oc_auth_profiles = home / ".openclaw/agents/main/agent/auth-profiles.json"
+        self.cx_config = home / ".codex/config.toml"
+        self.bashrc = home / ".bashrc"
+        self.switch_dir = home / ".config/switch-api"
+        self.cred_file = self.switch_dir / "credentials.json"
+
+
+# ----------------------------- status -----------------------------
+def detect_provider(tool: str, cfg: Config) -> str:
+    if tool == "cc":
+        if not cfg.cc_settings.exists():
+            return "no-config"
+        data = load_json(cfg.cc_settings)
+        url = ((data.get("env") or {}).get("ANTHROPIC_BASE_URL") or "").strip()
+        if "ancientechoes" in url:
+            return "quotio"
+        if "duckcoding" in url:
+            return "duck"
+        return f"unknown({url})" if url else "unknown"
+
+    if tool == "openclaw":
+        if not cfg.oc_config.exists():
+            return "no-config"
+        data = load_json(cfg.oc_config)
+        model = (
+            (((data.get("agents") or {}).get("defaults") or {}).get("model") or {}).get(
+                "primary"
+            )
+            or ""
+        )
+        if model.startswith("quotio/") or model.startswith("quotio-gemini/"):
+            return "quotio"
+        if model.startswith("duckcoding/"):
+            return "duck"
+        return f"unknown({model})" if model else "unknown"
+
+    if tool == "codex":
+        if not cfg.cx_config.exists():
+            return "no-config"
+        text = read_text(cfg.cx_config)
+        m = re.search(r'^\s*model_provider\s*=\s*"([^"]+)"\s*$', text, re.M)
+        provider = m.group(1) if m else "unknown"
+        if provider == "quotio":
+            return "quotio"
+        if provider == "duckcoding":
+            return "duck"
+        return provider
+
+    if tool == "droid":
+        base = os.environ.get("GEMINI_BASE_URL", "")
+        if "ancientechoes" in base:
+            return "quotio"
+        if "duckcoding" in base:
+            return "duck"
+        return "unknown"
+
+    return "unknown"
+
+
+def show_status(cfg: Config) -> None:
+    print(f"{CYAN}═══ API Provider Status ═══{NC}")
+    for tool in TOOLS:
+        p = detect_provider(tool, cfg)
+        icon = "❓"
+        if p == "duck":
+            icon = "🦆"
+        elif p == "quotio":
+            icon = "🔗"
+        print(f"  {tool:<10} {icon}  {p}")
+    print(f"{CYAN}═══════════════════════════{NC}")
+    print("  🦆 = DuckCoding (jp.duckcoding.com)")
+    print("  🔗 = Quotio Tunnel (api.ancientechoes.ai)")
+
+
+# ----------------------------- switchers -----------------------------
+def switch_cc(provider: str, cfg: Config, keys: Dict[str, str]) -> None:
+    info(f"Switching Claude Code → {provider}")
+    backup(cfg.cc_settings)
+
+    data = load_json(cfg.cc_settings)
+    env = data.setdefault("env", {})
+
+    if provider == "duck":
+        env["ANTHROPIC_BASE_URL"] = DUCK_BASE_URL
+        env["ANTHROPIC_AUTH_TOKEN"] = ensure_key(
+            "DUCK_ANTHROPIC_API_KEY/ANTHROPIC_API_KEY", keys["duck_anthropic"]
+        )
+    else:
+        env["ANTHROPIC_BASE_URL"] = QUOTIO_BASE_URL
+        env["ANTHROPIC_AUTH_TOKEN"] = ensure_key("QUOTIO_API_KEY", keys["quotio"])
+
+    save_json(cfg.cc_settings, data)
+    ok(f"Claude Code → {provider}")
+
+
+def quotio_models_payload() -> Dict[str, Any]:
+    return {
+        "baseUrl": QUOTIO_BASE_URL_V1BETA,
+        "api": "google-generative-ai",
+        "apiKey": "",
+        "models": [
+            {
+                "id": "gemini-3.1-pro-high",
+                "name": "Gemini 3.1 Pro High (Quotio)",
+                "reasoning": True,
+                "input": ["text"],
+                "contextWindow": 1048576,
+                "maxTokens": 65536,
+            },
+            {
+                "id": "gemini-3-flash",
+                "name": "Gemini 3 Flash (Quotio)",
+                "reasoning": True,
+                "input": ["text"],
+                "contextWindow": 1048576,
+                "maxTokens": 65536,
+            },
+        ],
+    }
+
+
+def quotio_models_payload_for_models_json() -> Dict[str, Any]:
+    p = quotio_models_payload()
+    models = []
+    for item in p["models"]:
+        it = dict(item)
+        it["cost"] = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}
+        it["api"] = "google-generative-ai"
+        models.append(it)
+    p["models"] = models
+    return p
+
+
+def restart_openclaw_gateway(home: Path) -> None:
+    info("Restarting OpenClaw gateway...")
+
+    subprocess.run(
+        ["pkill", "-f", "openclaw-gateway"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    )
+    subprocess.run(
+        ["pkill", "-f", "npm exec openclaw gateway"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    )
+    time.sleep(2)
+
+    logs_dir = home / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    log_file = logs_dir / "openclaw.log"
+
+    with log_file.open("ab") as lf:
+        subprocess.Popen(
+            ["bash", "-lc", "cd /opt/openclaw && npx openclaw gateway --port 18789 run"],
+            stdout=lf,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+
+    # Wait up to 20s for gateway bootstrap (npx + node cold start can be slow)
+    pid = ""
+    for _ in range(20):
+        p = subprocess.run(
+            ["pgrep", "-f", "openclaw-gateway"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if p.returncode == 0 and p.stdout.strip():
+            pid = p.stdout.strip().splitlines()[0]
+            break
+        time.sleep(1)
+
+    if pid:
+        ok(f"OpenClaw gateway restarted (PID {pid})")
+    else:
+        warn("OpenClaw gateway may not have started — check ~/logs/openclaw.log")
+
+
+def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str]) -> None:
+    info(f"Switching OpenClaw → {provider}")
+
+    backup(cfg.oc_config)
+    backup(cfg.oc_models)
+
+    oc = load_json(cfg.oc_config)
+    models_json = load_json(cfg.oc_models)
+
+    oc_providers = (oc.setdefault("models", {})).setdefault("providers", {})
+    oc_agents = (oc.setdefault("agents", {})).setdefault("defaults", {}).setdefault("model", {})
+    model_providers = models_json.setdefault("providers", {})
+
+    if provider == "duck":
+        duck_key = ensure_key(
+            "DUCK_GEMINI_API_KEY/GEMINI_API_KEY", keys["duck_gemini"], "required for OpenClaw duck"
+        )
+        oc_agents["primary"] = "duckcoding/gemini-3.1-pro-preview"
+        duck_provider = oc_providers.setdefault("duckcoding", {})
+        duck_provider["baseUrl"] = DUCK_BASE_URL_V1
+        duck_provider["apiKey"] = duck_key
+
+        duck_provider_models = model_providers.setdefault("duckcoding", {})
+        duck_provider_models["baseUrl"] = DUCK_BASE_URL_V1
+        duck_provider_models["apiKey"] = duck_key
+
+    else:
+        q_key = ensure_key("QUOTIO_API_KEY", keys["quotio"], "required for OpenClaw quotio")
+        oc_agents["primary"] = "quotio-gemini/gemini-3.1-pro-high"
+        oc_providers.pop("quotio", None)
+        qp = quotio_models_payload()
+        qp["apiKey"] = q_key
+        oc_providers["quotio-gemini"] = qp
+
+        model_providers.pop("quotio", None)
+        qpm = quotio_models_payload_for_models_json()
+        qpm["apiKey"] = q_key
+        model_providers["quotio-gemini"] = qpm
+
+    save_json(cfg.oc_config, oc)
+    save_json(cfg.oc_models, models_json)
+
+    backup(cfg.oc_auth)
+    backup(cfg.oc_auth_profiles)
+    auth = load_json(cfg.oc_auth)
+    auth_profiles = load_json(cfg.oc_auth_profiles)
+
+    profiles = auth_profiles.setdefault("profiles", {})
+    last_good = auth_profiles.setdefault("lastGood", {})
+
+    if provider == "duck":
+        duck_key = ensure_key(
+            "DUCK_GEMINI_API_KEY/GEMINI_API_KEY", keys["duck_gemini"], "required for OpenClaw duck"
+        )
+        auth["duckcoding"] = {"type": "api_key", "key": duck_key}
+        profiles["duckcoding:manual"] = {
+            "type": "token",
+            "provider": "duckcoding",
+            "token": duck_key,
+        }
+        last_good["duckcoding"] = "duckcoding:manual"
+        info("Updated OpenClaw auth store for duckcoding")
+    else:
+        q_key = ensure_key("QUOTIO_API_KEY", keys["quotio"], "required for OpenClaw quotio")
+        auth["quotio-gemini"] = {"type": "api_key", "key": q_key}
+        profiles["quotio-gemini:manual"] = {
+            "type": "token",
+            "provider": "quotio-gemini",
+            "token": q_key,
+        }
+        last_good["quotio-gemini"] = "quotio-gemini:manual"
+        info("Updated OpenClaw auth store for quotio")
+
+    save_json(cfg.oc_auth, auth)
+    save_json(cfg.oc_auth_profiles, auth_profiles)
+
+    restart_openclaw_gateway(cfg.home)
+    ok(f"OpenClaw → {provider}")
+
+
+def switch_codex(provider: str, cfg: Config, keys: Dict[str, str]) -> None:
+    info(f"Switching Codex → {provider}")
+    backup(cfg.cx_config)
+
+    text = read_text(cfg.cx_config)
+    model_provider = "duckcoding" if provider == "duck" else "quotio"
+
+    if re.search(r"^\s*model_provider\s*=\s*\"[^\"]+\"\s*$", text, flags=re.M):
+        text = re.sub(
+            r"^\s*model_provider\s*=\s*\"[^\"]+\"\s*$",
+            f'model_provider = "{model_provider}"',
+            text,
+            count=1,
+            flags=re.M,
+        )
+    else:
+        text = f'model_provider = "{model_provider}"\n' + text
+
+    if provider == "quotio" and not re.search(r"^\[model_providers\.quotio\]\s*$", text, flags=re.M):
+        block = (
+            "\n\n# Quotio Tunnel (via Cloudflare)\n"
+            "[model_providers.quotio]\n"
+            'name = "quotio"\n'
+            f'base_url = "{QUOTIO_BASE_URL_V1}"\n'
+            'wire_api = "responses"\n'
+            'env_key = "QUOTIO_API_KEY"\n'
+        )
+        text += block
+        info("Added quotio provider to codex config")
+
+    write_text(cfg.cx_config, text)
+    ok(f"Codex → {provider}")
+
+
+def update_bashrc_exports(bashrc: Path, updates: Dict[str, str]) -> None:
+    if bashrc.exists():
+        lines = bashrc.read_text(encoding="utf-8", errors="ignore").splitlines(keepends=True)
+    else:
+        lines = []
+
+    for var, value in updates.items():
+        pattern = re.compile(rf"^\s*export\s+{re.escape(var)}=")
+        indices = [i for i, line in enumerate(lines) if pattern.match(line)]
+        new_line = f'export {var}="{value}"\n'
+
+        if indices:
+            last = indices[-1]
+            lines[last] = new_line
+            # remove duplicate earlier exports of same key
+            for idx in reversed(indices[:-1]):
+                del lines[idx]
+        else:
+            if lines and not lines[-1].endswith("\n"):
+                lines[-1] += "\n"
+            if lines and lines[-1].strip() != "":
+                lines.append("\n")
+            lines.append(new_line)
+
+    content = "".join(lines)
+    write_text(bashrc, content)
+
+
+def switch_droid(provider: str, cfg: Config, keys: Dict[str, str]) -> None:
+    info(f"Switching Droid → {provider}")
+
+    if provider == "duck":
+        d_key = ensure_key(
+            "DUCK_GEMINI_API_KEY/GEMINI_API_KEY", keys["duck_gemini"], "required for Droid duck"
+        )
+        update_bashrc_exports(
+            cfg.bashrc,
+            {
+                "GEMINI_BASE_URL": DUCK_BASE_URL_V1,
+                "GEMINI_API_KEY": d_key,
+            },
+        )
+        os.environ["GEMINI_BASE_URL"] = DUCK_BASE_URL_V1
+        os.environ["GEMINI_API_KEY"] = d_key
+    else:
+        q_key = ensure_key("QUOTIO_API_KEY", keys["quotio"], "required for Droid quotio")
+        update_bashrc_exports(
+            cfg.bashrc,
+            {
+                "GEMINI_BASE_URL": QUOTIO_BASE_URL_V1,
+                "GEMINI_API_KEY": q_key,
+            },
+        )
+        os.environ["GEMINI_BASE_URL"] = QUOTIO_BASE_URL_V1
+        os.environ["GEMINI_API_KEY"] = q_key
+
+    ok(f"Droid → {provider} (run 'source ~/.bashrc' to apply in current shell)")
+
+
+# ----------------------------- cli -----------------------------
+def usage() -> None:
+    print("Usage:")
+    print("  switch-api status")
+    print("  switch-api <provider>")
+    print("  switch-api all <provider>")
+    print("  switch-api <tool> <provider>")
+    print("")
+    print("Categories:")
+    print("  1) status:")
+    print("       switch-api status")
+    print("  2) full switch:")
+    print("       switch-api duck")
+    print("       switch-api quotio")
+    print("       switch-api all duck")
+    print("       switch-api all quotio")
+    print("  3) single tool switch:")
+    print("       switch-api cc duck")
+    print("       switch-api openclaw quotio")
+    print("       switch-api codex duck")
+    print("       switch-api droid quotio")
+    print("")
+    print(f"  tool:     {' | '.join(TOOLS_WITH_ALL)}")
+    print(f"  provider: {' | '.join(PROVIDERS)}")
+
+
+def parse_args(argv: Iterable[str]) -> Tuple[str, str]:
+    args = list(argv)
+
+    if not args:
+        usage()
+        raise SystemExit(1)
+
+    if len(args) == 1:
+        a0 = args[0]
+        if a0 in ("-h", "--help", "help"):
+            usage()
+            raise SystemExit(0)
+        if a0 in ("-v", "--version", "version"):
+            print(APP_VERSION)
+            raise SystemExit(0)
+        if a0 == "status":
+            return ("status", "")
+        if a0 in PROVIDERS:
+            return ("all", a0)
+
+        err(f"Unknown command: {a0}")
+        usage()
+        raise SystemExit(1)
+
+    if len(args) == 2:
+        tool, provider = args
+        if tool not in TOOLS_WITH_ALL:
+            err(f"Unknown tool: {tool}")
+            usage()
+            raise SystemExit(1)
+        if provider not in PROVIDERS:
+            err(f"Unknown provider: {provider} (use 'duck' or 'quotio')")
+            usage()
+            raise SystemExit(1)
+        return (tool, provider)
+
+    err("Too many arguments")
+    usage()
+    raise SystemExit(1)
+
+
+def main() -> int:
+    home = resolve_home()
+    os.environ["HOME"] = str(home)
+    load_exports_from_bashrc(home)
+
+    cfg = Config(home)
+    store = load_credential_store(cfg.cred_file)
+    store = enrich_store_from_env(store)
+    save_credential_store(cfg.cred_file, store)
+    keys = get_keys(store)
+
+    tool, provider = parse_args(sys.argv[1:])
+
+    if tool == "status":
+        show_status(cfg)
+        return 0
+
+    if provider == "quotio" and not keys["quotio"]:
+        raise SwitchError("QUOTIO_API_KEY is not set! Edit ~/.bashrc and run: source ~/.bashrc")
+
+    if tool == "cc":
+        switch_cc(provider, cfg, keys)
+    elif tool == "openclaw":
+        switch_openclaw(provider, cfg, keys)
+    elif tool == "codex":
+        switch_codex(provider, cfg, keys)
+    elif tool == "droid":
+        switch_droid(provider, cfg, keys)
+    elif tool == "all":
+        switch_cc(provider, cfg, keys)
+        switch_openclaw(provider, cfg, keys)
+        switch_codex(provider, cfg, keys)
+        switch_droid(provider, cfg, keys)
+    else:
+        raise SwitchError(f"Unsupported tool: {tool}")
+
+    # Unified post-switch feedback (useful for Telegram)
+    print()
+    show_status(cfg)
+
+    # Persist any newly resolved credentials
+    save_credential_store(cfg.cred_file, enrich_store_from_env(store))
+
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except SwitchError as ex:
+        err(str(ex))
+        raise SystemExit(1)
