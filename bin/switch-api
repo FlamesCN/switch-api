@@ -982,8 +982,8 @@ def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], profile: s
 
     backup(cfg.oc_auth)
     backup(cfg.oc_auth_profiles)
-    auth = load_json(cfg.oc_auth)
-    auth_profiles = load_json(cfg.oc_auth_profiles)
+    auth = load_json(cfg.oc_auth) if cfg.oc_auth.exists() else {}
+    auth_profiles = load_json(cfg.oc_auth_profiles) if cfg.oc_auth_profiles.exists() else {}
 
     profiles = auth_profiles.setdefault("profiles", {})
     last_good = auth_profiles.setdefault("lastGood", {})
