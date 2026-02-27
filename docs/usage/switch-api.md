@@ -57,14 +57,14 @@
 - **cc** — Claude Code，配置文件 `~/.claude/settings.json`
 - **openclaw** — OpenClaw Telegram Bot，配置文件 `~/.openclaw/openclaw.json`
 - **codex** — OpenAI Codex，配置文件 `~/.codex/config.toml`
-- **droid** — Gemini CLI (Droid)，通过 `~/.bashrc` 中的环境变量控制
+- **droid** — Factory Droid CLI，默认通过 `~/.bashrc` Gemini 环境变量控制，codex profile 通过 `~/.factory/settings.json` customModels
 - **all** — 以上全部
 
 ---
 
 ## 命令行用法
 
-脚本位置：`~/bin/switch-api`（Python 脚本，v1.4.0）
+脚本位置：`~/bin/switch-api`（Python 脚本，v1.5.0）
 
 ### 语法
 
@@ -84,13 +84,15 @@ switch-api <tool> <provider>
 switch-api <provider>
 ```
 
-**方式三：三参数（OpenClaw + Profile）**
+**方式三：三参数（OpenClaw / Droid + Profile）**
 ```bash
 switch-api openclaw duck <profile>
 switch-api openclaw quotio <profile>
 switch-api openclaw antigravity <profile>
+switch-api droid quotio <profile>
 ```
-- `<profile>` = `default` | `opus` | `sonnet` | `gemini` | `gemini3`
+- OpenClaw `<profile>` = `default` | `opus` | `sonnet` | `gemini` | `gemini3`
+- Droid `<profile>` = `default` | `gemini` | `codex`
 
 **方式四：查看状态**
 ```bash
@@ -134,9 +136,10 @@ switch-api codex quotio
 switch-api codex antigravity
 
 # ─── 只切 Droid ────────────────────────────────
-switch-api droid duck
-switch-api droid quotio
-switch-api droid antigravity
+switch-api droid duck                       # Duck Gemini
+switch-api droid quotio                     # Quotio Gemini (默认)
+switch-api droid quotio codex               # Quotio GPT-5.3 Codex ⭐
+switch-api droid antigravity                # Antigravity Gemini
 ```
 
 ---
@@ -227,9 +230,15 @@ OpenClaw 工具 schema 使用 `patternProperties`，Gemini API 不支持此特�
 - 检测到 `claude-haiku-4-5*` / `claude-opus-4-5*` 会自动映射到 4.6 系列
 
 ### Droid 映射
-- duck → `GEMINI_MODEL=gemini-3.1-pro-preview`
-- quotio → `GEMINI_MODEL=gemini-3.1-pro-high`
-- antigravity → `GEMINI_MODEL=gemini-3.1-pro-high`
+- duck → `GEMINI_MODEL=gemini-3.1-pro-preview`（env vars）
+- quotio → `GEMINI_MODEL=gemini-3.1-pro-high`（env vars，默认）
+- quotio codex → `gpt-5.3-codex`（写入 `~/.factory/settings.json` customModels，OpenAI provider）
+- antigravity → `GEMINI_MODEL=gemini-3.1-pro-high`（env vars）
+
+> **Droid codex profile** 说明：Codex 模型使用 OpenAI 协议，无法通过 GEMINI_* 环境变量配置。
+> 切换到 codex profile 时，脚本写入 `~/.factory/settings.json` 的 `customModels` 字段。
+> 在 Droid 中通过 `/model` 选择 "Quotio gpt-5.3-codex"（Custom Models 分类下）。
+> 切换回其他 profile（如 `switch-api droid quotio`）时自动清除 customModels。
 
 ---
 
@@ -262,7 +271,7 @@ OpenClaw 工具 schema 使用 `patternProperties`，Gemini API 不支持此特�
 ## 文件清单
 
 ```
-~/bin/switch-api                              主切换脚本 (v1.4.0)
+~/bin/switch-api                              主切换脚本 (v1.5.0)
 ~/.bashrc                                     环境变量 (API Keys) + 快捷别名
 ~/.claude/settings.json                       Claude Code 配置
 ~/.openclaw/openclaw.json                     OpenClaw 主配置
@@ -271,6 +280,7 @@ OpenClaw 工具 schema 使用 `patternProperties`，Gemini API 不支持此特�
 ~/.openclaw/agents/main/agent/auth-profiles.json  OpenClaw 认证 Profile
 ~/.openclaw/workspace/TOOLS.md                OpenClaw /switch 指令说明
 ~/.codex/config.toml                          Codex 配置
+~/.factory/settings.json                      Droid customModels（codex profile）
 ~/.config/switch-api/credentials.json         Provider 密钥快照
 ~/.config/switch-api/provider-models.json     Provider 模型目录
 ~/logs/openclaw.log                           OpenClaw 启动日志

@@ -22,6 +22,7 @@ Command categories:
    switch-api openclaw quotio
    switch-api codex duck
    switch-api droid quotio
+   switch-api droid quotio codex
 """
 
 from __future__ import annotations
@@ -145,6 +146,15 @@ OPENCLAW_ANTIGRAVITY_PROFILE_NAMES = tuple(OPENCLAW_ANTIGRAVITY_PROFILE_TO_PRIMA
 ANTIGRAVITY_DROID_MODEL = "gemini-3.1-pro-high"
 
 QUOTIO_DROID_MODEL = "gemini-3.1-pro-high"
+QUOTIO_DROID_CODEX_MODEL = "gpt-5.3-codex"
+
+# Droid profiles: default uses Gemini env vars; codex uses ~/.factory/settings.json customModels
+DROID_QUOTIO_PROFILE_TO_MODEL = {
+    "default": ("gemini", QUOTIO_DROID_MODEL),
+    "gemini": ("gemini", QUOTIO_DROID_MODEL),
+    "codex": ("codex", QUOTIO_DROID_CODEX_MODEL),
+}
+DROID_QUOTIO_PROFILE_NAMES = tuple(DROID_QUOTIO_PROFILE_TO_MODEL.keys())
 
 TOOLS = ("cc", "openclaw", "codex", "droid")
 TOOLS_WITH_ALL = ("cc", "openclaw", "codex", "droid", "all")
@@ -155,7 +165,7 @@ PROVIDERS = ("duck", "quotio", "antigravity")
 OPENCLAW_CLAUDE_PROVIDERS = ("duck", "quotio", "antigravity")
 OPENCLAW_GEMINI_PROFILES = frozenset(("gemini", "gemini3", "gemini-3", "gemini3-pro-high"))
 
-APP_VERSION = "1.4.0"
+APP_VERSION = "1.5.0"
 
 RED = "\033[0;31m"
 GREEN = "\033[0;32m"
@@ -611,6 +621,7 @@ class Config:
         self.oc_auth = home / ".openclaw/agents/main/agent/auth.json"
         self.oc_auth_profiles = home / ".openclaw/agents/main/agent/auth-profiles.json"
         self.cx_config = home / ".codex/config.toml"
+        self.factory_settings = home / ".factory/settings.json"
         self.bashrc = home / ".bashrc"
         self.switch_dir = home / ".config/switch-api"
         self.cred_file = self.switch_dir / "credentials.json"
@@ -1402,10 +1413,38 @@ def update_bashrc_exports(bashrc: Path, updates: Dict[str, str]) -> None:
     write_text(bashrc, content)
 
 
-def switch_droid(provider: str, cfg: Config, keys: Dict[str, str]) -> None:
-    info(f"Switching Droid → {provider}")
+def _write_factory_custom_models(settings_path: Path, models: list) -> None:
+    """Write customModels to ~/.factory/settings.json, preserving other keys."""
+    existing: Dict[str, Any] = {}
+    if settings_path.exists():
+        try:
+            existing = json.loads(settings_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            pass
+    existing["customModels"] = models
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    write_text(settings_path, json.dumps(existing, indent=2) + "\n")
+
+
+def _clear_factory_custom_models(settings_path: Path) -> None:
+    """Remove customModels from ~/.factory/settings.json if present."""
+    if not settings_path.exists():
+        return
+    try:
+        existing = json.loads(settings_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return
+    if "customModels" in existing:
+        del existing["customModels"]
+        write_text(settings_path, json.dumps(existing, indent=2) + "\n")
+
+
+def switch_droid(provider: str, cfg: Config, keys: Dict[str, str], profile: str = "") -> None:
+    p = profile.lower() if profile else "default"
+    info(f"Switching Droid → {provider}" + (f" (profile: {p})" if p != "default" else ""))
 
     if provider == "duck":
+        _clear_factory_custom_models(cfg.factory_settings)
         d_key = ensure_key(
             "DUCK_GEMINI_API_KEY/GEMINI_API_KEY", keys["duck_gemini"], "required for Droid duck"
         )
@@ -1420,21 +1459,45 @@ def switch_droid(provider: str, cfg: Config, keys: Dict[str, str]) -> None:
         os.environ["GEMINI_BASE_URL"] = DUCK_BASE_URL_V1
         os.environ["GEMINI_API_KEY"] = d_key
         os.environ["GEMINI_MODEL"] = DUCK_DROID_MODEL
+        ok(f"Droid → duck / {DUCK_DROID_MODEL} (run 'source ~/.bashrc' to apply)")
+
     elif provider == "quotio":
         q_key = ensure_key("QUOTIO_API_KEY", keys["quotio"], "required for Droid quotio")
-        update_bashrc_exports(
-            cfg.bashrc,
-            {
-                "GEMINI_BASE_URL": QUOTIO_BASE_URL_V1,
-                "GEMINI_API_KEY": q_key,
-                "GEMINI_MODEL": QUOTIO_DROID_MODEL,
-            },
-        )
-        os.environ["GEMINI_BASE_URL"] = QUOTIO_BASE_URL_V1
-        os.environ["GEMINI_API_KEY"] = q_key
-        os.environ["GEMINI_MODEL"] = QUOTIO_DROID_MODEL
+        mode, model = DROID_QUOTIO_PROFILE_TO_MODEL.get(p, ("gemini", QUOTIO_DROID_MODEL))
+
+        if mode == "codex":
+            # Codex uses OpenAI API → write to ~/.factory/settings.json customModels
+            _write_factory_custom_models(cfg.factory_settings, [
+                {
+                    "model": model,
+                    "displayName": f"Quotio {model}",
+                    "baseUrl": QUOTIO_BASE_URL_V1,
+                    "apiKey": q_key,
+                    "provider": "openai",
+                }
+            ])
+            ok(f"Droid → quotio codex / {model}")
+            info(f"  Written to {cfg.factory_settings}")
+            info(f"  In Droid: /model → select \"Quotio {model}\" under Custom Models")
+            info(f"  Or: droid exec --model \"custom:Quotio-{model}-0\" \"prompt\"")
+        else:
+            # Gemini mode → env vars (existing behavior)
+            _clear_factory_custom_models(cfg.factory_settings)
+            update_bashrc_exports(
+                cfg.bashrc,
+                {
+                    "GEMINI_BASE_URL": QUOTIO_BASE_URL_V1,
+                    "GEMINI_API_KEY": q_key,
+                    "GEMINI_MODEL": model,
+                },
+            )
+            os.environ["GEMINI_BASE_URL"] = QUOTIO_BASE_URL_V1
+            os.environ["GEMINI_API_KEY"] = q_key
+            os.environ["GEMINI_MODEL"] = model
+            ok(f"Droid → quotio / {model} (run 'source ~/.bashrc' to apply)")
 
     elif provider == "antigravity":
+        _clear_factory_custom_models(cfg.factory_settings)
         a_key = ensure_key("ANTIGRAVITY_API_KEY", keys["antigravity"], "required for Droid antigravity")
         update_bashrc_exports(
             cfg.bashrc,
@@ -1447,8 +1510,7 @@ def switch_droid(provider: str, cfg: Config, keys: Dict[str, str]) -> None:
         os.environ["GEMINI_BASE_URL"] = ANTIGRAVITY_BASE_URL_V1BETA
         os.environ["GEMINI_API_KEY"] = a_key
         os.environ["GEMINI_MODEL"] = ANTIGRAVITY_DROID_MODEL
-
-    ok(f"Droid → {provider} (run 'source ~/.bashrc' to apply in current shell)")
+        ok(f"Droid → antigravity / {ANTIGRAVITY_DROID_MODEL} (run 'source ~/.bashrc' to apply)")
 
 
 # ----------------------------- cli -----------------------------
@@ -1477,6 +1539,7 @@ def usage() -> None:
     print("       switch-api openclaw antigravity gemini3")
     print("       switch-api codex duck")
     print("       switch-api droid quotio")
+    print("       switch-api droid quotio codex")
     print("")
     print(f"  tool:     {' | '.join(TOOLS_WITH_ALL)}")
     print(f"  provider: {' | '.join(PROVIDERS)}")
@@ -1520,23 +1583,30 @@ def parse_args(argv: Iterable[str]) -> Tuple[str, str, str]:
 
     if len(args) == 3:
         tool, provider, profile = args
-        if tool != "openclaw" or provider not in ("duck", "quotio", "antigravity"):
-            err("Three-argument mode only supports: switch-api openclaw duck|quotio|antigravity <profile>")
+        if tool == "openclaw" and provider in ("duck", "quotio", "antigravity"):
+            if provider == "duck" and profile.lower() not in OPENCLAW_DUCK_PROFILE_NAMES:
+                err(f"Unknown openclaw duck profile: {profile}")
+                usage()
+                raise SystemExit(1)
+            if provider == "quotio" and profile.lower() not in OPENCLAW_QUOTIO_PROFILE_NAMES:
+                err(f"Unknown openclaw quotio profile: {profile}")
+                usage()
+                raise SystemExit(1)
+            if provider == "antigravity" and profile.lower() not in OPENCLAW_ANTIGRAVITY_PROFILE_NAMES:
+                err(f"Unknown openclaw antigravity profile: {profile}")
+                usage()
+                raise SystemExit(1)
+            return (tool, provider, profile)
+        elif tool == "droid" and provider == "quotio":
+            if profile.lower() not in DROID_QUOTIO_PROFILE_NAMES:
+                err(f"Unknown droid quotio profile: {profile} (available: {', '.join(DROID_QUOTIO_PROFILE_NAMES)})")
+                usage()
+                raise SystemExit(1)
+            return (tool, provider, profile)
+        else:
+            err("Three-argument mode supports: switch-api openclaw|droid <provider> <profile>")
             usage()
             raise SystemExit(1)
-        if provider == "duck" and profile.lower() not in OPENCLAW_DUCK_PROFILE_NAMES:
-            err(f"Unknown openclaw duck profile: {profile}")
-            usage()
-            raise SystemExit(1)
-        if provider == "quotio" and profile.lower() not in OPENCLAW_QUOTIO_PROFILE_NAMES:
-            err(f"Unknown openclaw quotio profile: {profile}")
-            usage()
-            raise SystemExit(1)
-        if provider == "antigravity" and profile.lower() not in OPENCLAW_ANTIGRAVITY_PROFILE_NAMES:
-            err(f"Unknown openclaw antigravity profile: {profile}")
-            usage()
-            raise SystemExit(1)
-        return (tool, provider, profile)
 
     err("Too many arguments")
     usage()
@@ -1589,12 +1659,12 @@ def main() -> int:
     elif tool == "codex":
         switch_codex(provider, cfg, keys)
     elif tool == "droid":
-        switch_droid(provider, cfg, keys)
+        switch_droid(provider, cfg, keys, profile)
     elif tool == "all":
         switch_cc(provider, cfg, keys)
         switch_openclaw(provider, cfg, keys, "")
         switch_codex(provider, cfg, keys)
-        switch_droid(provider, cfg, keys)
+        switch_droid(provider, cfg, keys, "")
     else:
         raise SwitchError(f"Unsupported tool: {tool}")
 
