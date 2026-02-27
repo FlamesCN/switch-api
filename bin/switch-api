@@ -102,14 +102,13 @@ OPENCLAW_QUOTIO_PROFILE_NAMES = tuple(OPENCLAW_QUOTIO_PROFILE_TO_PRIMARY.keys())
 DUCK_DROID_MODEL = "gemini-3.1-pro-preview"
 
 # Duck OpenClaw profiles: default is Claude (avoids Gemini patternProperties issue)
-DUCK_OPENCLAW_DEFAULT_PRIMARY = "duckcoding-claude/claude-opus-4-6"
+DUCK_OPENCLAW_DEFAULT_PRIMARY = "duckcoding/gemini-3.1-pro-preview"
 OPENCLAW_DUCK_PROFILE_TO_PRIMARY = {
-    "default": "duckcoding-claude/claude-opus-4-6",
-    "opus": "duckcoding-claude/claude-opus-4-6",
-    "sonnet": "duckcoding-claude/claude-sonnet-4-6",
+    "default": "duckcoding/gemini-3.1-pro-preview",
     "gemini": "duckcoding/gemini-3.1-pro-preview",
     "gemini3": "duckcoding/gemini-3.1-pro-preview",
     "gemini-3": "duckcoding/gemini-3.1-pro-preview",
+    "sonnet": "duckcoding-claude/claude-sonnet-4-5-20250929-thinking",
 }
 OPENCLAW_DUCK_PROFILE_NAMES = tuple(OPENCLAW_DUCK_PROFILE_TO_PRIMARY.keys())
 # Antigravity-tools provider
@@ -742,24 +741,24 @@ def duck_claude_models_payload() -> Dict[str, Any]:
         "apiKey": "",
         "models": [
             {
-                "id": "claude-opus-4-6",
-                "name": "Claude Opus 4.6 (Duck)",
+                "id": "claude-sonnet-4-5-20250929-thinking",
+                "name": "Claude Sonnet 4.5 Thinking (Duck)",
                 "reasoning": True,
                 "input": ["text"],
                 "contextWindow": 200000,
                 "maxTokens": 32768,
             },
             {
-                "id": "claude-sonnet-4-6",
-                "name": "Claude Sonnet 4.6 (Duck)",
+                "id": "claude-sonnet-4-5-20250929",
+                "name": "Claude Sonnet 4.5 (Duck)",
                 "reasoning": True,
                 "input": ["text"],
                 "contextWindow": 200000,
                 "maxTokens": 32768,
             },
             {
-                "id": "claude-sonnet-4-6-thinking",
-                "name": "Claude Sonnet 4.6 Thinking (Duck)",
+                "id": "claude-3-7-sonnet-20250219-thinking",
+                "name": "Claude 3.7 Sonnet Thinking (Duck)",
                 "reasoning": True,
                 "input": ["text"],
                 "contextWindow": 200000,
