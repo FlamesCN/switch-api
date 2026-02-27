@@ -138,7 +138,14 @@ QUOTIO_DROID_MODEL = "gemini-3.1-pro-high"
 TOOLS = ("cc", "openclaw", "codex", "droid")
 TOOLS_WITH_ALL = ("cc", "openclaw", "codex", "droid", "all")
 PROVIDERS = ("duck", "quotio", "antigravity")
-APP_VERSION = "1.2.0"
+
+# OpenClaw compatibility: Gemini models don't support patternProperties in tool schema.
+# Only Claude-based primary models work with OpenClaw.
+OPENCLAW_CLAUDE_PROVIDERS = ("quotio", "antigravity")   # have Claude models
+OPENCLAW_CLAUDE_FALLBACK_ORDER = ("antigravity", "quotio")  # preference order for auto-fallback
+OPENCLAW_GEMINI_PROFILES = frozenset(("gemini", "gemini3", "gemini-3", "gemini3-pro-high"))
+
+APP_VERSION = "1.3.0"
 
 RED = "\033[0;31m"
 GREEN = "\033[0;32m"
@@ -979,6 +986,21 @@ def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], profile: s
         if _fp.exists():
             _rollback_snapshot[_fp] = _fp.read_bytes()
 
+    # --- OpenClaw / Gemini compatibility guard ---
+    if provider == "duck":
+        raise SwitchError(
+            f"Cannot switch OpenClaw to 'duck': DuckCoding only has Gemini models, "
+            f"which are incompatible with OpenClaw tool schema (patternProperties).\n"
+            f"  OpenClaw requires a Claude-capable provider: quotio or antigravity.\n"
+            f"  Tip: use 'switch-api all duck' — it will auto-fallback OpenClaw to a Claude provider."
+        )
+    if profile and profile.lower() in OPENCLAW_GEMINI_PROFILES:
+        warn(
+            f"Profile '{profile}' uses a Gemini model as primary. "
+            f"OpenClaw tool schema may be incompatible with Gemini (patternProperties). "
+            f"If you get HTTP 400 errors, switch back to default (Claude) profile."
+        )
+
     backup(cfg.oc_config)
     backup(cfg.oc_models)
 
@@ -1430,6 +1452,17 @@ def parse_args(argv: Iterable[str]) -> Tuple[str, str, str]:
     raise SystemExit(1)
 
 
+def _resolve_openclaw_fallback(target_provider: str, keys: Dict[str, str]) -> str:
+    """Find the best Claude-capable provider for OpenClaw when the target is Gemini-only."""
+    for fb in OPENCLAW_CLAUDE_FALLBACK_ORDER:
+        if fb == target_provider:
+            continue
+        key_name = {"quotio": "quotio", "antigravity": "antigravity"}.get(fb, "")
+        if key_name and keys.get(key_name):
+            return fb
+    return ""
+
+
 def main() -> int:
     home = resolve_home()
     os.environ["HOME"] = str(home)
@@ -1479,7 +1512,22 @@ def main() -> int:
         switch_droid(provider, cfg, keys)
     elif tool == "all":
         switch_cc(provider, cfg, keys)
-        switch_openclaw(provider, cfg, keys, "")
+        # OpenClaw: auto-fallback to Claude provider if target is Gemini-only
+        if provider in OPENCLAW_CLAUDE_PROVIDERS:
+            switch_openclaw(provider, cfg, keys, "")
+        else:
+            oc_fallback = _resolve_openclaw_fallback(provider, keys)
+            if oc_fallback:
+                warn(
+                    f"OpenClaw incompatible with '{provider}' (Gemini only) "
+                    f"→ auto-fallback to '{oc_fallback}' (Claude)"
+                )
+                switch_openclaw(oc_fallback, cfg, keys, "")
+            else:
+                warn(
+                    f"OpenClaw incompatible with '{provider}' (Gemini only) "
+                    f"and no Claude provider available — OpenClaw NOT switched"
+                )
         switch_codex(provider, cfg, keys)
         switch_droid(provider, cfg, keys)
     else:
