@@ -138,7 +138,7 @@ QUOTIO_DROID_MODEL = "gemini-3.1-pro-high"
 TOOLS = ("cc", "openclaw", "codex", "droid")
 TOOLS_WITH_ALL = ("cc", "openclaw", "codex", "droid", "all")
 PROVIDERS = ("duck", "quotio", "antigravity")
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 
 RED = "\033[0;31m"
 GREEN = "\033[0;32m"
@@ -291,6 +291,41 @@ def ensure_key(name: str, value: str, extra: str = "") -> str:
         return value
     hint = f" ({extra})" if extra else ""
     raise SwitchError(f"{name} is not set{hint}")
+
+
+
+def probe_provider(provider: str, keys: Dict[str, str], timeout: int = 8) -> Tuple[bool, str]:
+    """Pre-flight: test if the target provider API endpoint is reachable.
+    Returns (ok, reason). 401/403 counts as reachable (server up, auth issue)."""
+    import urllib.request
+    import urllib.error
+
+    endpoints: Dict[str, Tuple[str, str]] = {
+        "duck": (DUCK_BASE_URL_V1 + "/models", keys.get("duck_gemini", "")),
+        "quotio": (QUOTIO_BASE_URL_V1 + "/models", keys.get("quotio", "")),
+        "antigravity": (ANTIGRAVITY_BASE_URL_V1 + "/models", keys.get("antigravity", "")),
+    }
+    entry = endpoints.get(provider)
+    if not entry:
+        return True, ""
+
+    url, api_key = entry
+    headers: Dict[str, str] = {}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    try:
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return True, ""
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            return True, ""
+        return False, f"HTTP {e.code} from {url}"
+    except urllib.error.URLError as e:
+        return False, f"{e.reason}"
+    except Exception as e:
+        return False, str(e)
 
 
 def load_credential_store(path: Path) -> Dict[str, str]:
@@ -904,6 +939,12 @@ def restart_openclaw_gateway(home: Path) -> None:
 def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], profile: str = "") -> None:
     info(f"Switching OpenClaw → {provider}")
 
+    # --- Snapshot current configs for rollback ---
+    _rollback_snapshot: Dict[Path, bytes] = {}
+    for _fp in [cfg.oc_config, cfg.oc_models, cfg.oc_auth, cfg.oc_auth_profiles]:
+        if _fp.exists():
+            _rollback_snapshot[_fp] = _fp.read_bytes()
+
     backup(cfg.oc_config)
     backup(cfg.oc_models)
 
@@ -1057,7 +1098,22 @@ def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], profile: s
     save_json(cfg.oc_auth_profiles, auth_profiles)
 
     restart_openclaw_gateway(cfg.home)
+
+    # --- Post-restart health probe ---
+    reachable, reason = probe_provider(provider, keys, timeout=5)
+    if not reachable:
+        warn(f"Post-restart probe: {provider} unreachable — {reason}")
+        warn("Rolling back to previous config...")
+        for _fp, _content in _rollback_snapshot.items():
+            _fp.write_bytes(_content)
+        restart_openclaw_gateway(cfg.home)
+        raise SwitchError(
+            f"OpenClaw → {provider} FAILED and rolled back. Provider became unreachable during restart."
+        )
+
     ok(f"OpenClaw → {provider}")
+
+
 def switch_codex(provider: str, cfg: Config, keys: Dict[str, str]) -> None:
     info(f"Switching Codex → {provider}")
     backup(cfg.cx_config)
@@ -1352,7 +1408,9 @@ def main() -> int:
     save_provider_model_catalog(cfg.provider_models_file)
     keys = get_keys(store)
 
-    tool, provider, profile = parse_args(sys.argv[1:])
+    force = "--force" in sys.argv
+    argv_clean = [a for a in sys.argv[1:] if a != "--force"]
+    tool, provider, profile = parse_args(argv_clean)
 
     if tool == "status":
         show_status(cfg)
@@ -1363,6 +1421,19 @@ def main() -> int:
 
     if provider == "antigravity" and not keys["antigravity"]:
         raise SwitchError("ANTIGRAVITY_API_KEY is not set! Edit ~/.bashrc and run: source ~/.bashrc")
+
+    # --- Pre-flight connectivity check (skip with --force) ---
+    if not force:
+        reachable, reason = probe_provider(provider, keys)
+        if not reachable:
+            raise SwitchError(
+                f"Pre-flight FAILED: provider '{provider}' is unreachable — {reason}\n"
+                f"  Switch aborted. All configs preserved.\n"
+                f"  Use --force to skip this check."
+            )
+        info(f"Pre-flight OK ✓ {provider} is reachable")
+    else:
+        warn("Pre-flight check skipped (--force)")
 
     if tool == "cc":
         switch_cc(provider, cfg, keys)
