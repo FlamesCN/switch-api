@@ -44,6 +44,64 @@ QUOTIO_BASE_URL = "https://api.ancientechoes.ai"
 QUOTIO_BASE_URL_V1 = "https://api.ancientechoes.ai/v1"
 QUOTIO_BASE_URL_V1BETA = "https://api.ancientechoes.ai/v1beta"
 
+# Quotio model catalog (recorded for switch-time validation)
+QUOTIO_AVAILABLE_MODELS = (
+    "claude-opus-4-6-thinking",
+    "claude-sonnet-4-6",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-3-flash",
+    "gemini-3-pro-high",
+    "gemini-3.1-flash-image",
+    "gemini-3.1-pro-high",
+    "gemini-3.1-pro-low",
+    "gpt-oss-120b-medium",
+    "tab_flash_lite_preview",
+    "tab_jump_flash_lite_preview",
+)
+
+# Claude Code on Quotio: allowed models + fallback policy
+QUOTIO_CC_ALLOWED_MODELS = (
+    "claude-opus-4-6-thinking",
+    "claude-sonnet-4-6",
+)
+QUOTIO_CC_DEFAULT_MODEL = "claude-opus-4-6-thinking"
+QUOTIO_CC_MODEL_FALLBACKS = {
+    "claude-haiku-4-5": "claude-sonnet-4-6",
+    "claude-haiku-4-5-20251001": "claude-sonnet-4-6",
+    "claude-opus-4-5": "claude-opus-4-6-thinking",
+    "claude-opus-4-5-20251101-thinking": "claude-opus-4-6-thinking",
+}
+
+# OpenClaw on Quotio: prefer Claude Sonnet 4.6, keep Gemini provider available
+QUOTIO_OPENCLAW_ALLOWED_PRIMARY = (
+    "quotio/claude-opus-4-6-thinking",
+    "quotio/claude-sonnet-4-6",
+)
+QUOTIO_OPENCLAW_DEFAULT_PRIMARY = "quotio/claude-opus-4-6-thinking"
+QUOTIO_OPENCLAW_PRIMARY_FALLBACKS = {
+    "quotio/claude-opus-4-5-20251101-thinking": "quotio/claude-opus-4-6-thinking",
+    "quotio/claude-haiku-4-5": "quotio/claude-sonnet-4-6",
+    "quotio-gemini/gemini-3.1-pro-high": "quotio/claude-opus-4-6-thinking",
+    "quotio-gemini/gemini-3.1-pro-low": "quotio/claude-opus-4-6-thinking",
+    "quotio-gemini/gemini-3-flash": "quotio/claude-opus-4-6-thinking",
+}
+
+
+OPENCLAW_QUOTIO_PROFILE_TO_PRIMARY = {
+    "default": QUOTIO_OPENCLAW_DEFAULT_PRIMARY,
+    "opus": "quotio/claude-opus-4-6-thinking",
+    "sonnet": "quotio/claude-sonnet-4-6",
+    "gemini": "quotio-gemini/gemini-3.1-pro-high",
+    "gemini3": "quotio-gemini/gemini-3.1-pro-high",
+    "gemini-3": "quotio-gemini/gemini-3.1-pro-high",
+    "gemini3-pro-high": "quotio-gemini/gemini-3.1-pro-high",
+}
+OPENCLAW_QUOTIO_PROFILE_NAMES = tuple(OPENCLAW_QUOTIO_PROFILE_TO_PRIMARY.keys())
+
+DUCK_DROID_MODEL = "gemini-3.1-pro-preview"
+QUOTIO_DROID_MODEL = "gemini-3.1-pro-high"
+
 TOOLS = ("cc", "openclaw", "codex", "droid")
 TOOLS_WITH_ALL = ("cc", "openclaw", "codex", "droid", "all")
 PROVIDERS = ("duck", "quotio")
@@ -128,6 +186,7 @@ def load_exports_from_bashrc(home: Path) -> None:
         "DUCKCODING_API_KEY",
         "QUOTIO_API_KEY",
         "GEMINI_BASE_URL",
+        "GEMINI_MODEL",
     }
 
     pattern = re.compile(r"^\s*export\s+([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
@@ -277,6 +336,107 @@ def get_keys(store: Dict[str, str]) -> Dict[str, str]:
     }
 
 
+def provider_model_catalog() -> Dict[str, Any]:
+    return {
+        "providers": {
+            "quotio": {
+                "available_models": list(QUOTIO_AVAILABLE_MODELS),
+                "claude_code": {
+                    "allowed": list(QUOTIO_CC_ALLOWED_MODELS),
+                    "default": QUOTIO_CC_DEFAULT_MODEL,
+                    "fallbacks": dict(QUOTIO_CC_MODEL_FALLBACKS),
+                },
+                "openclaw": {
+                    "allowed_primary": list(QUOTIO_OPENCLAW_ALLOWED_PRIMARY),
+                    "default_primary": QUOTIO_OPENCLAW_DEFAULT_PRIMARY,
+                    "fallbacks": dict(QUOTIO_OPENCLAW_PRIMARY_FALLBACKS),
+                    "providers": {
+                        "quotio": ["claude-opus-4-6-thinking", "claude-sonnet-4-6"],
+                        "quotio-gemini": ["gemini-3.1-pro-high", "gemini-3.1-pro-low", "gemini-3-flash"],
+                    },
+                },
+                "droid": {
+                    "default_model": QUOTIO_DROID_MODEL,
+                },
+                "codex": {
+                    "fallbacks": {
+                        "claude-haiku-4-5*": "claude-sonnet-4-6",
+                        "claude-opus-4-5*": "claude-opus-4-6-thinking",
+                    },
+                    "note": "switch-api only rewrites codex model when 4.5-series Claude patterns are detected",
+                },
+            }
+        }
+    }
+
+
+def save_provider_model_catalog(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(provider_model_catalog(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    try:
+        tmp.chmod(0o600)
+    except Exception:
+        pass
+    os.replace(tmp, path)
+
+
+def resolve_cc_model_for_quotio(current_model: str) -> Tuple[str, str]:
+    m = (current_model or "").strip()
+    if not m:
+        return QUOTIO_CC_DEFAULT_MODEL, "Claude Code model empty; set to quotio default claude-opus-4-6-thinking"
+
+    if m in QUOTIO_CC_ALLOWED_MODELS:
+        return m, ""
+
+    if m in QUOTIO_CC_MODEL_FALLBACKS:
+        return QUOTIO_CC_MODEL_FALLBACKS[m], f"Claude model {m} mapped to {QUOTIO_CC_MODEL_FALLBACKS[m]} for quotio"
+
+    lm = m.lower()
+    if "haiku" in lm:
+        return "claude-sonnet-4-6", f"Claude model {m} mapped to claude-sonnet-4-6 (haiku fallback policy)"
+    if "opus-4-5" in lm:
+        return "claude-opus-4-6-thinking", f"Claude model {m} mapped to claude-opus-4-6-thinking (opus4.5 fallback policy)"
+
+    return QUOTIO_CC_DEFAULT_MODEL, f"Claude model {m} is not in quotio allowlist; fallback to {QUOTIO_CC_DEFAULT_MODEL}"
+
+
+def resolve_openclaw_primary_for_quotio(current_primary: str) -> Tuple[str, str]:
+    p = (current_primary or "").strip()
+    if not p:
+        return QUOTIO_OPENCLAW_DEFAULT_PRIMARY, "OpenClaw primary empty; set to quotio default quotio/claude-opus-4-6-thinking"
+
+    if p in QUOTIO_OPENCLAW_ALLOWED_PRIMARY:
+        return p, ""
+
+    if p in QUOTIO_OPENCLAW_PRIMARY_FALLBACKS:
+        t = QUOTIO_OPENCLAW_PRIMARY_FALLBACKS[p]
+        return t, f"OpenClaw primary {p} mapped to {t} for quotio"
+
+    lp = p.lower()
+    if "haiku" in lp:
+        return "quotio/claude-sonnet-4-6", f"OpenClaw primary {p} mapped to quotio/claude-sonnet-4-6 (haiku fallback policy)"
+    if "opus-4-5" in lp:
+        return "quotio/claude-opus-4-6-thinking", f"OpenClaw primary {p} mapped to quotio/claude-opus-4-6-thinking (opus4.5 fallback policy)"
+
+    return QUOTIO_OPENCLAW_DEFAULT_PRIMARY, f"OpenClaw primary {p} is not in quotio allowlist; fallback to {QUOTIO_OPENCLAW_DEFAULT_PRIMARY}"
+
+
+def resolve_openclaw_quotio_profile(profile: str) -> Tuple[str, str]:
+    p = (profile or "").strip().lower()
+    if not p:
+        target = OPENCLAW_QUOTIO_PROFILE_TO_PRIMARY["default"]
+        return target, f"OpenClaw quotio profile default -> {target}"
+
+    if p not in OPENCLAW_QUOTIO_PROFILE_TO_PRIMARY:
+        raise SwitchError(
+            f"Unknown openclaw quotio profile: {profile} (use one of: {', '.join(OPENCLAW_QUOTIO_PROFILE_NAMES)})"
+        )
+
+    target = OPENCLAW_QUOTIO_PROFILE_TO_PRIMARY[p]
+    return target, f"OpenClaw quotio profile {p} -> {target}"
+
+
 class Config:
     def __init__(self, home: Path):
         self.home = home
@@ -289,6 +449,7 @@ class Config:
         self.bashrc = home / ".bashrc"
         self.switch_dir = home / ".config/switch-api"
         self.cred_file = self.switch_dir / "credentials.json"
+        self.provider_models_file = self.switch_dir / "provider-models.json"
 
 
 # ----------------------------- status -----------------------------
@@ -365,6 +526,7 @@ def switch_cc(provider: str, cfg: Config, keys: Dict[str, str]) -> None:
 
     data = load_json(cfg.cc_settings)
     env = data.setdefault("env", {})
+    current_model = str(data.get("model", "") or "").strip()
 
     if provider == "duck":
         env["ANTHROPIC_BASE_URL"] = DUCK_BASE_URL
@@ -375,11 +537,55 @@ def switch_cc(provider: str, cfg: Config, keys: Dict[str, str]) -> None:
         env["ANTHROPIC_BASE_URL"] = QUOTIO_BASE_URL
         env["ANTHROPIC_AUTH_TOKEN"] = ensure_key("QUOTIO_API_KEY", keys["quotio"])
 
+        target_model, reason = resolve_cc_model_for_quotio(current_model)
+        data["model"] = target_model
+        if reason:
+            warn(reason)
+        info("Quotio Claude allowlist: claude-opus-4-6-thinking, claude-sonnet-4-6")
+
     save_json(cfg.cc_settings, data)
     ok(f"Claude Code → {provider}")
 
 
-def quotio_models_payload() -> Dict[str, Any]:
+def quotio_openai_models_payload() -> Dict[str, Any]:
+    return {
+        "baseUrl": QUOTIO_BASE_URL_V1,
+        "api": "openai-completions",
+        "apiKey": "",
+        "models": [
+            {
+                "id": "claude-opus-4-6-thinking",
+                "name": "Claude Opus 4.6 Thinking (Quotio)",
+                "reasoning": True,
+                "input": ["text"],
+                "contextWindow": 200000,
+                "maxTokens": 32768,
+            },
+            {
+                "id": "claude-sonnet-4-6",
+                "name": "Claude Sonnet 4.6 (Quotio)",
+                "reasoning": True,
+                "input": ["text"],
+                "contextWindow": 200000,
+                "maxTokens": 32768,
+            },
+        ],
+    }
+
+
+def quotio_openai_models_payload_for_models_json() -> Dict[str, Any]:
+    p = quotio_openai_models_payload()
+    models = []
+    for item in p["models"]:
+        it = dict(item)
+        it["cost"] = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}
+        it["api"] = "openai-completions"
+        models.append(it)
+    p["models"] = models
+    return p
+
+
+def quotio_gemini_models_payload() -> Dict[str, Any]:
     return {
         "baseUrl": QUOTIO_BASE_URL_V1BETA,
         "api": "google-generative-ai",
@@ -388,6 +594,14 @@ def quotio_models_payload() -> Dict[str, Any]:
             {
                 "id": "gemini-3.1-pro-high",
                 "name": "Gemini 3.1 Pro High (Quotio)",
+                "reasoning": True,
+                "input": ["text"],
+                "contextWindow": 1048576,
+                "maxTokens": 65536,
+            },
+            {
+                "id": "gemini-3.1-pro-low",
+                "name": "Gemini 3.1 Pro Low (Quotio)",
                 "reasoning": True,
                 "input": ["text"],
                 "contextWindow": 1048576,
@@ -405,8 +619,8 @@ def quotio_models_payload() -> Dict[str, Any]:
     }
 
 
-def quotio_models_payload_for_models_json() -> Dict[str, Any]:
-    p = quotio_models_payload()
+def quotio_gemini_models_payload_for_models_json() -> Dict[str, Any]:
+    p = quotio_gemini_models_payload()
     models = []
     for item in p["models"]:
         it = dict(item)
@@ -416,22 +630,54 @@ def quotio_models_payload_for_models_json() -> Dict[str, Any]:
     p["models"] = models
     return p
 
-
 def restart_openclaw_gateway(home: Path) -> None:
     info("Restarting OpenClaw gateway...")
 
+    # 1) Graceful stop (best-effort)
     subprocess.run(
-        ["pkill", "-f", "openclaw-gateway"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        ["bash", "-lc", "cd /opt/openclaw && npx openclaw gateway stop --port 18789"],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    # 2) Force stop leftovers (best-effort)
+    subprocess.run(
+        ["pkill", "-f", "openclaw-gateway"],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
     subprocess.run(
-        ["pkill", "-f", "npm exec openclaw gateway"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        ["pkill", "-f", "npm exec openclaw gateway"],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
-    time.sleep(2)
+
+    # 3) Wait old process/port to fully release
+    for _ in range(20):
+        p = subprocess.run(
+            ["pgrep", "-f", "openclaw-gateway"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        s = subprocess.run(
+            ["bash", "-lc", "ss -ltnp 2>/dev/null | grep ':18789'"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        if p.returncode != 0 and s.returncode != 0:
+            break
+        time.sleep(1)
 
     logs_dir = home / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
     log_file = logs_dir / "openclaw.log"
 
+    # 4) Start gateway
     with log_file.open("ab") as lf:
         subprocess.Popen(
             ["bash", "-lc", "cd /opt/openclaw && npx openclaw gateway --port 18789 run"],
@@ -440,16 +686,22 @@ def restart_openclaw_gateway(home: Path) -> None:
             start_new_session=True,
         )
 
-    # Wait up to 20s for gateway bootstrap (npx + node cold start can be slow)
+    # 5) Wait bootstrap
     pid = ""
-    for _ in range(20):
+    for _ in range(30):
         p = subprocess.run(
             ["pgrep", "-f", "openclaw-gateway"],
             check=False,
             capture_output=True,
             text=True,
         )
-        if p.returncode == 0 and p.stdout.strip():
+        s = subprocess.run(
+            ["bash", "-lc", "ss -ltnp 2>/dev/null | grep ':18789'"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        if p.returncode == 0 and p.stdout.strip() and s.returncode == 0:
             pid = p.stdout.strip().splitlines()[0]
             break
         time.sleep(1)
@@ -460,7 +712,7 @@ def restart_openclaw_gateway(home: Path) -> None:
         warn("OpenClaw gateway may not have started — check ~/logs/openclaw.log")
 
 
-def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str]) -> None:
+def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], quotio_profile: str = "") -> None:
     info(f"Switching OpenClaw → {provider}")
 
     backup(cfg.oc_config)
@@ -488,16 +740,28 @@ def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str]) -> None:
 
     else:
         q_key = ensure_key("QUOTIO_API_KEY", keys["quotio"], "required for OpenClaw quotio")
-        oc_agents["primary"] = "quotio-gemini/gemini-3.1-pro-high"
-        oc_providers.pop("quotio", None)
-        qp = quotio_models_payload()
-        qp["apiKey"] = q_key
-        oc_providers["quotio-gemini"] = qp
+        target_primary, reason = resolve_openclaw_quotio_profile(quotio_profile)
+        oc_agents["primary"] = target_primary
+        if reason:
+            info(reason)
+        info("Quotio OpenClaw primary allowlist: quotio/claude-opus-4-6-thinking, quotio/claude-sonnet-4-6")
+        info("Use: switch-api openclaw quotio gemini3  # switch to quotio Gemini 3")
 
-        model_providers.pop("quotio", None)
-        qpm = quotio_models_payload_for_models_json()
-        qpm["apiKey"] = q_key
-        model_providers["quotio-gemini"] = qpm
+        oq = quotio_openai_models_payload()
+        oq["apiKey"] = q_key
+        oc_providers["quotio"] = oq
+
+        qg = quotio_gemini_models_payload()
+        qg["apiKey"] = q_key
+        oc_providers["quotio-gemini"] = qg
+
+        oqm = quotio_openai_models_payload_for_models_json()
+        oqm["apiKey"] = q_key
+        model_providers["quotio"] = oqm
+
+        qgm = quotio_gemini_models_payload_for_models_json()
+        qgm["apiKey"] = q_key
+        model_providers["quotio-gemini"] = qgm
 
     save_json(cfg.oc_config, oc)
     save_json(cfg.oc_models, models_json)
@@ -524,22 +788,35 @@ def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str]) -> None:
         info("Updated OpenClaw auth store for duckcoding")
     else:
         q_key = ensure_key("QUOTIO_API_KEY", keys["quotio"], "required for OpenClaw quotio")
+
+        auth["quotio"] = {"type": "api_key", "key": q_key}
         auth["quotio-gemini"] = {"type": "api_key", "key": q_key}
+
+        profiles["quotio:manual"] = {
+            "type": "token",
+            "provider": "quotio",
+            "token": q_key,
+        }
         profiles["quotio-gemini:manual"] = {
             "type": "token",
             "provider": "quotio-gemini",
             "token": q_key,
         }
+
+        last_good["quotio"] = "quotio:manual"
         last_good["quotio-gemini"] = "quotio-gemini:manual"
-        info("Updated OpenClaw auth store for quotio")
+
+        primary_provider = str(oc_agents.get("primary", "quotio") or "quotio").split("/", 1)[0]
+        if primary_provider in ("quotio", "quotio-gemini"):
+            last_good[primary_provider] = f"{primary_provider}:manual"
+
+        info("Updated OpenClaw auth store for quotio (quotio + quotio-gemini)")
 
     save_json(cfg.oc_auth, auth)
     save_json(cfg.oc_auth_profiles, auth_profiles)
 
     restart_openclaw_gateway(cfg.home)
     ok(f"OpenClaw → {provider}")
-
-
 def switch_codex(provider: str, cfg: Config, keys: Dict[str, str]) -> None:
     info(f"Switching Codex → {provider}")
     backup(cfg.cx_config)
@@ -558,21 +835,56 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str]) -> None:
     else:
         text = f'model_provider = "{model_provider}"\n' + text
 
-    if provider == "quotio" and not re.search(r"^\[model_providers\.quotio\]\s*$", text, flags=re.M):
-        block = (
-            "\n\n# Quotio Tunnel (via Cloudflare)\n"
-            "[model_providers.quotio]\n"
-            'name = "quotio"\n'
-            f'base_url = "{QUOTIO_BASE_URL_V1}"\n'
-            'wire_api = "responses"\n'
-            'env_key = "QUOTIO_API_KEY"\n'
-        )
-        text += block
-        info("Added quotio provider to codex config")
+    if provider == "quotio":
+        # model safety mapping for known unsupported 4.5-series Claude names
+        model_match = re.search(r'^\s*model\s*=\s*"([^"]+)"\s*$', text, flags=re.M)
+        current_model = model_match.group(1).strip() if model_match else ""
+        target_model = ""
+
+        codex_fallbacks = {
+            "claude-haiku-4-5": "claude-sonnet-4-6",
+            "claude-haiku-4-5-20251001": "claude-sonnet-4-6",
+            "claude-opus-4-5": "claude-opus-4-6-thinking",
+            "claude-opus-4-5-20251101-thinking": "claude-opus-4-6-thinking",
+        }
+
+        if current_model in codex_fallbacks:
+            target_model = codex_fallbacks[current_model]
+        else:
+            lm = current_model.lower()
+            if "haiku-4-5" in lm:
+                target_model = "claude-sonnet-4-6"
+            elif "opus-4-5" in lm:
+                target_model = "claude-opus-4-6-thinking"
+
+        if target_model:
+            if model_match:
+                text = re.sub(
+                    r'^\s*model\s*=\s*"[^"]+"\s*$',
+                    f'model = "{target_model}"',
+                    text,
+                    count=1,
+                    flags=re.M,
+                )
+            else:
+                text = f'model = "{target_model}"\n' + text
+            warn(f"Codex model {current_model} mapped to {target_model} for quotio")
+
+        # ensure quotio provider block exists
+        if not re.search(r"^\[model_providers\.quotio\]\s*$", text, flags=re.M):
+            block = (
+                "\n\n# Quotio Tunnel (via Cloudflare)\n"
+                "[model_providers.quotio]\n"
+                'name = "quotio"\n'
+                f'base_url = "{QUOTIO_BASE_URL_V1}"\n'
+                'wire_api = "responses"\n'
+                'env_key = "QUOTIO_API_KEY"\n'
+            )
+            text += block
+            info("Added quotio provider to codex config")
 
     write_text(cfg.cx_config, text)
     ok(f"Codex → {provider}")
-
 
 def update_bashrc_exports(bashrc: Path, updates: Dict[str, str]) -> None:
     if bashrc.exists():
@@ -614,10 +926,12 @@ def switch_droid(provider: str, cfg: Config, keys: Dict[str, str]) -> None:
             {
                 "GEMINI_BASE_URL": DUCK_BASE_URL_V1,
                 "GEMINI_API_KEY": d_key,
+                "GEMINI_MODEL": DUCK_DROID_MODEL,
             },
         )
         os.environ["GEMINI_BASE_URL"] = DUCK_BASE_URL_V1
         os.environ["GEMINI_API_KEY"] = d_key
+        os.environ["GEMINI_MODEL"] = DUCK_DROID_MODEL
     else:
         q_key = ensure_key("QUOTIO_API_KEY", keys["quotio"], "required for Droid quotio")
         update_bashrc_exports(
@@ -625,10 +939,12 @@ def switch_droid(provider: str, cfg: Config, keys: Dict[str, str]) -> None:
             {
                 "GEMINI_BASE_URL": QUOTIO_BASE_URL_V1,
                 "GEMINI_API_KEY": q_key,
+                "GEMINI_MODEL": QUOTIO_DROID_MODEL,
             },
         )
         os.environ["GEMINI_BASE_URL"] = QUOTIO_BASE_URL_V1
         os.environ["GEMINI_API_KEY"] = q_key
+        os.environ["GEMINI_MODEL"] = QUOTIO_DROID_MODEL
 
     ok(f"Droid → {provider} (run 'source ~/.bashrc' to apply in current shell)")
 
@@ -640,6 +956,7 @@ def usage() -> None:
     print("  switch-api <provider>")
     print("  switch-api all <provider>")
     print("  switch-api <tool> <provider>")
+    print("  switch-api openclaw quotio <profile>")
     print("")
     print("Categories:")
     print("  1) status:")
@@ -652,6 +969,7 @@ def usage() -> None:
     print("  3) single tool switch:")
     print("       switch-api cc duck")
     print("       switch-api openclaw quotio")
+    print("       switch-api openclaw quotio gemini3")
     print("       switch-api codex duck")
     print("       switch-api droid quotio")
     print("")
@@ -659,7 +977,7 @@ def usage() -> None:
     print(f"  provider: {' | '.join(PROVIDERS)}")
 
 
-def parse_args(argv: Iterable[str]) -> Tuple[str, str]:
+def parse_args(argv: Iterable[str]) -> Tuple[str, str, str]:
     args = list(argv)
 
     if not args:
@@ -675,9 +993,9 @@ def parse_args(argv: Iterable[str]) -> Tuple[str, str]:
             print(APP_VERSION)
             raise SystemExit(0)
         if a0 == "status":
-            return ("status", "")
+            return ("status", "", "")
         if a0 in PROVIDERS:
-            return ("all", a0)
+            return ("all", a0, "")
 
         err(f"Unknown command: {a0}")
         usage()
@@ -693,7 +1011,19 @@ def parse_args(argv: Iterable[str]) -> Tuple[str, str]:
             err(f"Unknown provider: {provider} (use 'duck' or 'quotio')")
             usage()
             raise SystemExit(1)
-        return (tool, provider)
+        return (tool, provider, "")
+
+    if len(args) == 3:
+        tool, provider, profile = args
+        if tool != "openclaw" or provider != "quotio":
+            err("Three-argument mode only supports: switch-api openclaw quotio <profile>")
+            usage()
+            raise SystemExit(1)
+        if profile.lower() not in OPENCLAW_QUOTIO_PROFILE_NAMES:
+            err(f"Unknown openclaw quotio profile: {profile}")
+            usage()
+            raise SystemExit(1)
+        return (tool, provider, profile)
 
     err("Too many arguments")
     usage()
@@ -709,9 +1039,10 @@ def main() -> int:
     store = load_credential_store(cfg.cred_file)
     store = enrich_store_from_env(store)
     save_credential_store(cfg.cred_file, store)
+    save_provider_model_catalog(cfg.provider_models_file)
     keys = get_keys(store)
 
-    tool, provider = parse_args(sys.argv[1:])
+    tool, provider, profile = parse_args(sys.argv[1:])
 
     if tool == "status":
         show_status(cfg)
@@ -723,14 +1054,14 @@ def main() -> int:
     if tool == "cc":
         switch_cc(provider, cfg, keys)
     elif tool == "openclaw":
-        switch_openclaw(provider, cfg, keys)
+        switch_openclaw(provider, cfg, keys, profile)
     elif tool == "codex":
         switch_codex(provider, cfg, keys)
     elif tool == "droid":
         switch_droid(provider, cfg, keys)
     elif tool == "all":
         switch_cc(provider, cfg, keys)
-        switch_openclaw(provider, cfg, keys)
+        switch_openclaw(provider, cfg, keys, "")
         switch_codex(provider, cfg, keys)
         switch_droid(provider, cfg, keys)
     else:

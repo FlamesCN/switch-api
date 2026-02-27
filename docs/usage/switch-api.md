@@ -86,7 +86,8 @@ switch-api cc quotio           # Claude Code → Quotio
 
 # ─── 只切 OpenClaw ─────────────────────────────
 switch-api openclaw duck       # OpenClaw → DuckCoding
-switch-api openclaw quotio     # OpenClaw → Quotio
+switch-api openclaw quotio     # OpenClaw → Quotio（默认主模型 Opus 4.6 Thinking）
+switch-api openclaw quotio gemini3  # OpenClaw → Quotio Gemini 3 (3.1-pro-high)
 
 # ─── 只切 Codex ────────────────────────────────
 switch-api codex duck          # Codex → DuckCoding
@@ -141,7 +142,8 @@ cxq              # Codex 临时用 Quotio
 /switch cc duck                → 只切 Claude Code → DuckCoding
 /switch cc quotio              → 只切 Claude Code → Quotio
 /switch openclaw duck          → 只切 OpenClaw → DuckCoding
-/switch openclaw quotio        → 只切 OpenClaw → Quotio
+/switch openclaw quotio        → 只切 OpenClaw → Quotio（默认 Opus 4.6 Thinking）
+/switch openclaw quotio gemini3 → 只切 OpenClaw → Quotio Gemini 3
 /switch codex duck             → 只切 Codex → DuckCoding
 /switch codex quotio           → 只切 Codex → Quotio
 /switch droid duck             → 只切 Droid → DuckCoding
@@ -161,6 +163,52 @@ OpenClaw 的 `TOOLS.md` 里注册了 `/switch` 指令。Bot 收到消息后在�
 `~/bin/switch-api` 脚本，修改对应工具的配置文件并返回结果。
 
 ---
+
+
+## Quotio 模型白名单（已记录）
+
+`switch-api` 每次运行会写入：`~/.config/switch-api/provider-models.json`
+
+当前记录的 Quotio 可用模型：
+- `claude-opus-4-6-thinking`
+- `claude-sonnet-4-6`
+- `gemini-2.5-flash`
+- `gemini-2.5-flash-lite`
+- `gemini-3-flash`
+- `gemini-3-pro-high`
+- `gemini-3.1-flash-image`
+- `gemini-3.1-pro-high`
+- `gemini-3.1-pro-low`
+- `gpt-oss-120b-medium`
+- `tab_flash_lite_preview`
+- `tab_jump_flash_lite_preview`
+
+### Claude Code 映射策略（Quotio）
+### OpenClaw 映射策略（Quotio）
+- 切换到 `quotio` 时，默认主模型设为：`quotio/claude-sonnet-4-6`
+- 同时保留两个 provider：
+  - `quotio`（Claude 4.6 系列）
+  - `quotio-gemini`（Gemini 3/3.1 系列）
+- 自动回退：
+  - `quotio-gemini/*` → `quotio/claude-sonnet-4-6`
+  - `quotio/claude-haiku-4-5*` → `quotio/claude-sonnet-4-6`
+  - `quotio/claude-opus-4-5*` → `quotio/claude-opus-4-6-thinking`
+
+### Droid 映射策略（Quotio）
+### Codex 映射策略（Quotio）
+- `switch-api codex/all quotio` 默认保留你当前 `model`。
+- 若检测到 `claude-haiku-4-5*` 或 `claude-opus-4-5*`，会自动映射到 4.6 系列避免 502。
+
+- `switch-api droid quotio` 或 `switch-api all quotio` 会同步写入：
+  - `GEMINI_MODEL=gemini-3.1-pro-high`
+- 切回 duck 时写入：
+  - `GEMINI_MODEL=gemini-3.1-pro-preview`
+
+- 允许：`claude-opus-4-6-thinking`、`claude-sonnet-4-6`
+- 自动回退：
+  - `claude-opus-4-5*` → `claude-opus-4-6-thinking`
+  - `claude-haiku-4-5*` → `claude-sonnet-4-6`
+- 若当前模型不在白名单：回退到 `claude-opus-4-6-thinking`
 
 ## 状态输出说明
 
