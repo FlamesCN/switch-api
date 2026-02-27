@@ -294,9 +294,34 @@ def ensure_key(name: str, value: str, extra: str = "") -> str:
 
 
 
+def _is_cloudflare_error(body: str) -> str:
+    """Detect Cloudflare tunnel/origin error pages.
+    Returns error description if CF error, empty string if not."""
+    # Cloudflare error codes: 502, 520-530, 1000-1099 etc.
+    # Body patterns: "error code: 1010", "error code: 1033", "cloudflare" in HTML
+    import re
+    m = re.search(r"error code:\s*(\d{3,4})", body, re.IGNORECASE)
+    if m:
+        return f"Cloudflare error code {m.group(1)}"
+    low = body.lower()
+    if "cloudflare" in low and ("tunnel" in low or "origin" in low or "unreachable" in low):
+        return "Cloudflare tunnel/origin error"
+    return ""
+
+
+def _read_error_body(e) -> str:
+    """Safely read up to 500 bytes from an HTTPError response."""
+    try:
+        return e.read().decode("utf-8", errors="replace")[:500]
+    except Exception:
+        return ""
+
+
 def probe_provider(provider: str, keys: Dict[str, str], timeout: int = 8) -> Tuple[bool, str]:
     """Pre-flight: test if the target provider API endpoint is reachable.
-    Returns (ok, reason). 401/403 counts as reachable (server up, auth issue)."""
+    Returns (ok, reason).
+    Detects Cloudflare tunnel errors (e.g. 403+1010, 530+1033, 502) even when
+    HTTP status looks benign."""
     import urllib.request
     import urllib.error
 
@@ -310,15 +335,24 @@ def probe_provider(provider: str, keys: Dict[str, str], timeout: int = 8) -> Tup
         return True, ""
 
     url, api_key = entry
-    headers: Dict[str, str] = {}
+    headers: Dict[str, str] = {"User-Agent": "switch-api/" + APP_VERSION}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
     try:
         req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = resp.read().decode("utf-8", errors="replace")[:500]
+            cf = _is_cloudflare_error(body)
+            if cf:
+                return False, f"{cf} (HTTP {resp.status})"
             return True, ""
     except urllib.error.HTTPError as e:
+        body = _read_error_body(e)
+        cf = _is_cloudflare_error(body)
+        if cf:
+            return False, f"{cf} (HTTP {e.code})"
+        # Real 401/403 from the API server (not Cloudflare) = server is up
         if e.code in (401, 403):
             return True, ""
         return False, f"HTTP {e.code} from {url}"
