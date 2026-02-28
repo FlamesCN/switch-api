@@ -61,6 +61,135 @@ QUOTIO_AVAILABLE_MODELS = (
     "tab_jump_flash_lite_preview",
 )
 
+# DuckCoding model catalogs per key (fetched 2026-02-28)
+DUCK_ANTHROPIC_MODELS = (
+    "claude-3-5-haiku-20241022",
+    "claude-3-7-sonnet-20250219",
+    "claude-3-7-sonnet-20250219-thinking",
+    "claude-haiku-4-5-20251001",
+    "claude-haiku-4-5-20251001-thinking",
+    "claude-opus-4-1-20250805",
+    "claude-opus-4-1-20250805-thinking",
+    "claude-opus-4-20250514",
+    "claude-opus-4-20250514-thinking",
+    "claude-opus-4-5-20251101",
+    "claude-opus-4-5-20251101-thinking",
+    "claude-opus-4-6",
+    "claude-sonnet-4-20250514",
+    "claude-sonnet-4-20250514-thinking",
+    "claude-sonnet-4-5-20250929",
+    "claude-sonnet-4-5-20250929-thinking",
+    "claude-sonnet-4-6",
+    "claude-sonnet-4-6-thinking",
+)
+
+DUCK_GEMINI_MODELS = (
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-image",
+    "gemini-2.5-flash-lite",
+    "gemini-2.5-pro",
+    "gemini-3-flash-preview",
+    "gemini-3-pro-image-preview",
+    "gemini-3-pro-preview",
+    "gemini-3.1-flash-image-preview",
+    "gemini-3.1-pro-preview",
+    "gemini-3.1-pro-preview-customtools",
+)
+
+DUCK_CODEX_MODELS = (
+    "gpt-5",
+    "gpt-5-codex",
+    "gpt-5-codex-high",
+    "gpt-5-codex-high-openai-compact",
+    "gpt-5-codex-low",
+    "gpt-5-codex-low-openai-compact",
+    "gpt-5-codex-medium",
+    "gpt-5-codex-medium-openai-compact",
+    "gpt-5-codex-mini",
+    "gpt-5-codex-mini-high",
+    "gpt-5-codex-mini-high-openai-compact",
+    "gpt-5-codex-mini-medium",
+    "gpt-5-codex-mini-medium-openai-compact",
+    "gpt-5-codex-mini-openai-compact",
+    "gpt-5-codex-openai-compact",
+    "gpt-5-high",
+    "gpt-5-high-openai-compact",
+    "gpt-5-low",
+    "gpt-5-low-openai-compact",
+    "gpt-5-medium",
+    "gpt-5-medium-openai-compact",
+    "gpt-5-minimal",
+    "gpt-5-minimal-openai-compact",
+    "gpt-5-openai-compact",
+    "gpt-5.1",
+    "gpt-5.1-codex",
+    "gpt-5.1-codex-high",
+    "gpt-5.1-codex-high-openai-compact",
+    "gpt-5.1-codex-low",
+    "gpt-5.1-codex-low-openai-compact",
+    "gpt-5.1-codex-max",
+    "gpt-5.1-codex-max-high",
+    "gpt-5.1-codex-max-high-openai-compact",
+    "gpt-5.1-codex-max-low",
+    "gpt-5.1-codex-max-low-openai-compact",
+    "gpt-5.1-codex-max-medium",
+    "gpt-5.1-codex-max-medium-openai-compact",
+    "gpt-5.1-codex-max-openai-compact",
+    "gpt-5.1-codex-max-xhigh",
+    "gpt-5.1-codex-max-xhigh-openai-compact",
+    "gpt-5.1-codex-medium",
+    "gpt-5.1-codex-medium-openai-compact",
+    "gpt-5.1-codex-mini",
+    "gpt-5.1-codex-mini-high",
+    "gpt-5.1-codex-mini-high-openai-compact",
+    "gpt-5.1-codex-mini-medium",
+    "gpt-5.1-codex-mini-medium-openai-compact",
+    "gpt-5.1-codex-mini-openai-compact",
+    "gpt-5.1-codex-openai-compact",
+    "gpt-5.1-high",
+    "gpt-5.1-high-openai-compact",
+    "gpt-5.1-low",
+    "gpt-5.1-low-openai-compact",
+    "gpt-5.1-medium",
+    "gpt-5.1-medium-openai-compact",
+    "gpt-5.1-openai-compact",
+    "gpt-5.2",
+    "gpt-5.2-codex",
+    "gpt-5.2-codex-high",
+    "gpt-5.2-codex-high-openai-compact",
+    "gpt-5.2-codex-low",
+    "gpt-5.2-codex-low-openai-compact",
+    "gpt-5.2-codex-medium",
+    "gpt-5.2-codex-medium-openai-compact",
+    "gpt-5.2-codex-openai-compact",
+    "gpt-5.2-codex-xhigh",
+    "gpt-5.2-codex-xhigh-openai-compact",
+    "gpt-5.2-high",
+    "gpt-5.2-high-openai-compact",
+    "gpt-5.2-low",
+    "gpt-5.2-low-openai-compact",
+    "gpt-5.2-medium",
+    "gpt-5.2-medium-openai-compact",
+    "gpt-5.2-openai-compact",
+    "gpt-5.2-xhigh",
+    "gpt-5.2-xhigh-openai-compact",
+    "gpt-5.3-codex",
+    "gpt-5.3-codex-high",
+    "gpt-5.3-codex-high-openai-compact",
+    "gpt-5.3-codex-low",
+    "gpt-5.3-codex-low-openai-compact",
+    "gpt-5.3-codex-medium",
+    "gpt-5.3-codex-medium-openai-compact",
+    "gpt-5.3-codex-openai-compact",
+    "gpt-5.3-codex-spark",
+    "gpt-5.3-codex-spark-high",
+    "gpt-5.3-codex-spark-low",
+    "gpt-5.3-codex-spark-medium",
+    "gpt-5.3-codex-spark-xhigh",
+    "gpt-5.3-codex-xhigh",
+    "gpt-5.3-codex-xhigh-openai-compact",
+)
+
 # Claude Code on Quotio: allowed models + fallback policy
 QUOTIO_CC_ALLOWED_MODELS = (
     "claude-opus-4-6-thinking",
@@ -175,7 +304,7 @@ DROID_QUOTIO_PROFILE_NAMES = tuple(DROID_QUOTIO_PROFILE_TO_MODEL.keys())
 
 TOOLS = ("cc", "openclaw", "codex", "droid", "gemini")
 TOOLS_WITH_ALL = ("cc", "openclaw", "codex", "droid", "gemini", "all")
-PROVIDERS = ("duck", "quotio", "antigravity")
+PROVIDERS = ("duck", "quotio", "antigravity", "openai")
 
 # OpenClaw compatibility: Gemini models don't support patternProperties in tool schema.
 # All three providers have Claude models; Gemini profiles get a warning.
@@ -373,6 +502,7 @@ def probe_provider(provider: str, keys: Dict[str, str], timeout: int = 8) -> Tup
         "duck": (DUCK_BASE_URL_V1 + "/models", keys.get("duck_gemini", "")),
         "quotio": (QUOTIO_BASE_URL_V1 + "/models", keys.get("quotio", "")),
         "antigravity": (ANTIGRAVITY_BASE_URL_V1 + "/models", keys.get("antigravity", "")),
+        "openai": ("https://api.openai.com/v1/models", keys.get("openai", "")),
     }
     entry = endpoints.get(provider)
     if not entry:
@@ -483,6 +613,8 @@ def get_keys(store: Dict[str, str]) -> Dict[str, str]:
         or store.get("quotio", ""),
         "antigravity": os.environ.get("ANTIGRAVITY_API_KEY")
         or store.get("antigravity", ""),
+        "openai": os.environ.get("OPENAI_API_KEY")
+        or store.get("openai", ""),
     }
 
 
@@ -691,6 +823,8 @@ def detect_provider(tool: str, cfg: Config) -> str:
             return "quotio"
         if provider == "duckcoding":
             return "duck"
+        if provider == "openai-official":
+            return "openai"
         return provider
 
 
@@ -733,11 +867,14 @@ def show_status(cfg: Config) -> None:
             icon = "🔗"
         elif p == "antigravity":
             icon = "🚀"
+        elif p == "openai":
+            icon = "🔑"
         print(f"  {tool:<10} {icon}  {p}")
     print(f"{CYAN}═══════════════════════════{NC}")
     print("  🦆 = DuckCoding (jp.duckcoding.com)")
     print("  🔗 = Quotio Tunnel (api.ancientechoes.ai)")
     print("  🚀 = Antigravity-tools (tools.ancientechoes.ai)")
+    print("  🔑 = OpenAI 官方 (api.openai.com via proxy)")
 
 
 # ----------------------------- switchers -----------------------------
@@ -1307,7 +1444,7 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str]) -> None:
     backup(cfg.cx_config)
 
     text = read_text(cfg.cx_config)
-    provider_map = {"duck": "duckcoding", "quotio": "quotio", "antigravity": "antigravity"}
+    provider_map = {"duck": "duckcoding", "quotio": "quotio", "antigravity": "antigravity", "openai": "openai-official"}
     model_provider = provider_map[provider]
 
     if re.search(r"^\s*model_provider\s*=\s*\"[^\"]+\"\s*$", text, flags=re.M):
@@ -1415,6 +1552,21 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str]) -> None:
             )
             text += block
             info("Added antigravity provider to codex config")
+
+    if provider == "openai":
+        # ensure openai-official provider block exists
+        if not re.search(r"^\[model_providers\.openai-official\]\s*$", text, flags=re.M):
+            block = (
+                "\n\n# OpenAI 官方（走本地 Xray 代理 → 美国家宽 REALITY）\n"
+                "[model_providers.openai-official]\n"
+                'name = "openai-official"\n'
+                'base_url = "https://api.openai.com/v1"\n'
+                'wire_api = "responses"\n'
+                'env_key = "OPENAI_API_KEY"\n'
+            )
+            text += block
+            info("Added openai-official provider to codex config")
+        info("Codex → OpenAI 官方 (需要 HTTPS_PROXY 走代理)")
 
     write_text(cfg.cx_config, text)
     ok(f"Codex → {provider}")
@@ -1617,6 +1769,7 @@ def usage() -> None:
     print("       switch-api openclaw antigravity")
     print("       switch-api openclaw antigravity gemini3")
     print("       switch-api codex duck")
+    print("       switch-api codex openai")
     print("       switch-api droid quotio")
     print("       switch-api droid quotio codex")
     print("")
@@ -1655,7 +1808,7 @@ def parse_args(argv: Iterable[str]) -> Tuple[str, str, str]:
             usage()
             raise SystemExit(1)
         if provider not in PROVIDERS:
-            err(f"Unknown provider: {provider} (use 'duck' or 'quotio')")
+            err(f"Unknown provider: {provider} (use: {', '.join(PROVIDERS)})")
             usage()
             raise SystemExit(1)
         return (tool, provider, "")
@@ -1717,6 +1870,12 @@ def main() -> int:
 
     if provider == "antigravity" and not keys["antigravity"]:
         raise SwitchError("ANTIGRAVITY_API_KEY is not set! Edit ~/.bashrc and run: source ~/.bashrc")
+
+    if provider == "openai" and tool not in ("codex",):
+        raise SwitchError(f"Provider 'openai' is only supported for codex, not {tool}")
+
+    if provider == "openai" and not keys["openai"]:
+        raise SwitchError("OPENAI_API_KEY is not set! Edit ~/.bashrc and run: source ~/.bashrc")
 
     # --- Pre-flight connectivity check (skip with --force) ---
     if not force:
