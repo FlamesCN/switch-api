@@ -103,12 +103,12 @@ OPENCLAW_QUOTIO_PROFILE_NAMES = tuple(OPENCLAW_QUOTIO_PROFILE_TO_PRIMARY.keys())
 DUCK_DROID_MODEL = "gemini-3.1-pro-preview"
 
 # Duck OpenClaw profiles: default is Claude (avoids Gemini patternProperties issue)
-DUCK_OPENCLAW_DEFAULT_PRIMARY = "duckcoding/gemini-3.1-pro-preview"
+DUCK_OPENCLAW_DEFAULT_PRIMARY = "duckcoding/gemini-3.1-pro-preview-customtools"
 OPENCLAW_DUCK_PROFILE_TO_PRIMARY = {
-    "default": "duckcoding/gemini-3.1-pro-preview",
-    "gemini": "duckcoding/gemini-3.1-pro-preview",
-    "gemini3": "duckcoding/gemini-3.1-pro-preview",
-    "gemini-3": "duckcoding/gemini-3.1-pro-preview",
+    "default": "duckcoding/gemini-3.1-pro-preview-customtools",
+    "gemini": "duckcoding/gemini-3.1-pro-preview-customtools",
+    "gemini3": "duckcoding/gemini-3.1-pro-preview-customtools",
+    "gemini-3": "duckcoding/gemini-3.1-pro-preview-customtools",
     "sonnet": "duckcoding-claude/claude-sonnet-4-5-20250929-thinking",
 }
 OPENCLAW_DUCK_PROFILE_NAMES = tuple(OPENCLAW_DUCK_PROFILE_TO_PRIMARY.keys())
@@ -828,20 +828,20 @@ def duck_claude_models_payload_for_models_json() -> Dict[str, Any]:
 def duck_gemini_models_payload() -> Dict[str, Any]:
     return {
         "baseUrl": DUCK_BASE_URL_V1,
-        "api": "google-generative-ai",
+        "api": "openai-completions",
         "apiKey": "",
         "models": [
             {
-                "id": "gemini-3.1-pro-preview",
-                "name": "Gemini 3.1 Pro Preview (Duck)",
+                "id": "gemini-3.1-pro-preview-customtools",
+                "name": "Gemini 3.1 Pro CustomTools (Duck)",
                 "reasoning": True,
                 "input": ["text", "image"],
                 "contextWindow": 2000000,
                 "maxTokens": 65536,
             },
             {
-                "id": "gemini-3-pro-preview",
-                "name": "Gemini 3 Pro Preview (Duck)",
+                "id": "gemini-3.1-pro-preview",
+                "name": "Gemini 3.1 Pro Preview (Duck)",
                 "reasoning": True,
                 "input": ["text", "image"],
                 "contextWindow": 2000000,
@@ -857,7 +857,7 @@ def duck_gemini_models_payload_for_models_json() -> Dict[str, Any]:
     for item in p["models"]:
         it = dict(item)
         it["cost"] = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}
-        it["api"] = "google-generative-ai"
+        it["api"] = "openai-completions"
         models.append(it)
     p["models"] = models
     return p
