@@ -287,8 +287,57 @@ OPENCLAW_ANTIGRAVITY_PROFILE_NAMES = tuple(OPENCLAW_ANTIGRAVITY_PROFILE_TO_PRIMA
 
 ANTIGRAVITY_DROID_MODEL = "gemini-3.1-pro-high"
 
+# OpenRouter OpenClaw profiles
+OPENCLAW_OPENROUTER_DEFAULT_PRIMARY = "openrouter/stepfun/step-3.5-flash:free"
+OPENCLAW_OPENROUTER_PROFILE_TO_PRIMARY = {
+    "default": "openrouter/stepfun/step-3.5-flash:free",
+    "step": "openrouter/stepfun/step-3.5-flash:free",
+    "llama": "openrouter/meta-llama/llama-3.3-70b-instruct:free",
+    "qwen": "openrouter/qwen/qwen3-coder:free",
+    "gemma": "openrouter/google/gemma-3-27b-it:free",
+    "hermes": "openrouter/nousresearch/hermes-3-llama-3.1-405b:free",
+    "gpt-oss": "openrouter/openai/gpt-oss-120b:free",
+}
+OPENCLAW_OPENROUTER_PROFILE_NAMES = tuple(OPENCLAW_OPENROUTER_PROFILE_TO_PRIMARY.keys())
+
+OPENROUTER_DROID_MODEL = "stepfun/step-3.5-flash:free"
+
 XRAY_PROXY = "http://127.0.0.1:1081"
 OPENAI_BASE_URL_V1 = "https://api.openai.com/v1"
+
+OPENROUTER_BASE_URL = "https://openrouter.ai/api"
+OPENROUTER_BASE_URL_V1 = "https://openrouter.ai/api/v1"
+OPENROUTER_DEFAULT_MODEL = "stepfun/step-3.5-flash:free"
+
+# OpenRouter free models (fetched 2026-02-28)
+OPENROUTER_FREE_MODELS = (
+    "arcee-ai/trinity-large-preview:free",
+    "arcee-ai/trinity-mini:free",
+    "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
+    "google/gemma-3-12b-it:free",
+    "google/gemma-3-27b-it:free",
+    "google/gemma-3-4b-it:free",
+    "google/gemma-3n-e2b-it:free",
+    "google/gemma-3n-e4b-it:free",
+    "liquid/lfm-2.5-1.2b-instruct:free",
+    "liquid/lfm-2.5-1.2b-thinking:free",
+    "meta-llama/llama-3.2-3b-instruct:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "mistralai/mistral-small-3.1-24b-instruct:free",
+    "nousresearch/hermes-3-llama-3.1-405b:free",
+    "nvidia/nemotron-3-nano-30b-a3b:free",
+    "nvidia/nemotron-nano-12b-v2-vl:free",
+    "nvidia/nemotron-nano-9b-v2:free",
+    "openai/gpt-oss-120b:free",
+    "openai/gpt-oss-20b:free",
+    "openrouter/free",
+    "qwen/qwen3-4b:free",
+    "qwen/qwen3-coder:free",
+    "qwen/qwen3-next-80b-a3b-instruct:free",
+    "stepfun/step-3.5-flash:free",
+    "upstage/solar-pro-3:free",
+    "z-ai/glm-4.5-air:free",
+)
 
 # Gemini CLI: provider → base URL (SDK appends /v1beta/models/...)
 GEMINI_CLI_BASE_URLS = {
@@ -320,7 +369,7 @@ DROID_QUOTIO_PROFILE_NAMES = tuple(DROID_QUOTIO_PROFILE_TO_MODEL.keys())
 
 TOOLS = ("cc", "openclaw", "codex", "droid", "gemini")
 TOOLS_WITH_ALL = ("cc", "openclaw", "codex", "droid", "gemini", "all")
-PROVIDERS = ("duck", "quotio", "antigravity", "openai")
+PROVIDERS = ("duck", "quotio", "antigravity", "openai", "openrouter")
 
 # OpenClaw compatibility: Gemini models don't support patternProperties in tool schema.
 # All three providers have Claude models; Gemini profiles get a warning.
@@ -410,6 +459,7 @@ def load_exports_from_bashrc(home: Path) -> None:
         "GEMINI_BASE_URL",
         "GEMINI_MODEL",
         "ANTIGRAVITY_API_KEY",
+        "OPENROUTER_API_KEY",
     }
 
     pattern = re.compile(r"^\s*export\s+([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
@@ -519,6 +569,7 @@ def probe_provider(provider: str, keys: Dict[str, str], timeout: int = 8) -> Tup
         "quotio": (QUOTIO_BASE_URL_V1 + "/models", keys.get("quotio", "")),
         "antigravity": (ANTIGRAVITY_BASE_URL_V1 + "/models", keys.get("antigravity", "")),
         "openai": ("https://api.openai.com/v1/models", keys.get("openai", "")),
+        "openrouter": (OPENROUTER_BASE_URL_V1 + "/models", keys.get("openrouter", "")),
     }
     entry = endpoints.get(provider)
     if not entry:
@@ -591,6 +642,7 @@ def enrich_store_from_env(store: Dict[str, str]) -> Dict[str, str]:
         "duck_codex": os.environ.get("DUCKCODING_API_KEY", ""),
         "quotio": os.environ.get("QUOTIO_API_KEY", ""),
         "antigravity": os.environ.get("ANTIGRAVITY_API_KEY", ""),
+        "openrouter": os.environ.get("OPENROUTER_API_KEY", ""),
     }
     for k, v in explicit.items():
         if v:
@@ -631,6 +683,8 @@ def get_keys(store: Dict[str, str]) -> Dict[str, str]:
         or store.get("antigravity", ""),
         "openai": os.environ.get("OPENAI_API_KEY")
         or store.get("openai", ""),
+        "openrouter": os.environ.get("OPENROUTER_API_KEY")
+        or store.get("openrouter", ""),
     }
 
 
@@ -777,6 +831,21 @@ def resolve_openclaw_antigravity_profile(profile: str) -> Tuple[str, str]:
     return target, f"OpenClaw antigravity profile {p} -> {target}"
 
 
+def resolve_openclaw_openrouter_profile(profile: str) -> Tuple[str, str]:
+    p = (profile or "").strip().lower()
+    if not p:
+        target = OPENCLAW_OPENROUTER_PROFILE_TO_PRIMARY["default"]
+        return target, f"OpenClaw openrouter profile default -> {target}"
+
+    if p not in OPENCLAW_OPENROUTER_PROFILE_TO_PRIMARY:
+        raise SwitchError(
+            f"Unknown openclaw openrouter profile: {profile} (use one of: {', '.join(OPENCLAW_OPENROUTER_PROFILE_NAMES)})"
+        )
+
+    target = OPENCLAW_OPENROUTER_PROFILE_TO_PRIMARY[p]
+    return target, f"OpenClaw openrouter profile {p} -> {target}"
+
+
 class Config:
     def __init__(self, home: Path):
         self.home = home
@@ -807,6 +876,8 @@ def detect_provider(tool: str, cfg: Config) -> str:
             return "quotio"
         if "duckcoding" in url:
             return "duck"
+        if "openrouter.ai" in url:
+            return "openrouter"
         return f"unknown({url})" if url else "unknown"
 
     if tool == "openclaw":
@@ -825,6 +896,8 @@ def detect_provider(tool: str, cfg: Config) -> str:
             return "quotio"
         if model.startswith("duckcoding/") or model.startswith("duckcoding-claude/"):
             return "duck"
+        if model.startswith("openrouter/"):
+            return "openrouter"
         return f"unknown({model})" if model else "unknown"
 
     if tool == "codex":
@@ -841,6 +914,8 @@ def detect_provider(tool: str, cfg: Config) -> str:
             return "duck"
         if provider == "openai-official":
             return "openai"
+        if provider == "openrouter":
+            return "openrouter"
         return provider
 
 
@@ -860,6 +935,18 @@ def detect_provider(tool: str, cfg: Config) -> str:
         return f"unknown({url})" if url else "unknown"
 
     if tool == "droid":
+        # Check customModels first (OpenRouter uses this)
+        factory_settings = cfg.home / ".factory/settings.json"
+        if factory_settings.exists():
+            try:
+                fdata = load_json(factory_settings)
+                cms = fdata.get("customModels", [])
+                if cms and isinstance(cms, list) and isinstance(cms[0], dict):
+                    cm_url = cms[0].get("baseUrl", "")
+                    if "openrouter.ai" in cm_url:
+                        return "openrouter"
+            except Exception:
+                pass
         base = os.environ.get("GEMINI_BASE_URL", "")
         if "tools.ancientechoes" in base:
             return "antigravity"
@@ -885,12 +972,15 @@ def show_status(cfg: Config) -> None:
             icon = "🚀"
         elif p == "openai":
             icon = "🔑"
+        elif p == "openrouter":
+            icon = "🌐"
         print(f"  {tool:<10} {icon}  {p}")
     print(f"{CYAN}═══════════════════════════{NC}")
     print("  🦆 = DuckCoding (api.duckcoding.ai)")
     print("  🔗 = Quotio Tunnel (api.ancientechoes.ai)")
     print("  🚀 = Antigravity-tools (tools.ancientechoes.ai)")
     print("  🔑 = OpenAI 官方 (api.openai.com via proxy)")
+    print("  🌐 = OpenRouter (openrouter.ai)")
 
 
 
@@ -901,6 +991,7 @@ FAMILY_TOOLS = {
     "claude": ("cc", "openclaw"),
     "gemini": ("openclaw", "droid", "gemini"),
     "gpt":    ("codex", "droid"),
+    "openrouter": ("openclaw", "codex", "droid"),
 }
 
 ALL_KNOWN_PROFILES = frozenset(
@@ -908,6 +999,7 @@ ALL_KNOWN_PROFILES = frozenset(
     + list(OPENCLAW_QUOTIO_PROFILE_NAMES)
     + list(OPENCLAW_ANTIGRAVITY_PROFILE_NAMES)
     + list(DROID_QUOTIO_PROFILE_NAMES)
+    + list(OPENCLAW_OPENROUTER_PROFILE_NAMES)
 )
 
 
@@ -920,6 +1012,9 @@ def model_family(model: str) -> str:
         return "gemini"
     if m.startswith("gpt-") or m.startswith("gpt_") or m.startswith("o1") or m.startswith("o3") or m.startswith("o4"):
         return "gpt"
+    # OpenRouter model IDs contain "/" (e.g. stepfun/step-3.5-flash:free)
+    if "/" in model and (model in OPENROUTER_FREE_MODELS or model.rstrip(":free") + ":free" in OPENROUTER_FREE_MODELS):
+        return "openrouter"
     return "other"
 
 
@@ -944,9 +1039,11 @@ def get_provider_models(provider: str) -> Dict[str, Tuple[str, ...]]:
     elif provider == "antigravity":
         # Antigravity shares Quotio model set (same tunnel backend)
         models = QUOTIO_AVAILABLE_MODELS
+    elif provider == "openrouter":
+        models = OPENROUTER_FREE_MODELS
     else:
         return {}
-    result: Dict[str, list] = {"claude": [], "gemini": [], "gpt": [], "other": []}
+    result: Dict[str, list] = {"claude": [], "gemini": [], "gpt": [], "openrouter": [], "other": []}
     for m in models:
         result[model_family(m)].append(m)
     return {k: tuple(v) for k, v in result.items()}
@@ -954,6 +1051,9 @@ def get_provider_models(provider: str) -> Dict[str, Tuple[str, ...]]:
 
 def model_in_provider(model: str, provider: str) -> bool:
     """Check if a model name is in the provider's catalog."""
+    if provider == "openrouter":
+        # OpenRouter model IDs contain slashes (e.g. stepfun/step-3.5-flash:free)
+        return model in OPENROUTER_FREE_MODELS
     m = model.split("/")[-1]  # strip provider prefix
     if provider == "quotio" or provider == "antigravity":
         return m in QUOTIO_AVAILABLE_MODELS
@@ -971,7 +1071,7 @@ def tools_for_model(model: str) -> Tuple[str, ...]:
 # ----------------------------- list command ----------------------------
 def cmd_list_models(provider: str = "") -> None:
     """Print available models for one or all providers."""
-    providers = [provider] if provider else ["quotio", "duck", "antigravity"]
+    providers = [provider] if provider else ["quotio", "duck", "antigravity", "openrouter"]
 
     for prov in providers:
         catalog = get_provider_models(prov)
@@ -980,6 +1080,7 @@ def cmd_list_models(provider: str = "") -> None:
             "quotio": "Quotio",
             "duck": "DuckCoding",
             "antigravity": "Antigravity",
+            "openrouter": "OpenRouter (Free)",
         }.get(prov, prov)
         print(f"{CYAN}═══ {prov_label} 可用模型 ({total}) ═══{NC}")
 
@@ -987,6 +1088,7 @@ def cmd_list_models(provider: str = "") -> None:
             ("Claude", "claude", "cc, openclaw"),
             ("Gemini", "gemini", "openclaw, droid, gemini"),
             ("OpenAI/GPT", "gpt", "codex, droid"),
+            ("OpenRouter (Free)", "openrouter", "openclaw, codex, droid"),
             ("其他", "other", "—"),
         ]
         for label, fam, tools_hint in sections:
@@ -1062,6 +1164,7 @@ def probe_model_curl(provider: str, model: str, keys: Dict[str, str]) -> Tuple[b
         "quotio": (QUOTIO_BASE_URL_V1 + "/chat/completions", None),
         "antigravity": (ANTIGRAVITY_BASE_URL_V1 + "/chat/completions", None),
         "openai": (OPENAI_BASE_URL_V1 + "/chat/completions", XRAY_PROXY),
+        "openrouter": (OPENROUTER_BASE_URL_V1 + "/chat/completions", None),
     }
     entry = endpoint_map.get(provider)
     if not entry:
@@ -1083,6 +1186,8 @@ def probe_model_curl(provider: str, model: str, keys: Dict[str, str]) -> Tuple[b
         key = keys.get("antigravity", "")
     elif provider == "openai":
         key = keys.get("openai", "")
+    elif provider == "openrouter":
+        key = keys.get("openrouter", "")
     else:
         key = ""
 
@@ -1132,14 +1237,17 @@ def cmd_check(cfg: Config, keys: Dict[str, str], online: bool = False) -> None:
     for tool in TOOLS:
         prov = detect_provider(tool, cfg)
         model = detect_current_model(tool, cfg)
-        icon = {"duck": "🦆", "quotio": "🔗", "antigravity": "🚀", "openai": "🔑"}.get(prov, "❓")
+        icon = {"duck": "🦆", "quotio": "🔗", "antigravity": "🚀", "openai": "🔑", "openrouter": "🌐"}.get(prov, "❓")
 
         # Truncate model for display
         model_display = model if len(model) <= 32 else model[:29] + "..."
 
-        # Local catalog check
-        bare_model = model.split("/")[-1]
-        if prov in ("quotio", "antigravity", "duck"):
+        # Local catalog check — OpenRouter IDs contain slashes, extract properly
+        if prov == "openrouter" and model.startswith("openrouter/"):
+            bare_model = model[len("openrouter/"):]
+        else:
+            bare_model = model.split("/")[-1]
+        if prov in ("quotio", "antigravity", "duck", "openrouter"):
             in_catalog = model_in_provider(bare_model, prov)
             status = "✅" if in_catalog else "⚠️"
         else:
@@ -1168,7 +1276,7 @@ def validate_model_for_tool(tool: str, model: str, provider: str, force: bool = 
             f"  Compatible tools for {fam}: {', '.join(compatible) if compatible else 'none'}"
         )
 
-    if not force and provider != "openai":
+    if not force and provider not in ("openai", "openrouter"):
         bare = model.split("/")[-1]
         if not model_in_provider(bare, provider):
             raise SwitchError(
@@ -1484,6 +1592,84 @@ def antigravity_gemini_models_payload_for_models_json() -> Dict[str, Any]:
     p["models"] = models
     return p
 
+def openrouter_models_payload() -> Dict[str, Any]:
+    return {
+        "baseUrl": OPENROUTER_BASE_URL_V1,
+        "api": "openai-completions",
+        "apiKey": "",
+        "models": [
+            {
+                "id": "stepfun/step-3.5-flash:free",
+                "name": "Step 3.5 Flash (Free)",
+                "reasoning": False,
+                "input": ["text"],
+                "contextWindow": 256000,
+                "maxTokens": 32768,
+            },
+            {
+                "id": "meta-llama/llama-3.3-70b-instruct:free",
+                "name": "Llama 3.3 70B (Free)",
+                "reasoning": False,
+                "input": ["text"],
+                "contextWindow": 128000,
+                "maxTokens": 32768,
+            },
+            {
+                "id": "qwen/qwen3-coder:free",
+                "name": "Qwen3 Coder 480B A35B (Free)",
+                "reasoning": False,
+                "input": ["text"],
+                "contextWindow": 262000,
+                "maxTokens": 32768,
+            },
+            {
+                "id": "nousresearch/hermes-3-llama-3.1-405b:free",
+                "name": "Hermes 3 405B (Free)",
+                "reasoning": False,
+                "input": ["text"],
+                "contextWindow": 131072,
+                "maxTokens": 32768,
+            },
+            {
+                "id": "google/gemma-3-27b-it:free",
+                "name": "Gemma 3 27B (Free)",
+                "reasoning": False,
+                "input": ["text"],
+                "contextWindow": 131072,
+                "maxTokens": 32768,
+            },
+            {
+                "id": "openai/gpt-oss-120b:free",
+                "name": "GPT-OSS 120B (Free)",
+                "reasoning": False,
+                "input": ["text"],
+                "contextWindow": 131072,
+                "maxTokens": 32768,
+            },
+            {
+                "id": "mistralai/mistral-small-3.1-24b-instruct:free",
+                "name": "Mistral Small 3.1 24B (Free)",
+                "reasoning": False,
+                "input": ["text"],
+                "contextWindow": 128000,
+                "maxTokens": 32768,
+            },
+        ],
+    }
+
+
+def openrouter_models_payload_for_models_json() -> Dict[str, Any]:
+    p = openrouter_models_payload()
+    models = []
+    for item in p["models"]:
+        it = dict(item)
+        it["cost"] = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}
+        it["api"] = "openai-completions"
+        models.append(it)
+    p["models"] = models
+    return p
+
+
 def restart_openclaw_gateway(home: Path) -> None:
     info("Restarting OpenClaw gateway (systemd)...")
 
@@ -1631,6 +1817,22 @@ def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], profile: s
         agm["apiKey"] = a_key
         model_providers["antigravity-gemini"] = agm
 
+    elif provider == "openrouter":
+        or_key = ensure_key("OPENROUTER_API_KEY", keys["openrouter"], "required for OpenClaw openrouter")
+        target_primary, reason = resolve_openclaw_openrouter_profile(profile)
+        oc_agents["primary"] = target_primary
+        if reason:
+            info(reason)
+        info(f"OpenRouter default: {OPENROUTER_DEFAULT_MODEL} (all free models available)")
+
+        orp = openrouter_models_payload()
+        orp["apiKey"] = or_key
+        oc_providers["openrouter"] = orp
+
+        orm = openrouter_models_payload_for_models_json()
+        orm["apiKey"] = or_key
+        model_providers["openrouter"] = orm
+
     save_json(cfg.oc_config, oc)
     save_json(cfg.oc_models, models_json)
 
@@ -1719,6 +1921,21 @@ def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], profile: s
 
         info("Updated OpenClaw auth store for antigravity")
 
+    elif provider == "openrouter":
+        or_key = ensure_key("OPENROUTER_API_KEY", keys["openrouter"], "required for OpenClaw openrouter")
+
+        auth["openrouter"] = {"type": "api_key", "key": or_key}
+
+        profiles["openrouter:manual"] = {
+            "type": "token",
+            "provider": "openrouter",
+            "token": or_key,
+        }
+
+        last_good["openrouter"] = "openrouter:manual"
+
+        info("Updated OpenClaw auth store for openrouter")
+
     save_json(cfg.oc_auth, auth)
     save_json(cfg.oc_auth_profiles, auth_profiles)
 
@@ -1744,7 +1961,7 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
     backup(cfg.cx_config)
 
     text = read_text(cfg.cx_config)
-    provider_map = {"duck": "duckcoding", "quotio": "quotio", "antigravity": "antigravity", "openai": "openai-official"}
+    provider_map = {"duck": "duckcoding", "quotio": "quotio", "antigravity": "antigravity", "openai": "openai-official", "openrouter": "openrouter"}
     model_provider = provider_map[provider]
 
     if re.search(r"^\s*model_provider\s*=\s*\"[^\"]+\"\s*$", text, flags=re.M):
@@ -1867,6 +2084,34 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
             text += block
             info("Added openai-official provider to codex config")
         info("Codex → OpenAI 官方 (需要 HTTPS_PROXY 走代理)")
+
+    if provider == "openrouter":
+        # Set default model to step 3.5 flash
+        model_match_or = re.search(r'^\s*model\s*=\s*"([^"]+)"\s*$', text, flags=re.M)
+        if model_match_or:
+            text = re.sub(
+                r'^\s*model\s*=\s*"[^"]+"\s*$',
+                f'model = "{OPENROUTER_DEFAULT_MODEL}"',
+                text,
+                count=1,
+                flags=re.M,
+            )
+        else:
+            text = f'model = "{OPENROUTER_DEFAULT_MODEL}"\n' + text
+        info(f"Codex model set to {OPENROUTER_DEFAULT_MODEL}")
+
+        # ensure openrouter provider block exists
+        if not re.search(r"^\[model_providers\.openrouter\]\s*$", text, flags=re.M):
+            block = (
+                "\n\n# OpenRouter (unified API gateway, free models)\n"
+                "[model_providers.openrouter]\n"
+                'name = "openrouter"\n'
+                f'base_url = "{OPENROUTER_BASE_URL_V1}"\n'
+                'wire_api = "responses"\n'
+                'env_key = "OPENROUTER_API_KEY"\n'
+            )
+            text += block
+            info("Added openrouter provider to codex config")
 
     write_text(cfg.cx_config, text)
     ok(f"Codex → {provider}")
@@ -2043,6 +2288,21 @@ def switch_droid(provider: str, cfg: Config, keys: Dict[str, str], profile: str 
         ok(f"Droid → antigravity / {ANTIGRAVITY_DROID_MODEL} (run 'source ~/.bashrc' to apply)")
         update_gemini_cli_env(provider, cfg, keys)
 
+    elif provider == "openrouter":
+        or_key = ensure_key("OPENROUTER_API_KEY", keys["openrouter"], "required for Droid openrouter")
+        _write_factory_custom_models(cfg.factory_settings, [
+            {
+                "model": OPENROUTER_DEFAULT_MODEL,
+                "displayName": f"OpenRouter {OPENROUTER_DEFAULT_MODEL}",
+                "baseUrl": OPENROUTER_BASE_URL_V1,
+                "apiKey": or_key,
+                "provider": "openai",
+            }
+        ])
+        ok(f"Droid → openrouter / {OPENROUTER_DEFAULT_MODEL}")
+        info(f"  Written to {cfg.factory_settings}")
+        info(f"  In Droid: /model → select \"OpenRouter {OPENROUTER_DEFAULT_MODEL}\" under Custom Models")
+
 
 # ----------------------------- cli -----------------------------
 def usage() -> None:
@@ -2075,6 +2335,13 @@ def usage() -> None:
     print("")
     print(f"  tool:     {' | '.join(TOOLS_WITH_ALL)}")
     print(f"  provider: {' | '.join(PROVIDERS)}")
+    print()
+    print("  4) OpenRouter (free models):")
+    print("       switch-api openrouter              # all → OpenRouter (free)")
+    print("       switch-api codex openrouter")
+    print("       switch-api openclaw openrouter")
+    print("       switch-api openclaw openrouter llama")
+    print("       switch-api droid openrouter")
     print()
     print("  switch-api list [provider]           # 列出可用模型")
     print("  switch-api check [--online]          # 检查当前模型状态")
@@ -2150,11 +2417,12 @@ def parse_args(argv: Iterable[str]) -> Tuple[str, str, str]:
         # Decide: is arg3 a profile or a model name?
         if not is_model_name(arg3):
             # It's a known profile — validate as before
-            if tool == "openclaw" and provider in ("duck", "quotio", "antigravity"):
+            if tool == "openclaw" and provider in ("duck", "quotio", "antigravity", "openrouter"):
                 profiles = {
                     "duck": OPENCLAW_DUCK_PROFILE_NAMES,
                     "quotio": OPENCLAW_QUOTIO_PROFILE_NAMES,
                     "antigravity": OPENCLAW_ANTIGRAVITY_PROFILE_NAMES,
+                    "openrouter": OPENCLAW_OPENROUTER_PROFILE_NAMES,
                 }
                 if arg3.lower() not in profiles[provider]:
                     err(f"Unknown openclaw {provider} profile: {arg3}")
@@ -2224,6 +2492,12 @@ def main() -> int:
     if provider == "openai" and not keys["openai"]:
         raise SwitchError("OPENAI_API_KEY is not set! Edit ~/.bashrc and run: source ~/.bashrc")
 
+    if provider == "openrouter" and tool not in ("codex", "openclaw", "droid", "all"):
+        raise SwitchError(f"Provider 'openrouter' is supported for codex/openclaw/droid, not {tool}")
+
+    if provider == "openrouter" and not keys["openrouter"]:
+        raise SwitchError("OPENROUTER_API_KEY is not set! Edit ~/.bashrc and run: source ~/.bashrc")
+
     # --- Pre-flight connectivity check (skip with --force) ---
     if not force:
         reachable, reason = probe_provider(provider, keys)
@@ -2255,11 +2529,17 @@ def main() -> int:
     elif tool == "gemini":
         switch_gemini_cli(provider, cfg, keys, model=model)
     elif tool == "all":
-        switch_cc(provider, cfg, keys, model=model)
-        switch_openclaw(provider, cfg, keys, "", model=model)
-        switch_codex(provider, cfg, keys, model=model)
-        switch_droid(provider, cfg, keys, "", model=model)
-        switch_gemini_cli(provider, cfg, keys, model=model)
+        if provider == "openrouter":
+            warn("OpenRouter is OpenAI-compatible — skipping cc and gemini (not compatible)")
+            switch_openclaw(provider, cfg, keys, "", model=model)
+            switch_codex(provider, cfg, keys, model=model)
+            switch_droid(provider, cfg, keys, "", model=model)
+        else:
+            switch_cc(provider, cfg, keys, model=model)
+            switch_openclaw(provider, cfg, keys, "", model=model)
+            switch_codex(provider, cfg, keys, model=model)
+            switch_droid(provider, cfg, keys, "", model=model)
+            switch_gemini_cli(provider, cfg, keys, model=model)
     else:
         raise SwitchError(f"Unsupported tool: {tool}")
 

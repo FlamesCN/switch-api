@@ -1,27 +1,97 @@
 # switch-api
-Unified API provider switcher for `duck` and `quotio` across:
+Unified API provider switcher across:
 - Claude Code (`cc`)
 - OpenClaw (`openclaw`)
 - Codex (`codex`)
 - Droid (`droid`)
+- Gemini CLI (`gemini`)
+
+## Supported Providers
+
+| Provider | Icon | Tools | Description |
+|----------|------|-------|-------------|
+| `duck` | 🦆 | all | DuckCoding (api.duckcoding.ai) |
+| `quotio` | 🔗 | all | Quotio Tunnel (api.ancientechoes.ai) |
+| `antigravity` | 🚀 | all | Antigravity-tools (tools.ancientechoes.ai) |
+| `openai` | 🔑 | codex | OpenAI 官方 (api.openai.com via proxy) |
+| `openrouter` | 🌐 | openclaw, codex, droid | OpenRouter (openrouter.ai) — free models |
 
 ## Version
 See `VERSION`.
 
 ## Commands
-- `switch-api status`
-- `switch-api duck`
-- `switch-api quotio`
-- `switch-api all duck|quotio`
-- `switch-api cc|openclaw|codex|droid duck|quotio`
+
+### Status & Info
+```bash
+switch-api status                    # 查看各工具当前提供商
+switch-api check [--online]          # 检查当前模型状态
+switch-api list [provider]           # 列出可用模型
+```
+
+### Full Switch (all tools)
+```bash
+switch-api duck                      # 全部 → DuckCoding
+switch-api quotio                    # 全部 → Quotio
+switch-api antigravity               # 全部 → Antigravity
+switch-api openrouter                # openclaw+codex+droid → OpenRouter (free)
+```
+
+### Single Tool Switch
+```bash
+switch-api cc duck
+switch-api openclaw quotio [profile]
+switch-api codex openai
+switch-api droid quotio [profile]
+switch-api gemini duck
+```
+
+### OpenRouter (Free Models)
+```bash
+switch-api openrouter                         # 默认 stepfun/step-3.5-flash:free
+switch-api codex openrouter                   # codex → OpenRouter
+switch-api openclaw openrouter                # openclaw → step-3.5-flash
+switch-api openclaw openrouter llama          # openclaw → llama-3.3-70b
+switch-api openclaw openrouter qwen           # openclaw → qwen3-coder
+switch-api openclaw openrouter gpt-oss        # openclaw → gpt-oss-120b
+switch-api droid openrouter                   # droid → OpenRouter (customModels)
+switch-api list openrouter                    # 列出 26 个免费模型
+```
+
+**OpenRouter OpenClaw Profiles:**
+- `default` / `step` → stepfun/step-3.5-flash:free
+- `llama` → meta-llama/llama-3.3-70b-instruct:free
+- `qwen` → qwen/qwen3-coder:free
+- `gemma` → google/gemma-3-27b-it:free
+- `hermes` → nousresearch/hermes-3-llama-3.1-405b:free
+- `gpt-oss` → openai/gpt-oss-120b:free
+
+> Note: OpenRouter uses OpenAI-compatible API. `cc` (Claude Code) and `gemini` (Gemini CLI) are skipped because they require Anthropic / Google native API formats.
+
+### Model-level Switch
+```bash
+switch-api <tool> <provider> <model>          # 指定具体模型
+switch-api codex duck gpt-5.3-codex
+```
+
+## Credential Management
+- Credential store: `~/.config/switch-api/credentials.json` (mode 600)
+- Supported environment variables:
+  - `DUCK_ANTHROPIC_API_KEY`, `DUCK_GEMINI_API_KEY`, `DUCKCODING_API_KEY`
+  - `QUOTIO_API_KEY`
+  - `ANTIGRAVITY_API_KEY`
+  - `OPENAI_API_KEY`
+  - `OPENROUTER_API_KEY`
+- Keys are loaded from env → credential store (auto-merged on each run)
 
 ## Security
-- Real keys must not be committed.
-- Use local credential snapshot at: `~/.config/switch-api/credentials.json` (600).
-- `examples/credentials.example.json` is redacted placeholder only.
+- Real keys must NOT be committed.
+- `examples/credentials.example.json` is a redacted placeholder only.
 
-## Project layout
-- `bin/switch-api` - executable Python CLI
-- `docs/usage/switch-api.md` - usage guide
-- `docs/plans/WP-1.0-api-provider-switch.md` - plan/design notes
-- `examples/credentials.example.json` - redacted example
+## Project Layout
+```
+bin/switch-api                       # executable Python CLI
+docs/usage/switch-api.md             # usage guide
+docs/plans/                          # design notes
+examples/credentials.example.json   # redacted example
+skills/                              # OpenClaw skill
+```
