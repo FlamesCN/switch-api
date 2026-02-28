@@ -145,6 +145,23 @@ OPENCLAW_ANTIGRAVITY_PROFILE_NAMES = tuple(OPENCLAW_ANTIGRAVITY_PROFILE_TO_PRIMA
 
 ANTIGRAVITY_DROID_MODEL = "gemini-3.1-pro-high"
 
+# Gemini CLI: provider → base URL (SDK appends /v1beta/models/...)
+GEMINI_CLI_BASE_URLS = {
+    "duck": DUCK_BASE_URL,
+    "quotio": QUOTIO_BASE_URL,
+    "antigravity": ANTIGRAVITY_BASE_URL,
+}
+GEMINI_CLI_MODELS = {
+    "duck": "gemini-3.1-pro-preview",
+    "quotio": "gemini-3.1-pro-high",
+    "antigravity": "gemini-3.1-pro-high",
+}
+GEMINI_CLI_KEY_MAP = {
+    "duck": "duck_gemini",
+    "quotio": "quotio",
+    "antigravity": "antigravity",
+}
+
 QUOTIO_DROID_MODEL = "gemini-3.1-pro-high"
 QUOTIO_DROID_CODEX_MODEL = "gpt-5.3-codex"
 
@@ -156,8 +173,8 @@ DROID_QUOTIO_PROFILE_TO_MODEL = {
 }
 DROID_QUOTIO_PROFILE_NAMES = tuple(DROID_QUOTIO_PROFILE_TO_MODEL.keys())
 
-TOOLS = ("cc", "openclaw", "codex", "droid")
-TOOLS_WITH_ALL = ("cc", "openclaw", "codex", "droid", "all")
+TOOLS = ("cc", "openclaw", "codex", "droid", "gemini")
+TOOLS_WITH_ALL = ("cc", "openclaw", "codex", "droid", "gemini", "all")
 PROVIDERS = ("duck", "quotio", "antigravity")
 
 # OpenClaw compatibility: Gemini models don't support patternProperties in tool schema.
@@ -622,6 +639,7 @@ class Config:
         self.oc_auth_profiles = home / ".openclaw/agents/main/agent/auth-profiles.json"
         self.cx_config = home / ".codex/config.toml"
         self.factory_settings = home / ".factory/settings.json"
+        self.gemini_env = home / ".gemini/.env"
         self.bashrc = home / ".bashrc"
         self.switch_dir = home / ".config/switch-api"
         self.cred_file = self.switch_dir / "credentials.json"
@@ -674,6 +692,22 @@ def detect_provider(tool: str, cfg: Config) -> str:
         if provider == "duckcoding":
             return "duck"
         return provider
+
+
+    if tool == "gemini":
+        gemini_env = cfg.gemini_env
+        if not gemini_env.exists():
+            return "no-config"
+        text = read_text(gemini_env)
+        m = re.search(r"^GOOGLE_GEMINI_BASE_URL=(.*)$", text, re.M)
+        url = m.group(1).strip() if m else ""
+        if "tools.ancientechoes" in url:
+            return "antigravity"
+        if "ancientechoes" in url:
+            return "quotio"
+        if "duckcoding" in url:
+            return "duck"
+        return f"unknown({url})" if url else "unknown"
 
     if tool == "droid":
         base = os.environ.get("GEMINI_BASE_URL", "")
@@ -1439,6 +1473,48 @@ def _clear_factory_custom_models(settings_path: Path) -> None:
         write_text(settings_path, json.dumps(existing, indent=2) + "\n")
 
 
+
+def update_gemini_cli_env(provider: str, cfg: Config, keys: Dict[str, str]) -> None:
+    """Keep ~/.gemini/.env in sync with the current provider.
+    Ensures GOOGLE_GEMINI_BASE_URL points to the same provider as GEMINI_API_KEY in .bashrc."""
+    key_slot = GEMINI_CLI_KEY_MAP.get(provider)
+    if not key_slot:
+        return
+    api_key = keys.get(key_slot, "")
+    if not api_key:
+        warn(f"No API key for Gemini CLI ({provider}), skipping .gemini/.env update")
+        return
+    base_url = GEMINI_CLI_BASE_URLS.get(provider, DUCK_BASE_URL)
+    model = GEMINI_CLI_MODELS.get(provider, "gemini-3.1-pro-preview")
+    backup(cfg.gemini_env)
+    cfg.gemini_env.parent.mkdir(parents=True, exist_ok=True)
+    content = (
+        f"GOOGLE_GEMINI_BASE_URL={base_url}\n"
+        f"GEMINI_API_KEY={api_key}\n"
+        f"GEMINI_MODEL={model}\n"
+    )
+    write_text(cfg.gemini_env, content)
+    info(f"Synced ~/.gemini/.env → {provider} (GOOGLE_GEMINI_BASE_URL={base_url}, model={model})")
+
+
+def switch_gemini_cli(provider: str, cfg: Config, keys: Dict[str, str]) -> None:
+    """Switch Gemini CLI to a different provider.
+    Also updates .bashrc GEMINI_API_KEY (shared with Droid)."""
+    info(f"Switching Gemini CLI → {provider}")
+    key_slot = GEMINI_CLI_KEY_MAP.get(provider)
+    if not key_slot:
+        raise SwitchError(f"No Gemini CLI key mapping for provider: {provider}")
+    api_key = ensure_key(f"API key ({key_slot})", keys.get(key_slot, ""), f"required for Gemini CLI {provider}")
+
+    update_gemini_cli_env(provider, cfg, keys)
+
+    # Also update .bashrc GEMINI_API_KEY since it takes precedence over .env
+    update_bashrc_exports(cfg.bashrc, {"GEMINI_API_KEY": api_key})
+    os.environ["GEMINI_API_KEY"] = api_key
+    warn("GEMINI_API_KEY in .bashrc updated — this also affects Droid")
+    ok(f"Gemini CLI → {provider} (run 'source ~/.bashrc' to apply)")
+
+
 def switch_droid(provider: str, cfg: Config, keys: Dict[str, str], profile: str = "") -> None:
     p = profile.lower() if profile else "default"
     info(f"Switching Droid → {provider}" + (f" (profile: {p})" if p != "default" else ""))
@@ -1460,6 +1536,7 @@ def switch_droid(provider: str, cfg: Config, keys: Dict[str, str], profile: str 
         os.environ["GEMINI_API_KEY"] = d_key
         os.environ["GEMINI_MODEL"] = DUCK_DROID_MODEL
         ok(f"Droid → duck / {DUCK_DROID_MODEL} (run 'source ~/.bashrc' to apply)")
+        update_gemini_cli_env(provider, cfg, keys)
 
     elif provider == "quotio":
         q_key = ensure_key("QUOTIO_API_KEY", keys["quotio"], "required for Droid quotio")
@@ -1495,6 +1572,7 @@ def switch_droid(provider: str, cfg: Config, keys: Dict[str, str], profile: str 
             os.environ["GEMINI_API_KEY"] = q_key
             os.environ["GEMINI_MODEL"] = model
             ok(f"Droid → quotio / {model} (run 'source ~/.bashrc' to apply)")
+            update_gemini_cli_env(provider, cfg, keys)
 
     elif provider == "antigravity":
         _clear_factory_custom_models(cfg.factory_settings)
@@ -1511,6 +1589,7 @@ def switch_droid(provider: str, cfg: Config, keys: Dict[str, str], profile: str 
         os.environ["GEMINI_API_KEY"] = a_key
         os.environ["GEMINI_MODEL"] = ANTIGRAVITY_DROID_MODEL
         ok(f"Droid → antigravity / {ANTIGRAVITY_DROID_MODEL} (run 'source ~/.bashrc' to apply)")
+        update_gemini_cli_env(provider, cfg, keys)
 
 
 # ----------------------------- cli -----------------------------
@@ -1660,11 +1739,14 @@ def main() -> int:
         switch_codex(provider, cfg, keys)
     elif tool == "droid":
         switch_droid(provider, cfg, keys, profile)
+    elif tool == "gemini":
+        switch_gemini_cli(provider, cfg, keys)
     elif tool == "all":
         switch_cc(provider, cfg, keys)
         switch_openclaw(provider, cfg, keys, "")
         switch_codex(provider, cfg, keys)
         switch_droid(provider, cfg, keys, "")
+        switch_gemini_cli(provider, cfg, keys)
     else:
         raise SwitchError(f"Unsupported tool: {tool}")
 
