@@ -39,8 +39,8 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, Tuple
 
 # ----------------------------- constants -----------------------------
-DUCK_BASE_URL = "https://jp.duckcoding.com"
-DUCK_BASE_URL_V1 = "https://jp.duckcoding.com/v1"
+DUCK_BASE_URL = "https://api.duckcoding.ai"
+DUCK_BASE_URL_V1 = "https://api.duckcoding.ai/v1"
 QUOTIO_BASE_URL = "https://api.ancientechoes.ai"
 QUOTIO_BASE_URL_V1 = "https://api.ancientechoes.ai/v1"
 QUOTIO_BASE_URL_V1BETA = "https://api.ancientechoes.ai/v1beta"
@@ -287,6 +287,9 @@ OPENCLAW_ANTIGRAVITY_PROFILE_NAMES = tuple(OPENCLAW_ANTIGRAVITY_PROFILE_TO_PRIMA
 
 ANTIGRAVITY_DROID_MODEL = "gemini-3.1-pro-high"
 
+XRAY_PROXY = "http://127.0.0.1:1081"
+OPENAI_BASE_URL_V1 = "https://api.openai.com/v1"
+
 # Gemini CLI: provider → base URL (SDK appends /v1beta/models/...)
 GEMINI_CLI_BASE_URLS = {
     "duck": DUCK_BASE_URL,
@@ -324,7 +327,7 @@ PROVIDERS = ("duck", "quotio", "antigravity", "openai")
 OPENCLAW_CLAUDE_PROVIDERS = ("duck", "quotio", "antigravity")
 OPENCLAW_GEMINI_PROFILES = frozenset(("gemini", "gemini3", "gemini-3", "gemini3-pro-high"))
 
-APP_VERSION = "1.5.0"
+APP_VERSION = "2.0.0"
 
 RED = "\033[0;31m"
 GREEN = "\033[0;32m"
@@ -884,14 +887,298 @@ def show_status(cfg: Config) -> None:
             icon = "🔑"
         print(f"  {tool:<10} {icon}  {p}")
     print(f"{CYAN}═══════════════════════════{NC}")
-    print("  🦆 = DuckCoding (jp.duckcoding.com)")
+    print("  🦆 = DuckCoding (api.duckcoding.ai)")
     print("  🔗 = Quotio Tunnel (api.ancientechoes.ai)")
     print("  🚀 = Antigravity-tools (tools.ancientechoes.ai)")
     print("  🔑 = OpenAI 官方 (api.openai.com via proxy)")
 
 
+
+
+# ----------------------------- model helpers ----------------------------
+# Model family → compatible tools
+FAMILY_TOOLS = {
+    "claude": ("cc", "openclaw"),
+    "gemini": ("openclaw", "droid", "gemini"),
+    "gpt":    ("codex", "droid"),
+}
+
+ALL_KNOWN_PROFILES = frozenset(
+    list(OPENCLAW_DUCK_PROFILE_NAMES)
+    + list(OPENCLAW_QUOTIO_PROFILE_NAMES)
+    + list(OPENCLAW_ANTIGRAVITY_PROFILE_NAMES)
+    + list(DROID_QUOTIO_PROFILE_NAMES)
+)
+
+
+def model_family(model: str) -> str:
+    """Return 'claude', 'gemini', 'gpt', or 'other'."""
+    m = model.split("/")[-1]  # strip provider prefix like quotio/
+    if m.startswith("claude-") or m.startswith("claude_"):
+        return "claude"
+    if m.startswith("gemini-") or m.startswith("gemini_"):
+        return "gemini"
+    if m.startswith("gpt-") or m.startswith("gpt_") or m.startswith("o1") or m.startswith("o3") or m.startswith("o4"):
+        return "gpt"
+    return "other"
+
+
+def is_model_name(s: str) -> bool:
+    """Heuristic: is this string a model name (vs a profile name)?"""
+    if s.lower() in ALL_KNOWN_PROFILES:
+        return False
+    if s.startswith("claude-") or s.startswith("gemini-") or s.startswith("gpt-"):
+        return True
+    if "." in s:  # e.g. gpt-5.3-codex
+        return True
+    return True  # default: treat as model name
+
+
+def get_provider_models(provider: str) -> Dict[str, Tuple[str, ...]]:
+    """Return {family: (models...)} for a provider."""
+    if provider == "quotio":
+        models = QUOTIO_AVAILABLE_MODELS
+    elif provider == "duck":
+        # Merge all 3 duck keys
+        models = tuple(sorted(set(DUCK_ANTHROPIC_MODELS + DUCK_GEMINI_MODELS + DUCK_CODEX_MODELS)))
+    elif provider == "antigravity":
+        # Antigravity shares Quotio model set (same tunnel backend)
+        models = QUOTIO_AVAILABLE_MODELS
+    else:
+        return {}
+    result: Dict[str, list] = {"claude": [], "gemini": [], "gpt": [], "other": []}
+    for m in models:
+        result[model_family(m)].append(m)
+    return {k: tuple(v) for k, v in result.items()}
+
+
+def model_in_provider(model: str, provider: str) -> bool:
+    """Check if a model name is in the provider's catalog."""
+    m = model.split("/")[-1]  # strip provider prefix
+    if provider == "quotio" or provider == "antigravity":
+        return m in QUOTIO_AVAILABLE_MODELS
+    if provider == "duck":
+        return m in DUCK_ANTHROPIC_MODELS or m in DUCK_GEMINI_MODELS or m in DUCK_CODEX_MODELS
+    return False  # openai — no local catalog
+
+
+def tools_for_model(model: str) -> Tuple[str, ...]:
+    """Return which tools can use this model."""
+    fam = model_family(model)
+    return FAMILY_TOOLS.get(fam, ())
+
+
+# ----------------------------- list command ----------------------------
+def cmd_list_models(provider: str = "") -> None:
+    """Print available models for one or all providers."""
+    providers = [provider] if provider else ["quotio", "duck", "antigravity"]
+
+    for prov in providers:
+        catalog = get_provider_models(prov)
+        total = sum(len(v) for v in catalog.values())
+        prov_label = {
+            "quotio": "Quotio",
+            "duck": "DuckCoding",
+            "antigravity": "Antigravity",
+        }.get(prov, prov)
+        print(f"{CYAN}═══ {prov_label} 可用模型 ({total}) ═══{NC}")
+
+        sections = [
+            ("Claude", "claude", "cc, openclaw"),
+            ("Gemini", "gemini", "openclaw, droid, gemini"),
+            ("OpenAI/GPT", "gpt", "codex, droid"),
+            ("其他", "other", "—"),
+        ]
+        for label, fam, tools_hint in sections:
+            models = catalog.get(fam, ())
+            if not models:
+                continue
+            print(f"  {GREEN}{label}{NC} ({tools_hint}):")
+            # For duck, annotate which key
+            for m in models:
+                if prov == "duck":
+                    if m in DUCK_ANTHROPIC_MODELS:
+                        tag = " [anthropic]"
+                    elif m in DUCK_GEMINI_MODELS:
+                        tag = " [gemini]"
+                    elif m in DUCK_CODEX_MODELS:
+                        tag = " [codex]"
+                    else:
+                        tag = ""
+                    print(f"    {m}{tag}")
+                else:
+                    print(f"    {m}")
+        print()
+
+
+# ----------------------------- check command ---------------------------
+def detect_current_model(tool: str, cfg: Config) -> str:
+    """Read current model from tool config."""
+    if tool == "cc":
+        if not cfg.cc_settings.exists():
+            return "?"
+        data = load_json(cfg.cc_settings)
+        return str(data.get("model", "") or "?")
+
+    if tool == "openclaw":
+        if not cfg.oc_config.exists():
+            return "?"
+        data = load_json(cfg.oc_config)
+        return str(
+            (((data.get("agents") or {}).get("defaults") or {}).get("model") or {}).get("primary", "?")
+        )
+
+    if tool == "codex":
+        if not cfg.cx_config.exists():
+            return "?"
+        text = read_text(cfg.cx_config)
+        m = re.search(r'^\s*model\s*=\s*"([^"]+)"', text, re.M)
+        return m.group(1) if m else "?"
+
+    if tool == "droid":
+        # Check customModels first, then env
+        if cfg.factory_settings.exists():
+            data = load_json(cfg.factory_settings)
+            cms = data.get("customModels", [])
+            if cms and isinstance(cms, list) and isinstance(cms[0], dict):
+                return cms[0].get("model", "?")
+        return os.environ.get("GEMINI_MODEL", "?")
+
+    if tool == "gemini":
+        gemini_env = cfg.gemini_env
+        if not gemini_env.exists():
+            return "?"
+        text = read_text(gemini_env)
+        m = re.search(r"^GOOGLE_GEMINI_MODEL=(.*)$", text, re.M)
+        return m.group(1).strip() if m else "?"
+
+    return "?"
+
+
+def probe_model_curl(provider: str, model: str, keys: Dict[str, str]) -> Tuple[bool, str]:
+    """Online verify a model by sending a minimal chat completion via curl."""
+    endpoint_map = {
+        "duck": (DUCK_BASE_URL_V1 + "/chat/completions", None),
+        "quotio": (QUOTIO_BASE_URL_V1 + "/chat/completions", None),
+        "antigravity": (ANTIGRAVITY_BASE_URL_V1 + "/chat/completions", None),
+        "openai": (OPENAI_BASE_URL_V1 + "/chat/completions", XRAY_PROXY),
+    }
+    entry = endpoint_map.get(provider)
+    if not entry:
+        return False, f"unknown provider: {provider}"
+    url, proxy = entry
+
+    # Pick the right API key
+    fam = model_family(model)
+    if provider == "duck":
+        if fam == "claude":
+            key = keys.get("duck_anthropic", "")
+        elif fam == "gemini":
+            key = keys.get("duck_gemini", "")
+        else:
+            key = keys.get("duck_codex", "")
+    elif provider == "quotio":
+        key = keys.get("quotio", "")
+    elif provider == "antigravity":
+        key = keys.get("antigravity", "")
+    elif provider == "openai":
+        key = keys.get("openai", "")
+    else:
+        key = ""
+
+    if not key:
+        return False, "no API key"
+
+    payload = json.dumps({
+        "model": model.split("/")[-1],
+        "messages": [{"role": "user", "content": "hi"}],
+        "max_tokens": 1,
+    })
+
+    cmd = ["curl", "-s", "-w", "\n%{http_code}", "-X", "POST", url,
+           "-H", f"Authorization: Bearer {key}",
+           "-H", "Content-Type: application/json",
+           "-d", payload,
+           "--max-time", "10"]
+    if proxy:
+        cmd.extend(["--proxy", proxy])
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        lines = result.stdout.strip().rsplit("\n", 1)
+        if len(lines) == 2:
+            body, code = lines
+        else:
+            body, code = result.stdout.strip(), "0"
+        code = code.strip()
+        if code.startswith("2"):
+            return True, ""
+        # Parse error
+        try:
+            err_data = json.loads(body)
+            err_msg = err_data.get("error", {}).get("message", body[:80]) if isinstance(err_data.get("error"), dict) else str(err_data.get("error", body[:80]))
+        except Exception:
+            err_msg = body[:80]
+        return False, f"HTTP {code}: {err_msg}"
+    except subprocess.TimeoutExpired:
+        return False, "timeout"
+    except Exception as e:
+        return False, str(e)
+
+
+def cmd_check(cfg: Config, keys: Dict[str, str], online: bool = False) -> None:
+    """Show current model status for each tool, optionally with online verification."""
+    print(f"{CYAN}═══ Model Status {'(online)' if online else ''} ═══{NC}")
+    for tool in TOOLS:
+        prov = detect_provider(tool, cfg)
+        model = detect_current_model(tool, cfg)
+        icon = {"duck": "🦆", "quotio": "🔗", "antigravity": "🚀", "openai": "🔑"}.get(prov, "❓")
+
+        # Truncate model for display
+        model_display = model if len(model) <= 32 else model[:29] + "..."
+
+        # Local catalog check
+        bare_model = model.split("/")[-1]
+        if prov in ("quotio", "antigravity", "duck"):
+            in_catalog = model_in_provider(bare_model, prov)
+            status = "✅" if in_catalog else "⚠️"
+        else:
+            status = "—"
+
+        if online and prov in ("quotio", "antigravity", "duck", "openai"):
+            ok, reason = probe_model_curl(prov, bare_model, keys)
+            if ok:
+                status = "✅ online"
+            else:
+                status = f"❌ {reason[:30]}"
+
+        print(f"  {tool:<10} {icon} {prov:<14} {model_display:<34} {status}")
+    print(f"{CYAN}═══════════════════════════════════════════════════════════{NC}")
+
+
+# ----------------------------- model-level switch ----------------------
+def validate_model_for_tool(tool: str, model: str, provider: str, force: bool = False) -> None:
+    """Validate model compatibility. Raises SwitchError on failure."""
+    fam = model_family(model)
+    compatible = FAMILY_TOOLS.get(fam, ())
+
+    if tool not in compatible:
+        raise SwitchError(
+            f"Model '{model}' (family: {fam}) is not compatible with tool '{tool}'.\n"
+            f"  Compatible tools for {fam}: {', '.join(compatible) if compatible else 'none'}"
+        )
+
+    if not force and provider != "openai":
+        bare = model.split("/")[-1]
+        if not model_in_provider(bare, provider):
+            raise SwitchError(
+                f"Model '{bare}' not found in {provider} catalog.\n"
+                f"  Run: switch-api list {provider}\n"
+                f"  Or use --force to skip this check."
+            )
+
 # ----------------------------- switchers -----------------------------
-def switch_cc(provider: str, cfg: Config, keys: Dict[str, str]) -> None:
+def switch_cc(provider: str, cfg: Config, keys: Dict[str, str], model: str = "") -> None:
     info(f"Switching Claude Code → {provider}")
     backup(cfg.cc_settings)
 
@@ -1236,7 +1523,7 @@ def restart_openclaw_gateway(home: Path) -> None:
         warn("OpenClaw gateway may not have started — check: sudo systemctl status openclaw")
 
 
-def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], profile: str = "") -> None:
+def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], profile: str = "", model: str = "") -> None:
     info(f"Switching OpenClaw → {provider}")
 
     # --- Snapshot current configs for rollback ---
@@ -1452,7 +1739,7 @@ def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], profile: s
     ok(f"OpenClaw → {provider}")
 
 
-def switch_codex(provider: str, cfg: Config, keys: Dict[str, str]) -> None:
+def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = "") -> None:
     info(f"Switching Codex → {provider}")
     backup(cfg.cx_config)
 
@@ -1662,7 +1949,7 @@ def update_gemini_cli_env(provider: str, cfg: Config, keys: Dict[str, str]) -> N
     info(f"Synced ~/.gemini/.env → {provider} (GOOGLE_GEMINI_BASE_URL={base_url}, model={model})")
 
 
-def switch_gemini_cli(provider: str, cfg: Config, keys: Dict[str, str]) -> None:
+def switch_gemini_cli(provider: str, cfg: Config, keys: Dict[str, str], model: str = "") -> None:
     """Switch Gemini CLI to a different provider.
     Also updates .bashrc GEMINI_API_KEY (shared with Droid)."""
     info(f"Switching Gemini CLI → {provider}")
@@ -1680,7 +1967,7 @@ def switch_gemini_cli(provider: str, cfg: Config, keys: Dict[str, str]) -> None:
     ok(f"Gemini CLI → {provider} (run 'source ~/.bashrc' to apply)")
 
 
-def switch_droid(provider: str, cfg: Config, keys: Dict[str, str], profile: str = "") -> None:
+def switch_droid(provider: str, cfg: Config, keys: Dict[str, str], profile: str = "", model: str = "") -> None:
     p = profile.lower() if profile else "default"
     info(f"Switching Droid → {provider}" + (f" (profile: {p})" if p != "default" else ""))
 
@@ -1788,9 +2075,17 @@ def usage() -> None:
     print("")
     print(f"  tool:     {' | '.join(TOOLS_WITH_ALL)}")
     print(f"  provider: {' | '.join(PROVIDERS)}")
+    print()
+    print("  switch-api list [provider]           # 列出可用模型")
+    print("  switch-api check [--online]          # 检查当前模型状态")
+    print("  switch-api <tool> <provider> <model> # 指定模型切换")
 
 
 def parse_args(argv: Iterable[str]) -> Tuple[str, str, str]:
+    """Returns (action, provider, profile_or_model).
+    action can be: status, check, check-online, list, list-<provider>,
+                   or a tool name (cc/openclaw/codex/droid/gemini/all).
+    """
     args = list(argv)
 
     if not args:
@@ -1807,6 +2102,10 @@ def parse_args(argv: Iterable[str]) -> Tuple[str, str, str]:
             raise SystemExit(0)
         if a0 == "status":
             return ("status", "", "")
+        if a0 == "check":
+            return ("check", "", "")
+        if a0 == "list":
+            return ("list", "", "")
         if a0 in PROVIDERS:
             return ("all", a0, "")
 
@@ -1815,7 +2114,30 @@ def parse_args(argv: Iterable[str]) -> Tuple[str, str, str]:
         raise SystemExit(1)
 
     if len(args) == 2:
-        tool, provider = args
+        a0, a1 = args
+        # list <provider>
+        if a0 == "list":
+            if a1 in PROVIDERS or a1 in ("duck", "quotio", "antigravity"):
+                return ("list", a1, "")
+            err(f"Unknown provider for list: {a1}")
+            raise SystemExit(1)
+        # check --online / check online
+        if a0 == "check" and a1 in ("--online", "online"):
+            return ("check-online", "", "")
+        # <tool> <provider>
+        if a0 in TOOLS_WITH_ALL:
+            if a1 not in PROVIDERS:
+                err(f"Unknown provider: {a1} (use: {', '.join(PROVIDERS)})")
+                usage()
+                raise SystemExit(1)
+            return (a0, a1, "")
+
+        err(f"Unknown command: {a0} {a1}")
+        usage()
+        raise SystemExit(1)
+
+    if len(args) == 3:
+        tool, provider, arg3 = args
         if tool not in TOOLS_WITH_ALL:
             err(f"Unknown tool: {tool}")
             usage()
@@ -1824,34 +2146,34 @@ def parse_args(argv: Iterable[str]) -> Tuple[str, str, str]:
             err(f"Unknown provider: {provider} (use: {', '.join(PROVIDERS)})")
             usage()
             raise SystemExit(1)
-        return (tool, provider, "")
 
-    if len(args) == 3:
-        tool, provider, profile = args
-        if tool == "openclaw" and provider in ("duck", "quotio", "antigravity"):
-            if provider == "duck" and profile.lower() not in OPENCLAW_DUCK_PROFILE_NAMES:
-                err(f"Unknown openclaw duck profile: {profile}")
+        # Decide: is arg3 a profile or a model name?
+        if not is_model_name(arg3):
+            # It's a known profile — validate as before
+            if tool == "openclaw" and provider in ("duck", "quotio", "antigravity"):
+                profiles = {
+                    "duck": OPENCLAW_DUCK_PROFILE_NAMES,
+                    "quotio": OPENCLAW_QUOTIO_PROFILE_NAMES,
+                    "antigravity": OPENCLAW_ANTIGRAVITY_PROFILE_NAMES,
+                }
+                if arg3.lower() not in profiles[provider]:
+                    err(f"Unknown openclaw {provider} profile: {arg3}")
+                    usage()
+                    raise SystemExit(1)
+                return (tool, provider, arg3)
+            elif tool == "droid" and provider == "quotio":
+                if arg3.lower() not in DROID_QUOTIO_PROFILE_NAMES:
+                    err(f"Unknown droid quotio profile: {arg3} (available: {', '.join(DROID_QUOTIO_PROFILE_NAMES)})")
+                    usage()
+                    raise SystemExit(1)
+                return (tool, provider, arg3)
+            else:
+                err(f"Profiles only supported for: openclaw|droid <provider> <profile>")
                 usage()
                 raise SystemExit(1)
-            if provider == "quotio" and profile.lower() not in OPENCLAW_QUOTIO_PROFILE_NAMES:
-                err(f"Unknown openclaw quotio profile: {profile}")
-                usage()
-                raise SystemExit(1)
-            if provider == "antigravity" and profile.lower() not in OPENCLAW_ANTIGRAVITY_PROFILE_NAMES:
-                err(f"Unknown openclaw antigravity profile: {profile}")
-                usage()
-                raise SystemExit(1)
-            return (tool, provider, profile)
-        elif tool == "droid" and provider == "quotio":
-            if profile.lower() not in DROID_QUOTIO_PROFILE_NAMES:
-                err(f"Unknown droid quotio profile: {profile} (available: {', '.join(DROID_QUOTIO_PROFILE_NAMES)})")
-                usage()
-                raise SystemExit(1)
-            return (tool, provider, profile)
         else:
-            err("Three-argument mode supports: switch-api openclaw|droid <provider> <profile>")
-            usage()
-            raise SystemExit(1)
+            # Model-level switch: return with @model: prefix to distinguish
+            return (tool, provider, "@model:" + arg3)
 
     err("Too many arguments")
     usage()
@@ -1876,6 +2198,18 @@ def main() -> int:
 
     if tool == "status":
         show_status(cfg)
+        return 0
+
+    if tool == "list":
+        cmd_list_models(provider)
+        return 0
+
+    if tool == "check":
+        cmd_check(cfg, keys, online=False)
+        return 0
+
+    if tool == "check-online":
+        cmd_check(cfg, keys, online=True)
         return 0
 
     if provider == "quotio" and not keys["quotio"]:
@@ -1903,22 +2237,29 @@ def main() -> int:
     else:
         warn("Pre-flight check skipped (--force)")
 
+    # Detect model-level switch
+    model = ""
+    if profile.startswith("@model:"):
+        model = profile[7:]
+        profile = ""
+        validate_model_for_tool(tool, model, provider, force)
+
     if tool == "cc":
-        switch_cc(provider, cfg, keys)
+        switch_cc(provider, cfg, keys, model=model)
     elif tool == "openclaw":
-        switch_openclaw(provider, cfg, keys, profile)
+        switch_openclaw(provider, cfg, keys, profile, model=model)
     elif tool == "codex":
-        switch_codex(provider, cfg, keys)
+        switch_codex(provider, cfg, keys, model=model)
     elif tool == "droid":
-        switch_droid(provider, cfg, keys, profile)
+        switch_droid(provider, cfg, keys, profile, model=model)
     elif tool == "gemini":
-        switch_gemini_cli(provider, cfg, keys)
+        switch_gemini_cli(provider, cfg, keys, model=model)
     elif tool == "all":
-        switch_cc(provider, cfg, keys)
-        switch_openclaw(provider, cfg, keys, "")
-        switch_codex(provider, cfg, keys)
-        switch_droid(provider, cfg, keys, "")
-        switch_gemini_cli(provider, cfg, keys)
+        switch_cc(provider, cfg, keys, model=model)
+        switch_openclaw(provider, cfg, keys, "", model=model)
+        switch_codex(provider, cfg, keys, model=model)
+        switch_droid(provider, cfg, keys, "", model=model)
+        switch_gemini_cli(provider, cfg, keys, model=model)
     else:
         raise SwitchError(f"Unsupported tool: {tool}")
 

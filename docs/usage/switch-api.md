@@ -24,7 +24,7 @@
 
 ## Provider 说明
 
-- **duck** — DuckCoding 中转 `https://jp.duckcoding.com`，支持 Claude Opus / Gemini 3 / GPT 等
+- **duck** — DuckCoding 中转 `https://api.duckcoding.ai`，支持 Claude Opus / Gemini 3 / GPT 等
   - 三个独立 API Key：`duck_anthropic`（Claude）、`duck_gemini`（Gemini）、`duck_codex`（Codex）
 - **quotio** — Quotio 本地隧道 `https://api.ancientechoes.ai`，支持 Claude Opus / Gemini 3 / OpenAI GPT-5 系列
   - 依赖本地电脑运行 Quotio (port 8317) + Cloudflare Tunnel
@@ -90,7 +90,7 @@
 
 ## 命令行用法
 
-脚本位置：`~/bin/switch-api`（Python 脚本，v1.5.0）
+脚本位置：`~/bin/switch-api`（Python 脚本，v2.0.0）
 
 ### 语法
 
@@ -132,7 +132,11 @@ switch-api status
 
 ```bash
 # ─── 查看状态 ───────────────────────────────────
-switch-api status
+switch-api status                            # 查看当前 provider
+switch-api check                             # 查看当前各工具模型状态
+switch-api check --online                    # 在线验证模型可用性
+switch-api list                              # 列出所有 provider 可用模型
+switch-api list quotio                       # 列出指定 provider 可用模型
 
 # ─── 全部切换 ───────────────────────────────────
 switch-api duck                # 全部 → DuckCoding
@@ -178,6 +182,23 @@ switch-api droid antigravity                # Antigravity Gemini
 /switch duck                      → 全部切到 DuckCoding
 /switch quotio                    → 全部切到 Quotio
 /switch antigravity               → 全部切到 Antigravity-tools
+```
+
+### 查看模型
+
+```
+/switch list                      → 列出所有 provider 可用模型
+/switch list quotio               → 列出 Quotio 可用模型
+/switch check                     → 查看当前各工具模型状态
+/switch check online              → 在线验证模型可用性
+```
+
+### 模型级切换
+
+```
+/switch codex quotio gpt-5.3-codex
+/switch droid quotio gpt-5.3-codex
+/switch openclaw quotio claude-sonnet-4-6
 ```
 
 ### 只切某个工具
@@ -277,10 +298,29 @@ OpenClaw 工具 schema 使用 `patternProperties`，Gemini API 不支持此特�
   codex      🚀  antigravity
   droid      🚀  antigravity
 ═══════════════════════════
-  🦆 = DuckCoding (jp.duckcoding.com)
+  🦆 = DuckCoding (api.duckcoding.ai)
   🔗 = Quotio Tunnel (api.ancientechoes.ai)
   🚀 = Antigravity-tools (tools.ancientechoes.ai)
 ```
+
+---
+
+## 工具 × 模型兼容矩阵
+
+模型级切换时，必须指定工具。不兼容的组合会报错。
+
+- **cc** (Claude Code): 仅 `claude-*` 模型 — 切 GPT/Gemini 时 cc 保持不动
+- **openclaw**: `claude-*` + `gemini-*`
+- **codex**: 仅 `gpt-*` 模型 — 切 Claude/Gemini 时 codex 保持不动
+- **droid**: `gemini-*`（默认）+ `gpt-*`（codex profile）
+- **gemini**: 仅 `gemini-*`
+
+### 模型级切换验证流程
+
+1. 检查模型是否在 provider 目录中（`switch-api list <provider>` 查看）
+2. 不在目录 → 报错（用 `--force` 跳过）
+3. 检查工具是否兼容该模型 family → 不兼容则报错
+4. 执行切换
 
 ---
 

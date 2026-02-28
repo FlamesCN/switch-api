@@ -1,6 +1,6 @@
 # WP-2.0 模型级切换 + 列表/检查功能
 
-> **状态**: 📋 规划中  
+> **状态**: ✅ 已实现  
 > **创建日期**: 2026-02-28  
 > **前置**: WP-1.0 API Provider 切换系统（已实现）
 
@@ -92,7 +92,7 @@ Provider 模型目录常量：
 **在线验证关键约束：**
 - **必须走 provider 的 API 路径**，不能直接从服务器发请求
 - Quotio → `curl https://api.ancientechoes.ai/v1/chat/completions`
-- Duck → `curl https://jp.duckcoding.com/v1/chat/completions`
+- Duck → `curl https://api.duckcoding.ai/v1/chat/completions`
 - Antigravity → `curl https://tools.ancientechoes.ai/v1/chat/completions`
 - **OpenAI 官方 → `curl --proxy http://127.0.0.1:1081 https://api.openai.com/v1/chat/completions`**
 - 统一用 `subprocess.run(["curl", ...])` 发请求（避免 urllib 被 Cloudflare 拦截）
