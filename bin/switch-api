@@ -45,8 +45,9 @@ QUOTIO_BASE_URL = "https://api.ancientechoes.ai"
 QUOTIO_BASE_URL_V1 = "https://api.ancientechoes.ai/v1"
 QUOTIO_BASE_URL_V1BETA = "https://api.ancientechoes.ai/v1beta"
 
-# Quotio model catalog (recorded for switch-time validation)
+# Quotio model catalog (fetched 2026-02-28)
 QUOTIO_AVAILABLE_MODELS = (
+    # Antigravity (Claude / Gemini / misc)
     "claude-opus-4-6-thinking",
     "claude-sonnet-4-6",
     "gemini-2.5-flash",
@@ -59,6 +60,18 @@ QUOTIO_AVAILABLE_MODELS = (
     "gpt-oss-120b-medium",
     "tab_flash_lite_preview",
     "tab_jump_flash_lite_preview",
+    # OpenAI (新增)
+    "gpt-5",
+    "gpt-5-codex",
+    "gpt-5-codex-mini",
+    "gpt-5.1",
+    "gpt-5.1-codex",
+    "gpt-5.1-codex-max",
+    "gpt-5.1-codex-mini",
+    "gpt-5.2",
+    "gpt-5.2-codex",
+    "gpt-5.3-codex",
+    "gpt-5.3-codex-spark",
 )
 
 # DuckCoding model catalogs per key (fetched 2026-02-28)

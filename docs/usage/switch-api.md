@@ -26,7 +26,7 @@
 
 - **duck** — DuckCoding 中转 `https://jp.duckcoding.com`，支持 Claude Opus / Gemini 3 / GPT 等
   - 三个独立 API Key：`duck_anthropic`（Claude）、`duck_gemini`（Gemini）、`duck_codex`（Codex）
-- **quotio** — Quotio 本地隧道 `https://api.ancientechoes.ai`，支持 Claude Opus / Gemini 3 等
+- **quotio** — Quotio 本地隧道 `https://api.ancientechoes.ai`，支持 Claude Opus / Gemini 3 / OpenAI GPT-5 系列
   - 依赖本地电脑运行 Quotio (port 8317) + Cloudflare Tunnel
 - **antigravity** — Antigravity-tools `https://tools.ancientechoes.ai`，支持 Claude / Gemini 全系列
   - 依赖本地电脑运行 antigravity-tools (port 8045) + Cloudflare Tunnel
@@ -51,6 +51,32 @@
 **其他：**
 - `gpt-oss-120b-medium`
 - 更多模型详见 `/v1/models` 接口
+
+## Quotio 可用模型（2026-02-28 更新）
+
+**Claude 系列：**
+- `claude-opus-4-6-thinking`
+- `claude-sonnet-4-6`
+
+**Gemini 系列：**
+- `gemini-2.5-flash`
+- `gemini-2.5-flash-lite`
+- `gemini-3-flash`
+- `gemini-3-pro-high`
+- `gemini-3.1-flash-image`
+- `gemini-3.1-pro-high`
+- `gemini-3.1-pro-low`
+
+**OpenAI 系列（新增）：**
+- `gpt-5`
+- `gpt-5-codex` / `gpt-5-codex-mini`
+- `gpt-5.1` / `gpt-5.1-codex` / `gpt-5.1-codex-max` / `gpt-5.1-codex-mini`
+- `gpt-5.2` / `gpt-5.2-codex`
+- `gpt-5.3-codex` / `gpt-5.3-codex-spark`
+
+**其他：**
+- `gpt-oss-120b-medium`
+- `tab_flash_lite_preview` / `tab_jump_flash_lite_preview`
 
 ## 工具说明
 
