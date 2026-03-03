@@ -982,6 +982,8 @@ def detect_provider(tool: str, cfg: Config) -> str:
                         return "openrouter"
                     if "ai-wave.org" in cm_url:
                         return "aiwave"
+                    if "api.openai.com" in cm_url:
+                        return "openai"
                     if "duckcoding" in cm_url:
                         # Distinguish duck vs duck_cc1 by key
                         cred_store = load_credential_store(cfg.cred_file) if cfg.cred_file.exists() else {}
@@ -2388,6 +2390,23 @@ def switch_droid(provider: str, cfg: Config, keys: Dict[str, str], profile: str 
         info(f"  Written to {cfg.factory_settings}")
         info(f"  In Droid: /model → select \"AI Wave {droid_model}\" under Custom Models")
 
+    elif provider == "openai":
+        oa_key = ensure_key("OPENAI_API_KEY", keys["openai"], "required for Droid openai")
+        droid_model = model or "gpt-5.3-codex"
+        _write_factory_custom_models(cfg.factory_settings, [
+            {
+                "model": droid_model,
+                "displayName": f"OpenAI {droid_model}",
+                "baseUrl": OPENAI_BASE_URL_V1,
+                "apiKey": oa_key,
+                "provider": "openai",
+            }
+        ])
+        ok(f"Droid → openai / {droid_model}")
+        info(f"  Written to {cfg.factory_settings}")
+        info(f"  In Droid: /model → select \"OpenAI {droid_model}\" under Custom Models")
+        warn(f"需要 HTTPS_PROXY 走代理 ({XRAY_PROXY})")
+
 
 # ----------------------------- cli -----------------------------
 def usage() -> None:
@@ -2571,8 +2590,8 @@ def main() -> int:
     if provider == "antigravity" and not keys["antigravity"]:
         raise SwitchError("ANTIGRAVITY_API_KEY is not set! Edit ~/.bashrc and run: source ~/.bashrc")
 
-    if provider == "openai" and tool not in ("codex",):
-        raise SwitchError(f"Provider 'openai' is only supported for codex, not {tool}")
+    if provider == "openai" and tool not in ("codex", "droid"):
+        raise SwitchError(f"Provider 'openai' is only supported for codex/droid, not {tool}")
 
     if provider == "openai" and not keys["openai"]:
         raise SwitchError("OPENAI_API_KEY is not set! Edit ~/.bashrc and run: source ~/.bashrc")
