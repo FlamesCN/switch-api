@@ -266,8 +266,7 @@ AIWAVE_GEMINI_BASE_URL = "https://api.ai-wave.org/gemini"
 AIWAVE_DROID_CODEX_MODEL = "gpt-5.3-codex"
 AIWAVE_GEMINI_MODEL = "gemini-3.1-pro-preview"
 
-# duck_cc1: reuse duck URL with separate key; default codex model for droid
-DUCK_CC1_DROID_CODEX_MODEL = "gpt-5.3-codex"
+# duck_cc1: Claude Code专用 key on duck — only supports cc (no codex/GPT access)
 
 ANTIGRAVITY_AVAILABLE_MODELS = (
     "claude-opus-4-6-thinking",
@@ -385,7 +384,7 @@ TOOLS_WITH_ALL = ("cc", "openclaw", "codex", "droid", "gemini", "all")
 PROVIDERS = ("duck", "quotio", "antigravity", "openai", "openrouter", "aiwave", "duck_cc1")
 
 # CC-only providers: these providers only support Claude Code
-CC_ONLY_PROVIDERS = ()  # duck_cc1 now also supports droid
+CC_ONLY_PROVIDERS = ("duck_cc1",)
 
 # OpenClaw compatibility: Gemini models don't support patternProperties in tool schema.
 # All three providers have Claude models; Gemini profiles get a warning.
@@ -2389,22 +2388,6 @@ def switch_droid(provider: str, cfg: Config, keys: Dict[str, str], profile: str 
         info(f"  Written to {cfg.factory_settings}")
         info(f"  In Droid: /model → select \"AI Wave {droid_model}\" under Custom Models")
 
-    elif provider == "duck_cc1":
-        dc1_key = ensure_key("DUCK_CC1_API_KEY", keys["duck_cc1"], "required for Droid duck_cc1")
-        droid_model = model or DUCK_CC1_DROID_CODEX_MODEL
-        _write_factory_custom_models(cfg.factory_settings, [
-            {
-                "model": droid_model,
-                "displayName": f"DuckCC1 {droid_model}",
-                "baseUrl": DUCK_BASE_URL_V1,
-                "apiKey": dc1_key,
-                "provider": "openai",
-            }
-        ])
-        ok(f"Droid → duck_cc1 codex / {droid_model}")
-        info(f"  Written to {cfg.factory_settings}")
-        info(f"  In Droid: /model → select \"DuckCC1 {droid_model}\" under Custom Models")
-
 
 # ----------------------------- cli -----------------------------
 def usage() -> None:
@@ -2606,8 +2589,8 @@ def main() -> int:
     if provider == "aiwave" and not keys["aiwave"]:
         raise SwitchError("AIWAVE_API_KEY is not set! Edit ~/.env and run: source ~/.zshrc")
 
-    if provider == "duck_cc1" and tool not in ("cc", "droid"):
-        raise SwitchError(f"Provider 'duck_cc1' is supported for cc/droid, not {tool}")
+    if provider == "duck_cc1" and tool not in ("cc",):
+        raise SwitchError(f"Provider 'duck_cc1' is CC-only (Claude Code专用 key, 无 codex/GPT 权限), not {tool}")
 
     if provider == "duck_cc1" and not keys["duck_cc1"]:
         raise SwitchError("DUCK_CC1_API_KEY is not set! Edit ~/.env and run: source ~/.zshrc")
