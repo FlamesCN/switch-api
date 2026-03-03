@@ -169,7 +169,8 @@ switch-api codex antigravity
 # ─── 只切 Droid ────────────────────────────────
 switch-api droid duck                       # Duck Gemini
 switch-api droid quotio                     # Quotio Gemini (默认)
-switch-api droid quotio codex               # Quotio GPT-5.3 Codex ⭐
+switch-api droid quotio codex               # Quotio GPT-5.3 Codex (profile)
+switch-api droid quotio gpt-5.3-codex       # Quotio GPT-5.3 Codex (直接指定) ⭐
 switch-api droid antigravity                # Antigravity Gemini
 
 # ─── Quotio Local (本地 Quotio app, 127.0.0.1:8317) ───
@@ -325,17 +326,44 @@ OpenClaw 工具 schema 使用 `patternProperties`，Gemini API 不支持此特�
 
 ### Droid 映射
 - duck → `GEMINI_MODEL=gemini-3.1-pro-preview`（env vars）
-- quotio → `GEMINI_MODEL=gemini-3.1-pro-high`（env vars，默认）
-- quotio codex → `gpt-5.3-codex`（写入 `~/.factory/settings.json` customModels，OpenAI provider）
+- quotio → `GEMINI_MODEL=gemini-3.1-pro-high`（env vars，无模型参数时默认 Gemini）
+- quotio + 模型 → 如 `gpt-5.3-codex`（写入 customModels + 自动设置默认，同 quotio_local 逻辑）
+- quotio codex → `gpt-5.3-codex`（profile 写法，同上）
 - quotio_local → `gpt-5.3-codex`（写入 `~/.factory/settings.json` customModels，本地 127.0.0.1:8317）
 - antigravity → `GEMINI_MODEL=gemini-3.1-pro-high`（env vars）
 - openrouter → `stepfun/step-3.5-flash:free`（写入 `~/.factory/settings.json` customModels）
 - openai / openai_Gq80 / openai_V420 → `gpt-5.3-codex`（写入 customModels，需代理）
 
-> **Droid codex/quotio_local/openrouter/openai** 模型使用 OpenAI 协议，无法通过 GEMINI_* 环境变量配置。
-> 切换时脚本写入 `~/.factory/settings.json` 的 `customModels` 字段。
-> 在 Droid 中通过 `/model` 选择对应 Custom Models。
-> 切换回 Gemini profile（如 `switch-api droid quotio`）时自动清除 customModels。
+> **Droid codex/quotio/quotio_local/openrouter/openai** 模型使用 OpenAI 协议，无法通过 GEMINI_* 环境变量配置。
+> 切换时脚本写入 `~/.factory/settings.json` 的 `customModels` 字段，并自动更新 `sessionDefaultSettings.model`。
+> 交互模式无需手动选模型，打开 Droid 即自动使用。
+> 切换回 Gemini profile（如 `switch-api droid quotio`，不带模型参数）时自动清除 customModels 和 custom 默认值。
+
+---
+
+## Droid 非交互模式
+
+切换 provider 后，Droid 交互模式自动使用新模型（`sessionDefaultSettings.model` 已更新）。
+
+非交互模式通过 `-m` 参数指定 custom model ID：
+
+```bash
+# 格式: custom:{displayName 中空格替换为 -}-0
+droid exec -m "custom:Quotio-gpt-5.3-codex-0" "分析当前目录的代码结构"
+droid exec -m "custom:Quotio-Local-gpt-5.3-codex-0" "重构 main.py"
+droid exec -m "custom:OpenRouter-stepfun/step-3.5-flash:free-0" "解释这段代码"
+```
+
+**常用 custom model ID**：
+
+| Provider | 模型 | Custom ID |
+|----------|------|-----------|
+| quotio | gpt-5.3-codex | `custom:Quotio-gpt-5.3-codex-0` |
+| quotio_local | gpt-5.3-codex | `custom:Quotio-Local-gpt-5.3-codex-0` |
+| openrouter | step-3.5-flash:free | `custom:OpenRouter-stepfun/step-3.5-flash:free-0` |
+| openai_Gq80 | gpt-5.3-codex | `custom:OpenAI[Gq80]-gpt-5.3-codex-0` |
+
+> ID 生成规则：`custom:{displayName.replace(" ", "-")}-{index}`，其中 index 是 customModels 数组下标（通常为 0）。
 
 ---
 

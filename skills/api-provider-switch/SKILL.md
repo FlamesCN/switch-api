@@ -95,8 +95,8 @@ switch-api <tool> <provider> <model>
 
 # 示例
 switch-api codex quotio gpt-5.3-codex
-switch-api droid quotio gpt-5.3-codex
-switch-api droid quotio_local gpt-5.3-codex-high  # 高思考
+switch-api droid quotio gpt-5.3-codex         # Quotio 互联网直连
+switch-api droid quotio_local gpt-5.3-codex-high  # 本地代理 + 高思考
 switch-api openclaw quotio claude-sonnet-4-6
 switch-api cc duck claude-opus-4-6
 switch-api gemini quotio gemini-3.1-pro-high
@@ -112,6 +112,24 @@ GPT 模型后缀控制思考等级：
 - `-xhigh` = 超高思考
 
 > 注意：`-max` 是 5.1 系列独有模型变体，不是思考等级。
+
+### Droid 非交互模式
+
+切换后 Droid 会自动设置 `sessionDefaultSettings.model`，交互模式直接生效。
+
+非交互模式使用 `-m` 指定 custom model ID：
+
+```bash
+# 格式: custom:{displayName 空格替换为 -}-0
+droid exec -m "custom:Quotio-gpt-5.3-codex-0" "你的 prompt"
+
+# 其他 provider 同理
+droid exec -m "custom:Quotio-Local-gpt-5.3-codex-0" "prompt"
+droid exec -m "custom:OpenRouter-stepfun/step-3.5-flash:free-0" "prompt"
+```
+
+> 切换 provider 时脚本自动更新 `~/.factory/settings.json` 的 `sessionDefaultSettings.model`，
+> 切回 Gemini provider 时自动清除 custom 默认值。
 
 ## 决策流程
 

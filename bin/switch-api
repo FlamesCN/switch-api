@@ -2272,7 +2272,8 @@ def update_bashrc_exports(bashrc: Path, updates: Dict[str, str]) -> None:
 
 
 def _write_factory_custom_models(settings_path: Path, models: list) -> None:
-    """Write customModels to ~/.factory/settings.json, preserving other keys."""
+    """Write customModels to ~/.factory/settings.json, preserving other keys.
+    Also updates sessionDefaultSettings.model to auto-select the first custom model."""
     existing: Dict[str, Any] = {}
     if settings_path.exists():
         try:
@@ -2280,22 +2281,38 @@ def _write_factory_custom_models(settings_path: Path, models: list) -> None:
         except (json.JSONDecodeError, OSError):
             pass
     existing["customModels"] = models
+    # Auto-set default model to the first custom model
+    if models and isinstance(models[0], dict) and models[0].get("displayName"):
+        display_name = models[0]["displayName"]
+        custom_id = f"custom:{display_name.replace(' ', '-')}-0"
+        session_defaults = existing.setdefault("sessionDefaultSettings", {})
+        session_defaults["model"] = custom_id
+        info(f"  sessionDefaultSettings.model → {custom_id}")
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     write_text(settings_path, json.dumps(existing, indent=2) + "\n")
 
 
+
 def _clear_factory_custom_models(settings_path: Path) -> None:
-    """Remove customModels from ~/.factory/settings.json if present."""
+    """Remove customModels from ~/.factory/settings.json if present.
+    Also resets sessionDefaultSettings.model if it was a custom model."""
     if not settings_path.exists():
         return
     try:
         existing = json.loads(settings_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return
+    changed = False
     if "customModels" in existing:
         del existing["customModels"]
+        changed = True
+    # Reset custom model default
+    session_defaults = existing.get("sessionDefaultSettings", {})
+    if isinstance(session_defaults, dict) and str(session_defaults.get("model", "")).startswith("custom:"):
+        del session_defaults["model"]
+        changed = True
+    if changed:
         write_text(settings_path, json.dumps(existing, indent=2) + "\n")
-
 
 
 def update_gemini_cli_env(provider: str, cfg: Config, keys: Dict[str, str]) -> None:
@@ -2364,39 +2381,56 @@ def switch_droid(provider: str, cfg: Config, keys: Dict[str, str], profile: str 
 
     elif provider == "quotio":
         q_key = ensure_key("QUOTIO_API_KEY", keys["quotio"], "required for Droid quotio")
-        mode, model = DROID_QUOTIO_PROFILE_TO_MODEL.get(p, ("gemini", QUOTIO_DROID_MODEL))
 
-        if mode == "codex":
-            # Codex uses OpenAI API → write to ~/.factory/settings.json customModels
+        if model:
+            # Explicit model (e.g. gpt-5.3-codex) → customModels, same as quotio_local
+            droid_model = model
             _write_factory_custom_models(cfg.factory_settings, [
                 {
-                    "model": model,
-                    "displayName": f"Quotio {model}",
+                    "model": droid_model,
+                    "displayName": f"Quotio {droid_model}",
                     "baseUrl": QUOTIO_BASE_URL_V1,
                     "apiKey": q_key,
                     "provider": "openai",
                 }
             ])
-            ok(f"Droid → quotio codex / {model}")
+            ok(f"Droid → quotio / {droid_model}")
             info(f"  Written to {cfg.factory_settings}")
-            info(f"  In Droid: /model → select \"Quotio {model}\" under Custom Models")
-            info(f"  Or: droid exec --model \"custom:Quotio-{model}-0\" \"prompt\"")
+            info(f'  In Droid: /model → select "Quotio {droid_model}" under Custom Models')
         else:
-            # Gemini mode → env vars (existing behavior)
-            _clear_factory_custom_models(cfg.factory_settings)
-            update_bashrc_exports(
-                cfg.bashrc,
-                {
-                    "GEMINI_BASE_URL": QUOTIO_BASE_URL_V1,
-                    "GEMINI_API_KEY": q_key,
-                    "GEMINI_MODEL": model,
-                },
-            )
-            os.environ["GEMINI_BASE_URL"] = QUOTIO_BASE_URL_V1
-            os.environ["GEMINI_API_KEY"] = q_key
-            os.environ["GEMINI_MODEL"] = model
-            ok(f"Droid → quotio / {model} (run 'source ~/.bashrc' to apply)")
-            update_gemini_cli_env(provider, cfg, keys)
+            mode, droid_model = DROID_QUOTIO_PROFILE_TO_MODEL.get(p, ("gemini", QUOTIO_DROID_MODEL))
+
+            if mode == "codex":
+                # Codex profile → write to ~/.factory/settings.json customModels
+                _write_factory_custom_models(cfg.factory_settings, [
+                    {
+                        "model": droid_model,
+                        "displayName": f"Quotio {droid_model}",
+                        "baseUrl": QUOTIO_BASE_URL_V1,
+                        "apiKey": q_key,
+                        "provider": "openai",
+                    }
+                ])
+                ok(f"Droid → quotio codex / {droid_model}")
+                info(f"  Written to {cfg.factory_settings}")
+                info(f'  In Droid: /model → select "Quotio {droid_model}" under Custom Models')
+                info(f'  Or: droid exec --model "custom:Quotio-{droid_model}-0" "prompt"')
+            else:
+                # Gemini mode → env vars (existing behavior)
+                _clear_factory_custom_models(cfg.factory_settings)
+                update_bashrc_exports(
+                    cfg.bashrc,
+                    {
+                        "GEMINI_BASE_URL": QUOTIO_BASE_URL_V1,
+                        "GEMINI_API_KEY": q_key,
+                        "GEMINI_MODEL": droid_model,
+                    },
+                )
+                os.environ["GEMINI_BASE_URL"] = QUOTIO_BASE_URL_V1
+                os.environ["GEMINI_API_KEY"] = q_key
+                os.environ["GEMINI_MODEL"] = droid_model
+                ok(f"Droid → quotio / {droid_model} (run 'source ~/.bashrc' to apply)")
+                update_gemini_cli_env(provider, cfg, keys)
 
     elif provider == "antigravity":
         _clear_factory_custom_models(cfg.factory_settings)
