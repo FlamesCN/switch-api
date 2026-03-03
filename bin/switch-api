@@ -314,6 +314,9 @@ OPENROUTER_DROID_MODEL = "stepfun/step-3.5-flash:free"
 XRAY_PROXY = "http://127.0.0.1:1081"
 OPENAI_BASE_URL_V1 = "https://api.openai.com/v1"
 
+# OpenAI named accounts: same base URL, different keys (tag = first 4 chars of key after sk-proj-)
+OPENAI_NAMED_PROVIDERS = ("openai_Gq80", "openai_V420")
+
 OPENROUTER_BASE_URL = "https://openrouter.ai/api"
 OPENROUTER_BASE_URL_V1 = "https://openrouter.ai/api/v1"
 OPENROUTER_DEFAULT_MODEL = "stepfun/step-3.5-flash:free"
@@ -381,7 +384,7 @@ DROID_QUOTIO_PROFILE_NAMES = tuple(DROID_QUOTIO_PROFILE_TO_MODEL.keys())
 
 TOOLS = ("cc", "openclaw", "codex", "droid", "gemini")
 TOOLS_WITH_ALL = ("cc", "openclaw", "codex", "droid", "gemini", "all")
-PROVIDERS = ("duck", "quotio", "antigravity", "openai", "openrouter", "aiwave", "duck_cc1")
+PROVIDERS = ("duck", "quotio", "antigravity", "openai", "openai_Gq80", "openai_V420", "openrouter", "aiwave", "duck_cc1")
 
 # CC-only providers: these providers only support Claude Code
 CC_ONLY_PROVIDERS = ("duck_cc1",)
@@ -477,6 +480,8 @@ def load_exports_from_bashrc(home: Path) -> None:
         "OPENROUTER_API_KEY",
         "AIWAVE_API_KEY",
         "DUCK_CC1_API_KEY",
+        "OPENAI_GQ80_API_KEY",
+        "OPENAI_V420_API_KEY",
     }
 
     pattern = re.compile(r"^\s*export\s+([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
@@ -586,6 +591,8 @@ def probe_provider(provider: str, keys: Dict[str, str], timeout: int = 8) -> Tup
         "quotio": (QUOTIO_BASE_URL_V1 + "/models", keys.get("quotio", "")),
         "antigravity": (ANTIGRAVITY_BASE_URL_V1 + "/models", keys.get("antigravity", "")),
         "openai": ("https://api.openai.com/v1/models", keys.get("openai", "")),
+        "openai_Gq80": ("https://api.openai.com/v1/models", keys.get("openai_Gq80", "")),
+        "openai_V420": ("https://api.openai.com/v1/models", keys.get("openai_V420", "")),
         "openrouter": (OPENROUTER_BASE_URL_V1 + "/models", keys.get("openrouter", "")),
         "aiwave": (AIWAVE_BASE_URL_V1 + "/models", keys.get("aiwave", "")),
         "duck_cc1": (DUCK_BASE_URL_V1 + "/models", keys.get("duck_cc1", "")),
@@ -664,6 +671,8 @@ def enrich_store_from_env(store: Dict[str, str]) -> Dict[str, str]:
         "openrouter": os.environ.get("OPENROUTER_API_KEY", ""),
         "aiwave": os.environ.get("AIWAVE_API_KEY", ""),
         "duck_cc1": os.environ.get("DUCK_CC1_API_KEY", ""),
+        "openai_Gq80": os.environ.get("OPENAI_GQ80_API_KEY", ""),
+        "openai_V420": os.environ.get("OPENAI_V420_API_KEY", ""),
     }
     for k, v in explicit.items():
         if v:
@@ -710,6 +719,10 @@ def get_keys(store: Dict[str, str]) -> Dict[str, str]:
         or store.get("aiwave", ""),
         "duck_cc1": os.environ.get("DUCK_CC1_API_KEY")
         or store.get("duck_cc1", ""),
+        "openai_Gq80": os.environ.get("OPENAI_GQ80_API_KEY")
+        or store.get("openai_Gq80", ""),
+        "openai_V420": os.environ.get("OPENAI_V420_API_KEY")
+        or store.get("openai_V420", ""),
     }
 
 
@@ -946,6 +959,10 @@ def detect_provider(tool: str, cfg: Config) -> str:
             return "duck"
         if provider == "openai-official":
             return "openai"
+        # Named OpenAI accounts: openai-Gq80 → openai_Gq80
+        for _np in OPENAI_NAMED_PROVIDERS:
+            if provider == _np.replace("_", "-", 1):  # openai_Gq80 → openai-Gq80
+                return _np
         if provider == "openrouter":
             return "openrouter"
         if provider == "aiwave":
@@ -983,6 +1000,12 @@ def detect_provider(tool: str, cfg: Config) -> str:
                     if "ai-wave.org" in cm_url:
                         return "aiwave"
                     if "api.openai.com" in cm_url:
+                        # Distinguish named OpenAI accounts by key
+                        _cred = load_credential_store(cfg.cred_file) if cfg.cred_file.exists() else {}
+                        for _np in OPENAI_NAMED_PROVIDERS:
+                            _np_key = _cred.get(_np, "")
+                            if _np_key and cm_key == _np_key:
+                                return _np
                         return "openai"
                     if "duckcoding" in cm_url:
                         # Distinguish duck vs duck_cc1 by key
@@ -1016,7 +1039,7 @@ def show_status(cfg: Config) -> None:
             icon = "🔗"
         elif p == "antigravity":
             icon = "🚀"
-        elif p == "openai":
+        elif p == "openai" or p.startswith("openai_"):
             icon = "🔑"
         elif p == "openrouter":
             icon = "🌐"
@@ -1029,7 +1052,7 @@ def show_status(cfg: Config) -> None:
     print("  🦆 = DuckCoding (api.duckcoding.ai)")
     print("  🔗 = Quotio Tunnel (api.ancientechoes.ai)")
     print("  🚀 = Antigravity-tools (tools.ancientechoes.ai)")
-    print("  🔑 = OpenAI 官方 (api.openai.com via proxy)")
+    print("  🔑 = OpenAI 官方 (api.openai.com via proxy) — Gq80/V420 = 账号标识")
     print("  🌐 = OpenRouter (openrouter.ai)")
     print("  🌊 = AI Wave (api.ai-wave.org)")
 
@@ -2018,6 +2041,7 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
 
     text = read_text(cfg.cx_config)
     provider_map = {"duck": "duckcoding", "quotio": "quotio", "antigravity": "antigravity", "openai": "openai-official", "openrouter": "openrouter", "aiwave": "aiwave"}
+    provider_map.update({np: f"openai-{np[7:]}" for np in OPENAI_NAMED_PROVIDERS})
     model_provider = provider_map[provider]
 
     if re.search(r"^\s*model_provider\s*=\s*\"[^\"]+\"\s*$", text, flags=re.M):
@@ -2126,20 +2150,28 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
             text += block
             info("Added antigravity provider to codex config")
 
-    if provider == "openai":
-        # ensure openai-official provider block exists
-        if not re.search(r"^\[model_providers\.openai-official\]\s*$", text, flags=re.M):
+    if provider == "openai" or provider in OPENAI_NAMED_PROVIDERS:
+        if provider in OPENAI_NAMED_PROVIDERS:
+            tag = provider[7:]  # e.g. "Gq80"
+            toml_name = f"openai-{tag}"
+            env_key_name = f"OPENAI_{tag.upper()}_API_KEY"
+            label = f"OpenAI 官方 [{tag}]"
+        else:
+            toml_name = "openai-official"
+            env_key_name = "OPENAI_API_KEY"
+            label = "OpenAI 官方"
+        if not re.search(rf"^\[model_providers\.{re.escape(toml_name)}\]\s*$", text, flags=re.M):
             block = (
-                "\n\n# OpenAI 官方（走本地 Xray 代理 → 美国家宽 REALITY）\n"
-                "[model_providers.openai-official]\n"
-                'name = "openai-official"\n'
-                'base_url = "https://api.openai.com/v1"\n'
-                'wire_api = "responses"\n'
-                'env_key = "OPENAI_API_KEY"\n'
+                f"\n\n# {label}（走本地 Xray 代理 → 美国家宽 REALITY）\n"
+                f"[model_providers.{toml_name}]\n"
+                f'name = "{toml_name}"\n'
+                f'base_url = "https://api.openai.com/v1"\n'
+                f'wire_api = "responses"\n'
+                f'env_key = "{env_key_name}"\n'
             )
             text += block
-            info("Added openai-official provider to codex config")
-        info("Codex → OpenAI 官方 (需要 HTTPS_PROXY 走代理)")
+            info(f"Added {toml_name} provider to codex config")
+        info(f"Codex → {label} (需要 HTTPS_PROXY 走代理)")
 
     if provider == "openrouter":
         # Set default model to step 3.5 flash
@@ -2390,21 +2422,24 @@ def switch_droid(provider: str, cfg: Config, keys: Dict[str, str], profile: str 
         info(f"  Written to {cfg.factory_settings}")
         info(f"  In Droid: /model → select \"AI Wave {droid_model}\" under Custom Models")
 
-    elif provider == "openai":
-        oa_key = ensure_key("OPENAI_API_KEY", keys["openai"], "required for Droid openai")
+    elif provider == "openai" or provider in OPENAI_NAMED_PROVIDERS:
+        key_slot = provider if provider in OPENAI_NAMED_PROVIDERS else "openai"
+        tag = provider[7:] if provider in OPENAI_NAMED_PROVIDERS else ""
+        display = f"OpenAI[{tag}]" if tag else "OpenAI"
+        oa_key = ensure_key(f"{display}_API_KEY", keys[key_slot], f"required for Droid {provider}")
         droid_model = model or "gpt-5.3-codex"
         _write_factory_custom_models(cfg.factory_settings, [
             {
                 "model": droid_model,
-                "displayName": f"OpenAI {droid_model}",
+                "displayName": f"{display} {droid_model}",
                 "baseUrl": OPENAI_BASE_URL_V1,
                 "apiKey": oa_key,
                 "provider": "openai",
             }
         ])
-        ok(f"Droid → openai / {droid_model}")
+        ok(f"Droid → {provider} / {droid_model}")
         info(f"  Written to {cfg.factory_settings}")
-        info(f"  In Droid: /model → select \"OpenAI {droid_model}\" under Custom Models")
+        info(f"  In Droid: /model → select \"{display} {droid_model}\" under Custom Models")
         warn(f"需要 HTTPS_PROXY 走代理 ({XRAY_PROXY})")
 
 
@@ -2446,6 +2481,11 @@ def usage() -> None:
     print("       switch-api openclaw openrouter")
     print("       switch-api openclaw openrouter llama")
     print("       switch-api droid openrouter")
+    print()
+    print("  5) OpenAI 多账号 (命名账号, key前缀区分):")
+    print("       switch-api droid openai_Gq80    # 账号 Gq80")
+    print("       switch-api codex openai_V420    # 账号 V420")
+    print("       switch-api openai_Gq80          # codex+droid 切 Gq80")
     print()
     print("  switch-api list [provider]           # 列出可用模型")
     print("  switch-api check [--online]          # 检查当前模型状态")
@@ -2590,11 +2630,16 @@ def main() -> int:
     if provider == "antigravity" and not keys["antigravity"]:
         raise SwitchError("ANTIGRAVITY_API_KEY is not set! Edit ~/.bashrc and run: source ~/.bashrc")
 
-    if provider == "openai" and tool not in ("codex", "droid"):
-        raise SwitchError(f"Provider 'openai' is only supported for codex/droid, not {tool}")
+    _is_openai = provider == "openai" or provider in OPENAI_NAMED_PROVIDERS
+    if _is_openai and tool not in ("codex", "droid", "all"):
+        raise SwitchError(f"Provider '{provider}' is only supported for codex/droid, not {tool}")
 
     if provider == "openai" and not keys["openai"]:
-        raise SwitchError("OPENAI_API_KEY is not set! Edit ~/.bashrc and run: source ~/.bashrc")
+        raise SwitchError("OPENAI_API_KEY is not set! Edit ~/.env and run: source ~/.zshrc")
+
+    if provider in OPENAI_NAMED_PROVIDERS and not keys.get(provider, ""):
+        tag = provider[7:]
+        raise SwitchError(f"OPENAI_{tag.upper()}_API_KEY is not set! Edit ~/.env and run: source ~/.zshrc")
 
     if provider == "openrouter" and tool not in ("codex", "openclaw", "droid", "all"):
         raise SwitchError(f"Provider 'openrouter' is supported for codex/openclaw/droid, not {tool}")
@@ -2648,6 +2693,10 @@ def main() -> int:
         if provider == "openrouter":
             warn("OpenRouter is OpenAI-compatible — skipping cc and gemini (not compatible)")
             switch_openclaw(provider, cfg, keys, "", model=model)
+            switch_codex(provider, cfg, keys, model=model)
+            switch_droid(provider, cfg, keys, "", model=model)
+        elif provider == "openai" or provider in OPENAI_NAMED_PROVIDERS:
+            info(f"OpenAI 官方 only supports codex/droid — switching those only")
             switch_codex(provider, cfg, keys, model=model)
             switch_droid(provider, cfg, keys, "", model=model)
         else:
