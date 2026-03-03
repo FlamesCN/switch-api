@@ -16,8 +16,10 @@ metadata: { "openclaw": { "emoji": "🔀", "requires": { "anyBins": ["switch-api
 |------|------|------|------|
 | duck | DuckCoding | api.duckcoding.ai | 🦆 |
 | quotio | Quotio 隧道 | api.ancientechoes.ai | 🔗 |
+| quotio_local | Quotio Local | 127.0.0.1:8317 (本地 app) | 🔗 |
 | antigravity | Antigravity-tools | tools.ancientechoes.ai | 🚀 |
 | openai | OpenAI 官方 | api.openai.com (via xray proxy) | 🔑 |
+| openrouter | OpenRouter | openrouter.ai (free models) | 🌐 |
 
 ## 工具 × 模型兼容矩阵
 
@@ -78,6 +80,14 @@ switch-api openclaw duck sonnet        # Duck + Sonnet 模型
 switch-api droid quotio codex          # Droid + GPT-5.3 Codex
 ```
 
+### Quotio Local
+
+```bash
+switch-api quotio_local                        # codex+droid → Quotio Local
+switch-api droid quotio_local                  # Droid → Quotio Local
+switch-api droid quotio_local gpt-5.3-codex-high  # 指定模型+思考等级
+```
+
 ### 模型级切换（指定具体模型）
 
 ```bash
@@ -86,10 +96,22 @@ switch-api <tool> <provider> <model>
 # 示例
 switch-api codex quotio gpt-5.3-codex
 switch-api droid quotio gpt-5.3-codex
+switch-api droid quotio_local gpt-5.3-codex-high  # 高思考
 switch-api openclaw quotio claude-sonnet-4-6
 switch-api cc duck claude-opus-4-6
 switch-api gemini quotio gemini-3.1-pro-high
 ```
+
+### 思考等级（Thinking Level）
+
+GPT 模型后缀控制思考等级：
+- (无后缀) = 默认/auto
+- `-low` = 低思考
+- `-medium` = 中等思考
+- `-high` = 高思考
+- `-xhigh` = 超高思考
+
+> 注意：`-max` 是 5.1 系列独有模型变体，不是思考等级。
 
 ## 决策流程
 

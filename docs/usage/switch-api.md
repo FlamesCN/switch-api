@@ -84,6 +84,7 @@
 - **openclaw** — OpenClaw Telegram Bot，配置文件 `~/.openclaw/openclaw.json`
 - **codex** — OpenAI Codex，配置文件 `~/.codex/config.toml`
 - **droid** — Factory Droid CLI，默认通过 `~/.bashrc` Gemini 环境变量控制，codex profile 通过 `~/.factory/settings.json` customModels
+- **gemini** — Gemini CLI，配置文件 `~/.gemini/.env`
 - **all** — 以上全部
 
 ---
@@ -170,7 +171,53 @@ switch-api droid duck                       # Duck Gemini
 switch-api droid quotio                     # Quotio Gemini (默认)
 switch-api droid quotio codex               # Quotio GPT-5.3 Codex ⭐
 switch-api droid antigravity                # Antigravity Gemini
+
+# ─── Quotio Local (本地 Quotio app, 127.0.0.1:8317) ───
+switch-api quotio_local                      # codex+droid → Quotio Local
+switch-api droid quotio_local                # Droid → Quotio Local (gpt-5.3-codex)
+switch-api codex quotio_local                # Codex → Quotio Local
+switch-api droid quotio_local gpt-5.3-codex-high  # 指定模型+思考等级
+
+# ─── OpenRouter (免费模型) ─────────────────────
+switch-api openrouter                        # openclaw+codex+droid → OpenRouter
+switch-api openclaw openrouter llama         # OpenClaw → Llama
+switch-api droid openrouter                  # Droid → OpenRouter
+
+# ─── OpenAI 多账号 ────────────────────────────
+switch-api openai_Gq80                       # codex+droid → OpenAI[Gq80]
+switch-api droid openai_V420                 # Droid → OpenAI[V420]
 ```
+
+---
+
+## 模型思考等级（Thinking Level）
+
+OpenAI GPT 系列模型通过模型名后缀控制思考等级：
+
+| 后缀 | 等级 | 示例 |
+|------|------|------|
+| (无后缀) | 默认/auto | `gpt-5.3-codex` |
+| `-low` | 低 | `gpt-5.3-codex-low` |
+| `-medium` | 中 | `gpt-5.3-codex-medium` |
+| `-high` | 高 | `gpt-5.3-codex-high` |
+| `-xhigh` | 超高 | `gpt-5.3-codex-xhigh` |
+
+**注意**：`-max` 是 5.1 系列独有的模型变体（如 `gpt-5.1-codex-max`），不是思考等级后缀。
+
+使用示例：
+```bash
+# Droid 使用 gpt-5.3-codex 高思考
+switch-api droid quotio_local gpt-5.3-codex-high
+switch-api droid duck gpt-5.3-codex-high
+
+# Codex 使用 gpt-5.3-codex 高思考
+switch-api codex duck gpt-5.3-codex-high
+```
+
+**Provider × 思考等级可用性**：
+- **duck** — 支持所有思考等级（`-low/-medium/-high/-xhigh`）
+- **quotio** — 仅基础模型（`gpt-5.3-codex`、`gpt-5.3-codex-spark`）
+- **quotio_local** — 取决于本地 Quotio app 配置（跳过目录检查）
 
 ---
 
@@ -280,12 +327,15 @@ OpenClaw 工具 schema 使用 `patternProperties`，Gemini API 不支持此特�
 - duck → `GEMINI_MODEL=gemini-3.1-pro-preview`（env vars）
 - quotio → `GEMINI_MODEL=gemini-3.1-pro-high`（env vars，默认）
 - quotio codex → `gpt-5.3-codex`（写入 `~/.factory/settings.json` customModels，OpenAI provider）
+- quotio_local → `gpt-5.3-codex`（写入 `~/.factory/settings.json` customModels，本地 127.0.0.1:8317）
 - antigravity → `GEMINI_MODEL=gemini-3.1-pro-high`（env vars）
+- openrouter → `stepfun/step-3.5-flash:free`（写入 `~/.factory/settings.json` customModels）
+- openai / openai_Gq80 / openai_V420 → `gpt-5.3-codex`（写入 customModels，需代理）
 
-> **Droid codex profile** 说明：Codex 模型使用 OpenAI 协议，无法通过 GEMINI_* 环境变量配置。
-> 切换到 codex profile 时，脚本写入 `~/.factory/settings.json` 的 `customModels` 字段。
-> 在 Droid 中通过 `/model` 选择 "Quotio gpt-5.3-codex"（Custom Models 分类下）。
-> 切换回其他 profile（如 `switch-api droid quotio`）时自动清除 customModels。
+> **Droid codex/quotio_local/openrouter/openai** 模型使用 OpenAI 协议，无法通过 GEMINI_* 环境变量配置。
+> 切换时脚本写入 `~/.factory/settings.json` 的 `customModels` 字段。
+> 在 Droid 中通过 `/model` 选择对应 Custom Models。
+> 切换回 Gemini profile（如 `switch-api droid quotio`）时自动清除 customModels。
 
 ---
 
@@ -337,7 +387,7 @@ OpenClaw 工具 schema 使用 `patternProperties`，Gemini API 不支持此特�
 ## 文件清单
 
 ```
-~/bin/switch-api                              主切换脚本 (v1.5.0)
+~/bin/switch-api → ~/tools/switch-api/bin/switch-api  主切换脚本 (v2.0.0)
 ~/.bashrc                                     环境变量 (API Keys) + 快捷别名
 ~/.claude/settings.json                       Claude Code 配置
 ~/.openclaw/openclaw.json                     OpenClaw 主配置

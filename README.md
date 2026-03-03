@@ -14,7 +14,10 @@ Unified API provider switcher across:
 | `quotio` | 🔗 | all | Quotio Tunnel (api.ancientechoes.ai) |
 | `antigravity` | 🚀 | all | Antigravity-tools (tools.ancientechoes.ai) |
 | `openai` | 🔑 | codex | OpenAI 官方 (api.openai.com via proxy) |
+| `quotio_local` | 🔗 | codex, droid | Quotio Local (本地 app, 127.0.0.1:8317) |
 | `openrouter` | 🌐 | openclaw, codex, droid | OpenRouter (openrouter.ai) — free models |
+| `openai` | 🔑 | codex, droid | OpenAI 官方 (api.openai.com via proxy) |
+| `aiwave` | 🌊 | codex, droid, gemini | AI Wave (api.ai-wave.org) |
 
 ## Version
 See `VERSION`.
@@ -67,11 +70,29 @@ switch-api list openrouter                    # 列出 26 个免费模型
 
 > Note: OpenRouter uses OpenAI-compatible API. `cc` (Claude Code) and `gemini` (Gemini CLI) are skipped because they require Anthropic / Google native API formats.
 
+### Quotio Local (本地 Quotio app)
+```bash
+switch-api quotio_local                        # codex+droid → Quotio Local
+switch-api droid quotio_local                  # Droid → Quotio Local
+switch-api codex quotio_local                  # Codex → Quotio Local
+switch-api droid quotio_local gpt-5.3-codex-high  # 指定模型+思考等级
+```
+
 ### Model-level Switch
 ```bash
 switch-api <tool> <provider> <model>          # 指定具体模型
 switch-api codex duck gpt-5.3-codex
+switch-api droid quotio_local gpt-5.3-codex-high  # 高思考等级
 ```
+
+### Thinking Level (思考等级)
+GPT 系列模型后缀控制思考等级：`-low` / `-medium` / `-high` / `-xhigh`
+
+```bash
+switch-api droid duck gpt-5.3-codex-high       # 高思考
+switch-api droid quotio_local gpt-5.3-codex-xhigh  # 超高思考
+```
+> `-max` 是 5.1 系列独有模型变体，不是思考等级。
 
 ## Credential Management
 - Credential store: `~/.config/switch-api/credentials.json` (mode 600)

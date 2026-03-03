@@ -1360,7 +1360,7 @@ def validate_model_for_tool(tool: str, model: str, provider: str, force: bool = 
             f"  Compatible tools for {fam}: {', '.join(compatible) if compatible else 'none'}"
         )
 
-    if not force and provider not in ("openai", "openrouter"):
+    if not force and provider not in ("openai", "openrouter", "quotio_local"):
         bare = model.split("/")[-1]
         if not model_in_provider(bare, provider):
             raise SwitchError(
