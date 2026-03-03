@@ -45,6 +45,11 @@ QUOTIO_BASE_URL = "https://api.ancientechoes.ai"
 QUOTIO_BASE_URL_V1 = "https://api.ancientechoes.ai/v1"
 QUOTIO_BASE_URL_V1BETA = "https://api.ancientechoes.ai/v1beta"
 
+# Quotio Local (本地 Quotio app 代理)
+QUOTIO_LOCAL_BASE_URL = "http://127.0.0.1:8317"
+QUOTIO_LOCAL_BASE_URL_V1 = "http://127.0.0.1:8317/v1"
+QUOTIO_LOCAL_DROID_MODEL = "gpt-5.3-codex"
+
 # Quotio model catalog (fetched 2026-02-28)
 QUOTIO_AVAILABLE_MODELS = (
     # Antigravity (Claude / Gemini / misc)
@@ -384,7 +389,7 @@ DROID_QUOTIO_PROFILE_NAMES = tuple(DROID_QUOTIO_PROFILE_TO_MODEL.keys())
 
 TOOLS = ("cc", "openclaw", "codex", "droid", "gemini")
 TOOLS_WITH_ALL = ("cc", "openclaw", "codex", "droid", "gemini", "all")
-PROVIDERS = ("duck", "quotio", "antigravity", "openai", "openai_Gq80", "openai_V420", "openrouter", "aiwave", "duck_cc1")
+PROVIDERS = ("duck", "quotio", "quotio_local", "antigravity", "openai", "openai_Gq80", "openai_V420", "openrouter", "aiwave", "duck_cc1")
 
 # CC-only providers: these providers only support Claude Code
 CC_ONLY_PROVIDERS = ("duck_cc1",)
@@ -589,6 +594,7 @@ def probe_provider(provider: str, keys: Dict[str, str], timeout: int = 8) -> Tup
     endpoints: Dict[str, Tuple[str, str]] = {
         "duck": (DUCK_BASE_URL_V1 + "/models", keys.get("duck_gemini", "")),
         "quotio": (QUOTIO_BASE_URL_V1 + "/models", keys.get("quotio", "")),
+        "quotio_local": (QUOTIO_LOCAL_BASE_URL_V1 + "/models", keys.get("quotio", "")),
         "antigravity": (ANTIGRAVITY_BASE_URL_V1 + "/models", keys.get("antigravity", "")),
         "openai": ("https://api.openai.com/v1/models", keys.get("openai", "")),
         "openai_Gq80": ("https://api.openai.com/v1/models", keys.get("openai_Gq80", "")),
@@ -957,6 +963,8 @@ def detect_provider(tool: str, cfg: Config) -> str:
             return "quotio"
         if provider == "duckcoding":
             return "duck"
+        if provider == "quotio-local":
+            return "quotio_local"
         if provider == "openai-official":
             return "openai"
         # Named OpenAI accounts: openai-Gq80 → openai_Gq80
@@ -999,6 +1007,8 @@ def detect_provider(tool: str, cfg: Config) -> str:
                         return "openrouter"
                     if "ai-wave.org" in cm_url:
                         return "aiwave"
+                    if "127.0.0.1:8317" in cm_url:
+                        return "quotio_local"
                     if "api.openai.com" in cm_url:
                         # Distinguish named OpenAI accounts by key
                         _cred = load_credential_store(cfg.cred_file) if cfg.cred_file.exists() else {}
@@ -1035,7 +1045,7 @@ def show_status(cfg: Config) -> None:
         icon = "❓"
         if p == "duck":
             icon = "🦆"
-        elif p == "quotio":
+        elif p == "quotio" or p == "quotio_local":
             icon = "🔗"
         elif p == "antigravity":
             icon = "🚀"
@@ -1050,7 +1060,7 @@ def show_status(cfg: Config) -> None:
         print(f"  {tool:<10} {icon}  {p}")
     print(f"{CYAN}═══════════════════════════{NC}")
     print("  🦆 = DuckCoding (api.duckcoding.ai)")
-    print("  🔗 = Quotio Tunnel (api.ancientechoes.ai)")
+    print("  🔗 = Quotio Tunnel (api.ancientechoes.ai) / Quotio-Local (127.0.0.1:8317)")
     print("  🚀 = Antigravity-tools (tools.ancientechoes.ai)")
     print("  🔑 = OpenAI 官方 (api.openai.com via proxy) — Gq80/V420 = 账号标识")
     print("  🌐 = OpenRouter (openrouter.ai)")
@@ -2040,7 +2050,7 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
     backup(cfg.cx_config)
 
     text = read_text(cfg.cx_config)
-    provider_map = {"duck": "duckcoding", "quotio": "quotio", "antigravity": "antigravity", "openai": "openai-official", "openrouter": "openrouter", "aiwave": "aiwave"}
+    provider_map = {"duck": "duckcoding", "quotio": "quotio", "quotio_local": "quotio-local", "antigravity": "antigravity", "openai": "openai-official", "openrouter": "openrouter", "aiwave": "aiwave"}
     provider_map.update({np: f"openai-{np[7:]}" for np in OPENAI_NAMED_PROVIDERS})
     model_provider = provider_map[provider]
 
@@ -2200,6 +2210,20 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
             )
             text += block
             info("Added openrouter provider to codex config")
+
+    if provider == "quotio_local":
+        if not re.search(r"^\[model_providers\.quotio-local\]\s*$", text, flags=re.M):
+            block = (
+                "\n\n# Quotio Local (本地 Quotio app 代理)\n"
+                "[model_providers.quotio-local]\n"
+                'name = "quotio-local"\n'
+                f'base_url = "{QUOTIO_LOCAL_BASE_URL_V1}"\n'
+                'wire_api = "responses"\n'
+                'env_key = "QUOTIO_API_KEY"\n'
+            )
+            text += block
+            info("Added quotio-local provider to codex config")
+        info(f"Codex → Quotio Local ({QUOTIO_LOCAL_BASE_URL_V1})")
 
     if provider == "aiwave":
         # ensure aiwave provider block exists
@@ -2406,6 +2430,22 @@ def switch_droid(provider: str, cfg: Config, keys: Dict[str, str], profile: str 
         info(f"  Written to {cfg.factory_settings}")
         info(f"  In Droid: /model → select \"OpenRouter {OPENROUTER_DEFAULT_MODEL}\" under Custom Models")
 
+    elif provider == "quotio_local":
+        q_key = ensure_key("QUOTIO_API_KEY", keys["quotio"], "required for Droid quotio_local")
+        droid_model = model or QUOTIO_LOCAL_DROID_MODEL
+        _write_factory_custom_models(cfg.factory_settings, [
+            {
+                "model": droid_model,
+                "displayName": f"Quotio-Local {droid_model}",
+                "baseUrl": QUOTIO_LOCAL_BASE_URL_V1,
+                "apiKey": q_key,
+                "provider": "openai",
+            }
+        ])
+        ok(f"Droid → quotio_local / {droid_model}")
+        info(f"  Written to {cfg.factory_settings}")
+        info(f"  In Droid: /model → select \"Quotio-Local {droid_model}\" under Custom Models")
+
     elif provider == "aiwave":
         aw_key = ensure_key("AIWAVE_API_KEY", keys["aiwave"], "required for Droid aiwave")
         droid_model = model or AIWAVE_DROID_CODEX_MODEL
@@ -2482,7 +2522,12 @@ def usage() -> None:
     print("       switch-api openclaw openrouter llama")
     print("       switch-api droid openrouter")
     print()
-    print("  5) OpenAI 多账号 (命名账号, key前缀区分):")
+    print("  5) Quotio Local (本地 Quotio app, 127.0.0.1:8317):")
+    print("       switch-api droid quotio_local")
+    print("       switch-api codex quotio_local")
+    print("       switch-api quotio_local          # codex+droid")
+    print()
+    print("  6) OpenAI 多账号 (命名账号, key前缀区分):")
     print("       switch-api droid openai_Gq80    # 账号 Gq80")
     print("       switch-api codex openai_V420    # 账号 V420")
     print("       switch-api openai_Gq80          # codex+droid 切 Gq80")
@@ -2647,6 +2692,12 @@ def main() -> int:
     if provider == "openrouter" and not keys["openrouter"]:
         raise SwitchError("OPENROUTER_API_KEY is not set! Edit ~/.bashrc and run: source ~/.bashrc")
 
+    if provider == "quotio_local" and tool not in ("codex", "droid", "all"):
+        raise SwitchError(f"Provider 'quotio_local' is supported for codex/droid, not {tool}")
+
+    if provider == "quotio_local" and not keys["quotio"]:
+        raise SwitchError("QUOTIO_API_KEY is not set! Edit ~/.env and run: source ~/.zshrc")
+
     if provider == "aiwave" and tool not in ("codex", "droid", "gemini"):
         raise SwitchError(f"Provider 'aiwave' is supported for codex/droid/gemini, not {tool}")
 
@@ -2697,6 +2748,10 @@ def main() -> int:
             switch_droid(provider, cfg, keys, "", model=model)
         elif provider == "openai" or provider in OPENAI_NAMED_PROVIDERS:
             info(f"OpenAI 官方 only supports codex/droid — switching those only")
+            switch_codex(provider, cfg, keys, model=model)
+            switch_droid(provider, cfg, keys, "", model=model)
+        elif provider == "quotio_local":
+            info(f"Quotio Local only supports codex/droid — switching those only")
             switch_codex(provider, cfg, keys, model=model)
             switch_droid(provider, cfg, keys, "", model=model)
         else:
