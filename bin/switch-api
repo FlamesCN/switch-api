@@ -949,6 +949,8 @@ def detect_provider(tool: str, cfg: Config) -> str:
             return "duck"
         if model.startswith("openrouter/"):
             return "openrouter"
+        if model.startswith("openai-direct/"):
+            return "openai"
         return f"unknown({model})" if model else "unknown"
 
     if tool == "codex":
@@ -1360,7 +1362,7 @@ def validate_model_for_tool(tool: str, model: str, provider: str, force: bool = 
             f"  Compatible tools for {fam}: {', '.join(compatible) if compatible else 'none'}"
         )
 
-    if not force and provider not in ("openai", "openrouter", "quotio_local"):
+    if not force and provider not in ("openai", "openrouter", "quotio_local") and provider not in OPENAI_NAMED_PROVIDERS:
         bare = model.split("/")[-1]
         if not model_in_provider(bare, provider):
             raise SwitchError(
@@ -1949,6 +1951,54 @@ def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], profile: s
         orm["apiKey"] = or_key
         model_providers["openrouter"] = orm
 
+    elif provider == "openai" or provider in OPENAI_NAMED_PROVIDERS:
+        key_slot = provider if provider in OPENAI_NAMED_PROVIDERS else "openai"
+        tag = provider[7:] if provider in OPENAI_NAMED_PROVIDERS else ""
+        display = f"OpenAI[{tag}]" if tag else "OpenAI"
+        oa_key = ensure_key(f"{display}_API_KEY", keys[key_slot], f"required for OpenClaw {provider}")
+        gpt_model = model or "gpt-5.3-codex"
+
+        oc_agents["primary"] = f"openai-direct/{gpt_model}"
+        info(f"OpenClaw → openai-direct/{gpt_model} (via Xray proxy)")
+
+        # Register openai-direct provider (OpenAI API through local proxy)
+        openai_payload = {
+            "baseUrl": OPENAI_BASE_URL_V1,
+            "api": "openai-completions",
+            "apiKey": oa_key,
+            "models": [
+                {
+                    "id": gpt_model,
+                    "name": f"GPT {gpt_model} ({display})",
+                    "reasoning": True,
+                    "input": ["text"],
+                    "contextWindow": 200000,
+                    "maxTokens": 32768,
+                }
+            ],
+        }
+        oc_providers["openai-direct"] = openai_payload
+
+        openai_models_payload = dict(openai_payload)
+        openai_models_payload["models"] = [
+            {
+                **openai_payload["models"][0],
+                "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+                "api": "openai-completions",
+            }
+        ]
+        model_providers["openai-direct"] = openai_models_payload
+
+        # Ensure gateway.env has proxy for api.openai.com
+        gw_env = cfg.home / ".openclaw" / "gateway.env"
+        if gw_env.exists():
+            gw_text = gw_env.read_text(encoding="utf-8")
+            if "HTTPS_PROXY" not in gw_text:
+                gw_text += f"\nHTTPS_PROXY={XRAY_PROXY}\nHTTP_PROXY={XRAY_PROXY}\n"
+                write_text(gw_env, gw_text)
+                info(f"Added HTTPS_PROXY={XRAY_PROXY} to gateway.env")
+        warn(f"需要 Xray 代理在线 ({XRAY_PROXY})")
+
     save_json(cfg.oc_config, oc)
     save_json(cfg.oc_models, models_json)
 
@@ -2051,6 +2101,24 @@ def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], profile: s
         last_good["openrouter"] = "openrouter:manual"
 
         info("Updated OpenClaw auth store for openrouter")
+
+    elif provider == "openai" or provider in OPENAI_NAMED_PROVIDERS:
+        key_slot = provider if provider in OPENAI_NAMED_PROVIDERS else "openai"
+        tag = provider[7:] if provider in OPENAI_NAMED_PROVIDERS else ""
+        display = f"OpenAI[{tag}]" if tag else "OpenAI"
+        oa_key = ensure_key(f"{display}_API_KEY", keys[key_slot], f"required for OpenClaw {provider}")
+
+        auth["openai-direct"] = {"type": "api_key", "key": oa_key}
+
+        profiles["openai-direct:manual"] = {
+            "type": "token",
+            "provider": "openai-direct",
+            "token": oa_key,
+        }
+
+        last_good["openai-direct"] = "openai-direct:manual"
+
+        info(f"Updated OpenClaw auth store for openai-direct ({display})")
 
     save_json(cfg.oc_auth, auth)
     save_json(cfg.oc_auth_profiles, auth_profiles)
@@ -2737,7 +2805,7 @@ def main() -> int:
         raise SwitchError("ANTIGRAVITY_API_KEY is not set! Edit ~/.bashrc and run: source ~/.bashrc")
 
     _is_openai = provider == "openai" or provider in OPENAI_NAMED_PROVIDERS
-    if _is_openai and tool not in ("codex", "droid", "all"):
+    if _is_openai and tool not in ("codex", "droid", "openclaw", "all"):
         raise SwitchError(f"Provider '{provider}' is only supported for codex/droid, not {tool}")
 
     if provider == "openai" and not keys["openai"]:
