@@ -1074,7 +1074,7 @@ def show_status(cfg: Config) -> None:
 FAMILY_TOOLS = {
     "claude": ("cc", "openclaw"),
     "gemini": ("openclaw", "droid", "gemini"),
-    "gpt":    ("codex", "droid"),
+    "gpt":    ("codex", "droid", "openclaw"),
     "openrouter": ("openclaw", "codex", "droid"),
 }
 
@@ -1858,14 +1858,30 @@ def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], profile: s
 
     elif provider == "quotio":
         q_key = ensure_key("QUOTIO_API_KEY", keys["quotio"], "required for OpenClaw quotio")
-        target_primary, reason = resolve_openclaw_quotio_profile(profile)
-        oc_agents["primary"] = target_primary
-        if reason:
-            info(reason)
-        info("Quotio OpenClaw primary allowlist: quotio/claude-opus-4-6-thinking, quotio/claude-sonnet-4-6")
-        info("Use: switch-api openclaw quotio gemini3  # switch to quotio Gemini 3")
+
+        if model and model_family(model) == "gpt":
+            # GPT model (e.g. gpt-5.3-codex) → set as quotio primary directly
+            oc_agents["primary"] = f"quotio/{model}"
+            info(f"OpenClaw → quotio/{model} (GPT via OpenAI-completions)")
+        else:
+            target_primary, reason = resolve_openclaw_quotio_profile(profile)
+            oc_agents["primary"] = target_primary
+            if reason:
+                info(reason)
+            info("Quotio OpenClaw primary allowlist: quotio/claude-opus-4-6-thinking, quotio/claude-sonnet-4-6")
+            info("Use: switch-api openclaw quotio gemini3  # switch to quotio Gemini 3")
 
         oq = quotio_openai_models_payload()
+        # Add GPT model to provider if specified
+        if model and model_family(model) == "gpt":
+            oq["models"].append({
+                "id": model,
+                "name": f"GPT {model} (Quotio)",
+                "reasoning": True,
+                "input": ["text"],
+                "contextWindow": 200000,
+                "maxTokens": 32768,
+            })
         oq["apiKey"] = q_key
         oc_providers["quotio"] = oq
 
@@ -1874,6 +1890,17 @@ def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], profile: s
         oc_providers["quotio-gemini"] = qg
 
         oqm = quotio_openai_models_payload_for_models_json()
+        if model and model_family(model) == "gpt":
+            oqm["models"].append({
+                "id": model,
+                "name": f"GPT {model} (Quotio)",
+                "reasoning": True,
+                "input": ["text"],
+                "contextWindow": 200000,
+                "maxTokens": 32768,
+                "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+                "api": "openai-completions",
+            })
         oqm["apiKey"] = q_key
         model_providers["quotio"] = oqm
 
