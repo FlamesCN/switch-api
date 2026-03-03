@@ -259,6 +259,16 @@ ANTIGRAVITY_BASE_URL = "https://tools.ancientechoes.ai"
 ANTIGRAVITY_BASE_URL_V1 = "https://tools.ancientechoes.ai/v1"
 ANTIGRAVITY_BASE_URL_V1BETA = "https://tools.ancientechoes.ai/v1beta"
 
+# AI Wave (第三方中转)
+AIWAVE_BASE_URL = "https://api.ai-wave.org"
+AIWAVE_BASE_URL_V1 = "https://api.ai-wave.org/v1"
+AIWAVE_GEMINI_BASE_URL = "https://api.ai-wave.org/gemini"
+AIWAVE_DROID_CODEX_MODEL = "gpt-5.3-codex"
+AIWAVE_GEMINI_MODEL = "gemini-3.1-pro-preview"
+
+# duck_cc1: reuse duck URL with separate key; default codex model for droid
+DUCK_CC1_DROID_CODEX_MODEL = "gpt-5.3-codex"
+
 ANTIGRAVITY_AVAILABLE_MODELS = (
     "claude-opus-4-6-thinking",
     "claude-sonnet-4-6",
@@ -344,16 +354,19 @@ GEMINI_CLI_BASE_URLS = {
     "duck": DUCK_BASE_URL,
     "quotio": QUOTIO_BASE_URL,
     "antigravity": ANTIGRAVITY_BASE_URL,
+    "aiwave": AIWAVE_GEMINI_BASE_URL,
 }
 GEMINI_CLI_MODELS = {
     "duck": "gemini-3.1-pro-preview",
     "quotio": "gemini-3.1-pro-high",
     "antigravity": "gemini-3.1-pro-high",
+    "aiwave": AIWAVE_GEMINI_MODEL,
 }
 GEMINI_CLI_KEY_MAP = {
     "duck": "duck_gemini",
     "quotio": "quotio",
     "antigravity": "antigravity",
+    "aiwave": "aiwave",
 }
 
 QUOTIO_DROID_MODEL = "gemini-3.1-pro-high"
@@ -369,7 +382,10 @@ DROID_QUOTIO_PROFILE_NAMES = tuple(DROID_QUOTIO_PROFILE_TO_MODEL.keys())
 
 TOOLS = ("cc", "openclaw", "codex", "droid", "gemini")
 TOOLS_WITH_ALL = ("cc", "openclaw", "codex", "droid", "gemini", "all")
-PROVIDERS = ("duck", "quotio", "antigravity", "openai", "openrouter")
+PROVIDERS = ("duck", "quotio", "antigravity", "openai", "openrouter", "aiwave", "duck_cc1")
+
+# CC-only providers: these providers only support Claude Code
+CC_ONLY_PROVIDERS = ()  # duck_cc1 now also supports droid
 
 # OpenClaw compatibility: Gemini models don't support patternProperties in tool schema.
 # All three providers have Claude models; Gemini profiles get a warning.
@@ -460,6 +476,8 @@ def load_exports_from_bashrc(home: Path) -> None:
         "GEMINI_MODEL",
         "ANTIGRAVITY_API_KEY",
         "OPENROUTER_API_KEY",
+        "AIWAVE_API_KEY",
+        "DUCK_CC1_API_KEY",
     }
 
     pattern = re.compile(r"^\s*export\s+([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
@@ -570,6 +588,8 @@ def probe_provider(provider: str, keys: Dict[str, str], timeout: int = 8) -> Tup
         "antigravity": (ANTIGRAVITY_BASE_URL_V1 + "/models", keys.get("antigravity", "")),
         "openai": ("https://api.openai.com/v1/models", keys.get("openai", "")),
         "openrouter": (OPENROUTER_BASE_URL_V1 + "/models", keys.get("openrouter", "")),
+        "aiwave": (AIWAVE_BASE_URL_V1 + "/models", keys.get("aiwave", "")),
+        "duck_cc1": (DUCK_BASE_URL_V1 + "/models", keys.get("duck_cc1", "")),
     }
     entry = endpoints.get(provider)
     if not entry:
@@ -643,6 +663,8 @@ def enrich_store_from_env(store: Dict[str, str]) -> Dict[str, str]:
         "quotio": os.environ.get("QUOTIO_API_KEY", ""),
         "antigravity": os.environ.get("ANTIGRAVITY_API_KEY", ""),
         "openrouter": os.environ.get("OPENROUTER_API_KEY", ""),
+        "aiwave": os.environ.get("AIWAVE_API_KEY", ""),
+        "duck_cc1": os.environ.get("DUCK_CC1_API_KEY", ""),
     }
     for k, v in explicit.items():
         if v:
@@ -685,6 +707,10 @@ def get_keys(store: Dict[str, str]) -> Dict[str, str]:
         or store.get("openai", ""),
         "openrouter": os.environ.get("OPENROUTER_API_KEY")
         or store.get("openrouter", ""),
+        "aiwave": os.environ.get("AIWAVE_API_KEY")
+        or store.get("aiwave", ""),
+        "duck_cc1": os.environ.get("DUCK_CC1_API_KEY")
+        or store.get("duck_cc1", ""),
     }
 
 
@@ -875,6 +901,13 @@ def detect_provider(tool: str, cfg: Config) -> str:
         if "ancientechoes" in url:
             return "quotio"
         if "duckcoding" in url:
+            # Distinguish duck vs duck_cc1 by checking the key against credential store
+            cc_key = ((data.get("env") or {}).get("ANTHROPIC_AUTH_TOKEN") or "").strip()
+            cred_path = cfg.switch_dir / "credentials.json"
+            cred_store = load_credential_store(cred_path) if cred_path.exists() else {}
+            duck_cc1_key = os.environ.get("DUCK_CC1_API_KEY") or cred_store.get("duck_cc1", "")
+            if duck_cc1_key and cc_key == duck_cc1_key:
+                return "duck_cc1"
             return "duck"
         if "openrouter.ai" in url:
             return "openrouter"
@@ -916,6 +949,8 @@ def detect_provider(tool: str, cfg: Config) -> str:
             return "openai"
         if provider == "openrouter":
             return "openrouter"
+        if provider == "aiwave":
+            return "aiwave"
         return provider
 
 
@@ -935,7 +970,7 @@ def detect_provider(tool: str, cfg: Config) -> str:
         return f"unknown({url})" if url else "unknown"
 
     if tool == "droid":
-        # Check customModels first (OpenRouter uses this)
+        # Check customModels first (OpenRouter / aiwave / duck_cc1 use this)
         factory_settings = cfg.home / ".factory/settings.json"
         if factory_settings.exists():
             try:
@@ -943,8 +978,18 @@ def detect_provider(tool: str, cfg: Config) -> str:
                 cms = fdata.get("customModels", [])
                 if cms and isinstance(cms, list) and isinstance(cms[0], dict):
                     cm_url = cms[0].get("baseUrl", "")
+                    cm_key = cms[0].get("apiKey", "")
                     if "openrouter.ai" in cm_url:
                         return "openrouter"
+                    if "ai-wave.org" in cm_url:
+                        return "aiwave"
+                    if "duckcoding" in cm_url:
+                        # Distinguish duck vs duck_cc1 by key
+                        cred_store = load_credential_store(cfg.cred_file) if cfg.cred_file.exists() else {}
+                        dc1_key = os.environ.get("DUCK_CC1_API_KEY") or cred_store.get("duck_cc1", "")
+                        if dc1_key and cm_key == dc1_key:
+                            return "duck_cc1"
+                        return "duck"
             except Exception:
                 pass
         base = os.environ.get("GEMINI_BASE_URL", "")
@@ -974,6 +1019,10 @@ def show_status(cfg: Config) -> None:
             icon = "🔑"
         elif p == "openrouter":
             icon = "🌐"
+        elif p == "aiwave":
+            icon = "🌊"
+        elif p == "duck_cc1":
+            icon = "🦆"
         print(f"  {tool:<10} {icon}  {p}")
     print(f"{CYAN}═══════════════════════════{NC}")
     print("  🦆 = DuckCoding (api.duckcoding.ai)")
@@ -981,6 +1030,7 @@ def show_status(cfg: Config) -> None:
     print("  🚀 = Antigravity-tools (tools.ancientechoes.ai)")
     print("  🔑 = OpenAI 官方 (api.openai.com via proxy)")
     print("  🌐 = OpenRouter (openrouter.ai)")
+    print("  🌊 = AI Wave (api.ai-wave.org)")
 
 
 
@@ -1298,6 +1348,11 @@ def switch_cc(provider: str, cfg: Config, keys: Dict[str, str], model: str = "")
         env["ANTHROPIC_BASE_URL"] = DUCK_BASE_URL
         env["ANTHROPIC_AUTH_TOKEN"] = ensure_key(
             "DUCK_ANTHROPIC_API_KEY/ANTHROPIC_API_KEY", keys["duck_anthropic"]
+        )
+    elif provider == "duck_cc1":
+        env["ANTHROPIC_BASE_URL"] = DUCK_BASE_URL
+        env["ANTHROPIC_AUTH_TOKEN"] = ensure_key(
+            "DUCK_CC1_API_KEY", keys["duck_cc1"]
         )
     elif provider == "quotio":
         env["ANTHROPIC_BASE_URL"] = QUOTIO_BASE_URL
@@ -1961,7 +2016,7 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
     backup(cfg.cx_config)
 
     text = read_text(cfg.cx_config)
-    provider_map = {"duck": "duckcoding", "quotio": "quotio", "antigravity": "antigravity", "openai": "openai-official", "openrouter": "openrouter"}
+    provider_map = {"duck": "duckcoding", "quotio": "quotio", "antigravity": "antigravity", "openai": "openai-official", "openrouter": "openrouter", "aiwave": "aiwave"}
     model_provider = provider_map[provider]
 
     if re.search(r"^\s*model_provider\s*=\s*\"[^\"]+\"\s*$", text, flags=re.M):
@@ -2112,6 +2167,21 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
             )
             text += block
             info("Added openrouter provider to codex config")
+
+    if provider == "aiwave":
+        # ensure aiwave provider block exists
+        if not re.search(r"^\[model_providers\.aiwave\]\s*$", text, flags=re.M):
+            block = (
+                "\n\n# AI Wave (第三方中转)\n"
+                "[model_providers.aiwave]\n"
+                'name = "aiwave"\n'
+                f'base_url = "{AIWAVE_BASE_URL_V1}"\n'
+                'wire_api = "responses"\n'
+                'env_key = "AIWAVE_API_KEY"\n'
+            )
+            text += block
+            info("Added aiwave provider to codex config")
+        info(f"Codex → AI Wave (OpenAI: {AIWAVE_BASE_URL_V1}, Gemini: {AIWAVE_GEMINI_BASE_URL})")
 
     write_text(cfg.cx_config, text)
     ok(f"Codex → {provider}")
@@ -2302,6 +2372,38 @@ def switch_droid(provider: str, cfg: Config, keys: Dict[str, str], profile: str 
         ok(f"Droid → openrouter / {OPENROUTER_DEFAULT_MODEL}")
         info(f"  Written to {cfg.factory_settings}")
         info(f"  In Droid: /model → select \"OpenRouter {OPENROUTER_DEFAULT_MODEL}\" under Custom Models")
+
+    elif provider == "aiwave":
+        aw_key = ensure_key("AIWAVE_API_KEY", keys["aiwave"], "required for Droid aiwave")
+        droid_model = model or AIWAVE_DROID_CODEX_MODEL
+        _write_factory_custom_models(cfg.factory_settings, [
+            {
+                "model": droid_model,
+                "displayName": f"AI Wave {droid_model}",
+                "baseUrl": AIWAVE_BASE_URL_V1,
+                "apiKey": aw_key,
+                "provider": "openai",
+            }
+        ])
+        ok(f"Droid → aiwave codex / {droid_model}")
+        info(f"  Written to {cfg.factory_settings}")
+        info(f"  In Droid: /model → select \"AI Wave {droid_model}\" under Custom Models")
+
+    elif provider == "duck_cc1":
+        dc1_key = ensure_key("DUCK_CC1_API_KEY", keys["duck_cc1"], "required for Droid duck_cc1")
+        droid_model = model or DUCK_CC1_DROID_CODEX_MODEL
+        _write_factory_custom_models(cfg.factory_settings, [
+            {
+                "model": droid_model,
+                "displayName": f"DuckCC1 {droid_model}",
+                "baseUrl": DUCK_BASE_URL_V1,
+                "apiKey": dc1_key,
+                "provider": "openai",
+            }
+        ])
+        ok(f"Droid → duck_cc1 codex / {droid_model}")
+        info(f"  Written to {cfg.factory_settings}")
+        info(f"  In Droid: /model → select \"DuckCC1 {droid_model}\" under Custom Models")
 
 
 # ----------------------------- cli -----------------------------
@@ -2497,6 +2599,18 @@ def main() -> int:
 
     if provider == "openrouter" and not keys["openrouter"]:
         raise SwitchError("OPENROUTER_API_KEY is not set! Edit ~/.bashrc and run: source ~/.bashrc")
+
+    if provider == "aiwave" and tool not in ("codex", "droid", "gemini"):
+        raise SwitchError(f"Provider 'aiwave' is supported for codex/droid/gemini, not {tool}")
+
+    if provider == "aiwave" and not keys["aiwave"]:
+        raise SwitchError("AIWAVE_API_KEY is not set! Edit ~/.env and run: source ~/.zshrc")
+
+    if provider == "duck_cc1" and tool not in ("cc", "droid"):
+        raise SwitchError(f"Provider 'duck_cc1' is supported for cc/droid, not {tool}")
+
+    if provider == "duck_cc1" and not keys["duck_cc1"]:
+        raise SwitchError("DUCK_CC1_API_KEY is not set! Edit ~/.env and run: source ~/.zshrc")
 
     # --- Pre-flight connectivity check (skip with --force) ---
     if not force:
