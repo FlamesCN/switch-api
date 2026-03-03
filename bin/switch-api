@@ -1766,7 +1766,7 @@ def restart_openclaw_gateway(home: Path) -> None:
 
     # Restart via systemctl
     r = subprocess.run(
-        ["sudo", "systemctl", "restart", "openclaw"],
+        ["systemctl", "--user", "restart", "openclaw-gateway"],
         check=False,
         capture_output=True,
         text=True,
