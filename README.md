@@ -18,6 +18,7 @@ Unified API provider switcher across:
 | `openrouter` | 🌐 | openclaw, codex, droid | OpenRouter (openrouter.ai) — free models |
 | `openai` | 🔑 | codex, droid | OpenAI 官方 (api.openai.com via proxy) |
 | `aiwave` | 🌊 | codex, droid, gemini | AI Wave (api.ai-wave.org) |
+| `icodeeasy` | 🧊 | cc | iCodeEasy (api.icodeeasy.cc) — Anthropic 原生 API |
 
 ## Version
 See `VERSION`.
@@ -102,6 +103,7 @@ switch-api droid quotio_local gpt-5.3-codex-xhigh  # 超高思考
   - `ANTIGRAVITY_API_KEY`
   - `OPENAI_API_KEY`
   - `OPENROUTER_API_KEY`
+  - `ICODEEASY_API_KEY`
 - Keys are loaded from env → credential store (auto-merged on each run)
 
 ## Security
