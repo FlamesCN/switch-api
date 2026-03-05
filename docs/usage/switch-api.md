@@ -31,6 +31,10 @@
 - **antigravity** — Antigravity-tools `https://tools.ancientechoes.ai`，支持 Claude / Gemini 全系列
   - 依赖本地电脑运行 antigravity-tools (port 8045) + Cloudflare Tunnel
   - 同时支持 OpenAI / Anthropic / Gemini 三种协议
+- **icodeeasy** — iCodeEasy `https://api.icodeeasy.cc`，**CC-only**（仅 Claude Code）
+  - **仅支持 Anthropic 原生 API**（`/v1/messages` + `x-api-key`），不支持 OpenAI `/v1/chat/completions`
+  - 支持所有 Claude 模型（3.5 haiku → opus 4.6）
+  - 不能用于 openclaw / codex / droid / gemini（这些工具需要 OpenAI 兼容格式）
 
 ## Antigravity-tools 可用模型
 
@@ -77,6 +81,23 @@
 **其他：**
 - `gpt-oss-120b-medium`
 - `tab_flash_lite_preview` / `tab_jump_flash_lite_preview`
+
+## iCodeEasy 可用模型（CC-only, 2026-03-06 更新）
+
+> ⚠️ **API 兼容性限制**：iCodeEasy 仅支持 Anthropic 原生 API（`/v1/messages`），
+> 不支持 OpenAI 格式（`/v1/chat/completions`）。因此**只能用于 Claude Code (cc)**，
+> 不能用于 openclaw / codex / droid / gemini。
+
+**Claude 系列：**
+- `claude-opus-4-6`
+- `claude-sonnet-4-6`
+- `claude-sonnet-4-5-20250929`
+- `claude-sonnet-4-20250514`（→ 实际返回 sonnet-4-5-20250929）
+- `claude-opus-4-5-20251101`
+- `claude-opus-4-1-20250805`（→ 实际返回 opus-4-5-20251101）
+- `claude-haiku-4-5-20251001`
+- `claude-3-5-haiku-20241022`（→ 实际返回 haiku-4-5-20251001）
+- `claude-3-7-sonnet-20250219`
 
 ## 工具说明
 
@@ -151,6 +172,7 @@ switch-api all antigravity
 switch-api cc duck
 switch-api cc quotio
 switch-api cc antigravity
+switch-api cc icodeeasy              # iCodeEasy (CC-only)
 
 # ─── 只切 OpenClaw ─────────────────────────────
 switch-api openclaw duck                    # 默认 Claude Opus 4.6
@@ -379,7 +401,29 @@ droid exec -m "custom:OpenRouter-stepfun/step-3.5-flash:free-0" "解释这段代
   🦆 = DuckCoding (api.duckcoding.ai)
   🔗 = Quotio Tunnel (api.ancientechoes.ai)
   🚀 = Antigravity-tools (tools.ancientechoes.ai)
+  🧊 = iCodeEasy (api.icodeeasy.cc)
 ```
+
+---
+
+## Provider × API 协议兼容矩阵
+
+不同工具需要不同的 API 协议，不是所有 provider 都支持所有工具：
+
+| Provider | API 协议 | cc | openclaw | codex | droid | gemini |
+|----------|----------|:--:|:--------:|:-----:|:-----:|:------:|
+| duck | OpenAI + Anthropic | ✅ | ✅ | ✅ | ✅ | ✅ |
+| quotio | OpenAI + Anthropic + Gemini | ✅ | ✅ | ✅ | ✅ | ✅ |
+| antigravity | OpenAI + Anthropic + Gemini | ✅ | ✅ | ✅ | ✅ | ✅ |
+| **icodeeasy** | **Anthropic 原生 only** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| openai | OpenAI | ❌ | ❌ | ✅ | ✅ | ❌ |
+| openrouter | OpenAI | ❌ | ✅ | ✅ | ✅ | ❌ |
+| aiwave | OpenAI + Gemini | ❌ | ❌ | ✅ | ✅ | ✅ |
+| duck_cc1 | Anthropic 原生 only | ✅ | ❌ | ❌ | ❌ | ❌ |
+
+> **关键限制**：`icodeeasy` 和 `duck_cc1` 仅支持 Anthropic 原生 API（`/v1/messages`），
+> OpenClaw / Codex / Droid 需要 OpenAI 格式（`/v1/chat/completions`），因此这两个 provider
+> 只能用于 Claude Code。
 
 ---
 
@@ -407,6 +451,7 @@ droid exec -m "custom:OpenRouter-stepfun/step-3.5-flash:free-0" "解释这段代
 - 切换前 pre-flight 探测目标 provider 连接性
 - 切换到 `quotio` 时检查 `QUOTIO_API_KEY`
 - 切换到 `antigravity` 时检查 `ANTIGRAVITY_API_KEY`
+- 切换到 `icodeeasy` 时检查 `ICODEEASY_API_KEY`
 - 密钥快照保存到 `~/.config/switch-api/credentials.json`（权限 600）
 - Key 配置在 `~/.bashrc` 中，脚本自动读取 `export` 行
 
