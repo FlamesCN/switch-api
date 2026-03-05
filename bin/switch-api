@@ -273,6 +273,16 @@ AIWAVE_GEMINI_MODEL = "gemini-3.1-pro-preview"
 
 # duck_cc1: Claude Code专用 key on duck — only supports cc (no codex/GPT access)
 
+# duck_codex2cc: Duck 上 CodeX→Claude Code 映射 key (CC 专用)
+# CC 发 Claude 模型名 → duck 后端转发到 GPT codex 模型
+DUCK_CODEX2CC_MODEL_MAP = {
+    "claude-opus-4-6": "gpt-5.3-codex-xhigh",
+    "claude-sonnet-4-6": "gpt-5.3-codex-high",
+    "claude-sonnet-4-5-20250929": "gpt-5.3-codex-high",
+    "claude-haiku-4-5-20251001": "gpt-5.3-codex-medium",
+}
+DUCK_CODEX2CC_AVAILABLE_MODELS = tuple(DUCK_CODEX2CC_MODEL_MAP.keys())
+
 # iCodeEasy (Anthropic 原生 API 代理, CC 专用)
 ICODEEASY_BASE_URL = "https://api.icodeeasy.cc"
 ICODEEASY_BASE_URL_V1 = "https://api.icodeeasy.cc/v1"
@@ -404,10 +414,10 @@ DROID_QUOTIO_PROFILE_NAMES = tuple(DROID_QUOTIO_PROFILE_TO_MODEL.keys())
 
 TOOLS = ("cc", "openclaw", "codex", "droid", "gemini")
 TOOLS_WITH_ALL = ("cc", "openclaw", "codex", "droid", "gemini", "all")
-PROVIDERS = ("duck", "quotio", "quotio_local", "antigravity", "openai", "openai_Gq80", "openai_V420", "openrouter", "aiwave", "duck_cc1", "icodeeasy")
+PROVIDERS = ("duck", "quotio", "quotio_local", "antigravity", "openai", "openai_Gq80", "openai_V420", "openrouter", "aiwave", "duck_cc1", "duck_codex2cc", "icodeeasy")
 
 # CC-only providers: these providers only support Claude Code
-CC_ONLY_PROVIDERS = ("duck_cc1", "icodeeasy")
+CC_ONLY_PROVIDERS = ("duck_cc1", "duck_codex2cc", "icodeeasy")
 
 # OpenClaw compatibility: Gemini models don't support patternProperties in tool schema.
 # All three providers have Claude models; Gemini profiles get a warning.
@@ -500,6 +510,7 @@ def load_exports_from_bashrc(home: Path) -> None:
         "OPENROUTER_API_KEY",
         "AIWAVE_API_KEY",
         "DUCK_CC1_API_KEY",
+        "DUCK_CODEX2CC_API_KEY",
         "OPENAI_GQ80_API_KEY",
         "OPENAI_V420_API_KEY",
         "ICODEEASY_API_KEY",
@@ -618,6 +629,7 @@ def probe_provider(provider: str, keys: Dict[str, str], timeout: int = 8) -> Tup
         "openrouter": (OPENROUTER_BASE_URL_V1 + "/models", keys.get("openrouter", "")),
         "aiwave": (AIWAVE_BASE_URL_V1 + "/models", keys.get("aiwave", "")),
         "duck_cc1": (DUCK_BASE_URL_V1 + "/models", keys.get("duck_cc1", "")),
+        "duck_codex2cc": (DUCK_BASE_URL_V1 + "/models", keys.get("duck_codex2cc", "")),
         "icodeeasy": (ICODEEASY_BASE_URL_V1 + "/models", keys.get("icodeeasy", "")),
     }
     entry = endpoints.get(provider)
@@ -695,6 +707,7 @@ def enrich_store_from_env(store: Dict[str, str]) -> Dict[str, str]:
         "openrouter": os.environ.get("OPENROUTER_API_KEY", ""),
         "aiwave": os.environ.get("AIWAVE_API_KEY", ""),
         "duck_cc1": os.environ.get("DUCK_CC1_API_KEY", ""),
+        "duck_codex2cc": os.environ.get("DUCK_CODEX2CC_API_KEY", ""),
         "openai_Gq80": os.environ.get("OPENAI_GQ80_API_KEY", ""),
         "openai_V420": os.environ.get("OPENAI_V420_API_KEY", ""),
         "icodeeasy": os.environ.get("ICODEEASY_API_KEY", ""),
@@ -744,6 +757,8 @@ def get_keys(store: Dict[str, str]) -> Dict[str, str]:
         or store.get("aiwave", ""),
         "duck_cc1": os.environ.get("DUCK_CC1_API_KEY")
         or store.get("duck_cc1", ""),
+        "duck_codex2cc": os.environ.get("DUCK_CODEX2CC_API_KEY")
+        or store.get("duck_codex2cc", ""),
         "openai_Gq80": os.environ.get("OPENAI_GQ80_API_KEY")
         or store.get("openai_Gq80", ""),
         "openai_V420": os.environ.get("OPENAI_V420_API_KEY")
@@ -942,13 +957,16 @@ def detect_provider(tool: str, cfg: Config) -> str:
         if "icodeeasy" in url:
             return "icodeeasy"
         if "duckcoding" in url:
-            # Distinguish duck vs duck_cc1 by checking the key against credential store
+            # Distinguish duck vs duck_cc1 vs duck_codex2cc by checking the key against credential store
             cc_key = ((data.get("env") or {}).get("ANTHROPIC_AUTH_TOKEN") or "").strip()
             cred_path = cfg.switch_dir / "credentials.json"
             cred_store = load_credential_store(cred_path) if cred_path.exists() else {}
             duck_cc1_key = os.environ.get("DUCK_CC1_API_KEY") or cred_store.get("duck_cc1", "")
             if duck_cc1_key and cc_key == duck_cc1_key:
                 return "duck_cc1"
+            duck_codex2cc_key = os.environ.get("DUCK_CODEX2CC_API_KEY") or cred_store.get("duck_codex2cc", "")
+            if duck_codex2cc_key and cc_key == duck_codex2cc_key:
+                return "duck_codex2cc"
             return "duck"
         if "openrouter.ai" in url:
             return "openrouter"
@@ -1082,6 +1100,8 @@ def show_status(cfg: Config) -> None:
             icon = "🌊"
         elif p == "duck_cc1":
             icon = "🦆"
+        elif p == "duck_codex2cc":
+            icon = "🦆"
         elif p == "icodeeasy":
             icon = "🧊"
         print(f"  {tool:<10} {icon}  {p}")
@@ -1153,6 +1173,8 @@ def get_provider_models(provider: str) -> Dict[str, Tuple[str, ...]]:
         models = QUOTIO_AVAILABLE_MODELS
     elif provider == "icodeeasy":
         models = ICODEEASY_AVAILABLE_MODELS
+    elif provider == "duck_codex2cc":
+        models = DUCK_CODEX2CC_AVAILABLE_MODELS
     elif provider == "openrouter":
         models = OPENROUTER_FREE_MODELS
     else:
@@ -1173,6 +1195,8 @@ def model_in_provider(model: str, provider: str) -> bool:
         return m in QUOTIO_AVAILABLE_MODELS
     if provider == "icodeeasy":
         return m in ICODEEASY_AVAILABLE_MODELS
+    if provider == "duck_codex2cc":
+        return m in DUCK_CODEX2CC_AVAILABLE_MODELS
     if provider == "duck":
         return m in DUCK_ANTHROPIC_MODELS or m in DUCK_GEMINI_MODELS or m in DUCK_CODEX_MODELS
     return False  # openai — no local catalog
@@ -1187,7 +1211,7 @@ def tools_for_model(model: str) -> Tuple[str, ...]:
 # ----------------------------- list command ----------------------------
 def cmd_list_models(provider: str = "") -> None:
     """Print available models for one or all providers."""
-    providers = [provider] if provider else ["quotio", "duck", "antigravity", "icodeeasy", "openrouter"]
+    providers = [provider] if provider else ["quotio", "duck", "antigravity", "icodeeasy", "duck_codex2cc", "openrouter"]
 
     for prov in providers:
         catalog = get_provider_models(prov)
@@ -1197,6 +1221,7 @@ def cmd_list_models(provider: str = "") -> None:
             "duck": "DuckCoding",
             "antigravity": "Antigravity",
             "icodeeasy": "iCodeEasy (CC-only)",
+            "duck_codex2cc": "Duck CodeX→CC (CC-only)",
             "openrouter": "OpenRouter (Free)",
         }.get(prov, prov)
         print(f"{CYAN}═══ {prov_label} 可用模型 ({total}) ═══{NC}")
@@ -1225,6 +1250,9 @@ def cmd_list_models(provider: str = "") -> None:
                     else:
                         tag = ""
                     print(f"    {m}{tag}")
+                elif prov == "duck_codex2cc":
+                    mapped = DUCK_CODEX2CC_MODEL_MAP.get(m, "?")
+                    print(f"    {m}  → {mapped}")
                 else:
                     print(f"    {m}")
         print()
@@ -1421,6 +1449,21 @@ def switch_cc(provider: str, cfg: Config, keys: Dict[str, str], model: str = "")
         env["ANTHROPIC_AUTH_TOKEN"] = ensure_key(
             "DUCK_CC1_API_KEY", keys["duck_cc1"]
         )
+    elif provider == "duck_codex2cc":
+        env["ANTHROPIC_BASE_URL"] = DUCK_BASE_URL
+        env["ANTHROPIC_AUTH_TOKEN"] = ensure_key(
+            "DUCK_CODEX2CC_API_KEY", keys["duck_codex2cc"]
+        )
+        # Ensure model is one of the mapped Claude names
+        if current_model not in DUCK_CODEX2CC_AVAILABLE_MODELS:
+            data["model"] = "claude-opus-4-6"
+            info(f"Model set to claude-opus-4-6 (→ gpt-5.3-codex-xhigh)")
+        else:
+            mapped = DUCK_CODEX2CC_MODEL_MAP.get(current_model, "?")
+            info(f"Keeping model {current_model} (→ {mapped})")
+        info("duck_codex2cc 模型映射:")
+        for cm, gm in DUCK_CODEX2CC_MODEL_MAP.items():
+            info(f"  {cm} → {gm}")
     elif provider == "quotio":
         env["ANTHROPIC_BASE_URL"] = QUOTIO_BASE_URL
         env["ANTHROPIC_AUTH_TOKEN"] = ensure_key("QUOTIO_API_KEY", keys["quotio"])
@@ -2702,6 +2745,9 @@ def usage() -> None:
     print("  7) iCodeEasy (Anthropic 原生 API, CC 专用):")
     print("       switch-api cc icodeeasy          # Claude Code → iCodeEasy")
     print()
+    print("  8) Duck CodeX→CC (GPT codex 模型通过 CC 使用):")
+    print("       switch-api cc duck_codex2cc      # CC → Duck CodeX (opus→xhigh, sonnet→high)")
+    print()
     print("  switch-api list [provider]           # 列出可用模型")
     print("  switch-api check [--online]          # 检查当前模型状态")
     print("  switch-api <tool> <provider> <model> # 指定模型切换")
@@ -2879,6 +2925,12 @@ def main() -> int:
 
     if provider == "duck_cc1" and not keys["duck_cc1"]:
         raise SwitchError("DUCK_CC1_API_KEY is not set! Edit ~/.env and run: source ~/.zshrc")
+
+    if provider == "duck_codex2cc" and tool not in ("cc",):
+        raise SwitchError(f"Provider 'duck_codex2cc' is CC-only (CodeX→CC 映射 key), not {tool}")
+
+    if provider == "duck_codex2cc" and not keys["duck_codex2cc"]:
+        raise SwitchError("DUCK_CODEX2CC_API_KEY is not set! Edit ~/.env and run: source ~/.zshrc")
 
     if provider == "icodeeasy" and tool not in ("cc",):
         raise SwitchError(f"Provider 'icodeeasy' is CC-only (Anthropic 原生 API, 不支持 OpenAI 格式), not {tool}")

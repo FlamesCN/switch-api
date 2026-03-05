@@ -19,6 +19,7 @@ Unified API provider switcher across:
 | `openai` | 🔑 | codex, droid | OpenAI 官方 (api.openai.com via proxy) |
 | `aiwave` | 🌊 | codex, droid, gemini | AI Wave (api.ai-wave.org) |
 | `icodeeasy` | 🧊 | cc | iCodeEasy (api.icodeeasy.cc) — Anthropic 原生 API |
+| `duck_codex2cc` | 🦆 | cc | Duck CodeX→CC 映射 key（Claude 名称映射到 gpt-5.3-codex） |
 
 ## Version
 See `VERSION`.
@@ -104,6 +105,7 @@ switch-api droid quotio_local gpt-5.3-codex-xhigh  # 超高思考
   - `OPENAI_API_KEY`
   - `OPENROUTER_API_KEY`
   - `ICODEEASY_API_KEY`
+  - `DUCK_CODEX2CC_API_KEY`
 - Keys are loaded from env → credential store (auto-merged on each run)
 
 ## Security

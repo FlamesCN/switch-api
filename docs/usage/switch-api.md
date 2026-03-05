@@ -35,6 +35,11 @@
   - **仅支持 Anthropic 原生 API**（`/v1/messages` + `x-api-key`），不支持 OpenAI `/v1/chat/completions`
   - 支持所有 Claude 模型（3.5 haiku → opus 4.6）
   - 不能用于 openclaw / codex / droid / gemini（这些工具需要 OpenAI 兼容格式）
+- **duck_codex2cc** — Duck CodeX→CC 映射 key，**CC-only**
+  - 在 CC 中用 Claude 模型名，duck 后端自动映射到 GPT codex 模型
+  - `claude-opus-4-6` → `gpt-5.3-codex-xhigh`
+  - `claude-sonnet-4-6` → `gpt-5.3-codex-high`
+  - `claude-haiku-4-5-20251001` → `gpt-5.3-codex-medium`
 
 ## Antigravity-tools 可用模型
 
@@ -173,6 +178,7 @@ switch-api cc duck
 switch-api cc quotio
 switch-api cc antigravity
 switch-api cc icodeeasy              # iCodeEasy (CC-only)
+switch-api cc duck_codex2cc          # Duck CodeX→CC (GPT codex via CC)
 
 # ─── 只切 OpenClaw ─────────────────────────────
 switch-api openclaw duck                    # 默认 Claude Opus 4.6
@@ -416,14 +422,15 @@ droid exec -m "custom:OpenRouter-stepfun/step-3.5-flash:free-0" "解释这段代
 | quotio | OpenAI + Anthropic + Gemini | ✅ | ✅ | ✅ | ✅ | ✅ |
 | antigravity | OpenAI + Anthropic + Gemini | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **icodeeasy** | **Anthropic 原生 only** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **duck_codex2cc** | **Anthropic 原生 (映射)** | ✅ | ❌ | ❌ | ❌ | ❌ |
 | openai | OpenAI | ❌ | ❌ | ✅ | ✅ | ❌ |
 | openrouter | OpenAI | ❌ | ✅ | ✅ | ✅ | ❌ |
 | aiwave | OpenAI + Gemini | ❌ | ❌ | ✅ | ✅ | ✅ |
 | duck_cc1 | Anthropic 原生 only | ✅ | ❌ | ❌ | ❌ | ❌ |
 
-> **关键限制**：`icodeeasy` 和 `duck_cc1` 仅支持 Anthropic 原生 API（`/v1/messages`），
-> OpenClaw / Codex / Droid 需要 OpenAI 格式（`/v1/chat/completions`），因此这两个 provider
-> 只能用于 Claude Code。
+> **关键限制**：`icodeeasy`、`duck_cc1` 和 `duck_codex2cc` 仅支持 Anthropic 原生 API（`/v1/messages`），
+> OpenClaw / Codex / Droid 需要 OpenAI 格式（`/v1/chat/completions`），因此这些 provider
+> 只能用于 Claude Code。`duck_codex2cc` 特殊之处在于后端将 Claude 模型名映射到 GPT codex 模型。
 
 ---
 
@@ -452,6 +459,7 @@ droid exec -m "custom:OpenRouter-stepfun/step-3.5-flash:free-0" "解释这段代
 - 切换到 `quotio` 时检查 `QUOTIO_API_KEY`
 - 切换到 `antigravity` 时检查 `ANTIGRAVITY_API_KEY`
 - 切换到 `icodeeasy` 时检查 `ICODEEASY_API_KEY`
+- 切换到 `duck_codex2cc` 时检查 `DUCK_CODEX2CC_API_KEY`
 - 密钥快照保存到 `~/.config/switch-api/credentials.json`（权限 600）
 - Key 配置在 `~/.bashrc` 中，脚本自动读取 `export` 行
 
