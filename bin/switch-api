@@ -549,15 +549,40 @@ def resolve_home() -> Path:
     raise SwitchError("Cannot resolve HOME directory")
 
 
-def load_exports_from_bashrc(home: Path) -> None:
-    """
-    Load simple `export KEY=value` lines from ~/.bashrc without sourcing shell logic.
-    We only load specific variables used by this switch tool.
-    """
-    bashrc = home / ".bashrc"
-    if not bashrc.exists():
+def _load_exports_from_rc_file(rc_path: Path, target_vars: Iterable[str]) -> None:
+    if not rc_path.exists():
         return
 
+    target_var_set = set(target_vars)
+    pattern = re.compile(r"^\s*export\s+([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
+
+    for raw_line in rc_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        m = pattern.match(raw_line)
+        if not m:
+            continue
+
+        key, value = m.group(1), m.group(2).strip()
+        if key not in target_var_set:
+            continue
+
+        # Avoid evaluating shell expressions; keep only plain literal assignments
+        if any(tok in value for tok in ("$(", "`", "&&", "||", ";")):
+            continue
+
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+        else:
+            # remove inline comments for unquoted values
+            value = value.split(" #", 1)[0].strip()
+
+        os.environ[key] = value
+
+
+def load_exports_from_shell_rcs(home: Path) -> None:
+    """
+    Load simple `export KEY=value` lines from shell rc files without sourcing shell logic.
+    We only load specific variables used by this switch tool.
+    """
     target_vars = {
         "ANTHROPIC_API_KEY",
         "DUCK_ANTHROPIC_API_KEY",
@@ -576,30 +601,10 @@ def load_exports_from_bashrc(home: Path) -> None:
         "OPENAI_GQ80_API_KEY",
         "OPENAI_V420_API_KEY",
         "ICODEEASY_API_KEY",
+        "CODEX_HOME",
     }
-
-    pattern = re.compile(r"^\s*export\s+([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
-
-    for raw_line in bashrc.read_text(encoding="utf-8", errors="ignore").splitlines():
-        m = pattern.match(raw_line)
-        if not m:
-            continue
-
-        key, value = m.group(1), m.group(2).strip()
-        if key not in target_vars:
-            continue
-
-        # Avoid evaluating shell expressions; keep only plain literal assignments
-        if any(tok in value for tok in ("$(", "`", "&&", "||", ";")):
-            continue
-
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
-            value = value[1:-1]
-        else:
-            # remove inline comments for unquoted values
-            value = value.split(" #", 1)[0].strip()
-
-        os.environ[key] = value
+    _load_exports_from_rc_file(home / ".bashrc", target_vars)
+    _load_exports_from_rc_file(home / ".zshrc", target_vars)
 
 
 def timestamp() -> str:
@@ -639,6 +644,20 @@ def write_text(path: Path, content: str) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(content, encoding="utf-8")
     os.replace(tmp, path)
+
+
+def normalize_path(home: Path, raw: str) -> Path:
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        path = home / path
+    return Path(os.path.abspath(str(path)))
+
+
+def resolve_codex_home(home: Path) -> Path:
+    raw = os.environ.get("CODEX_HOME", "").strip()
+    if raw:
+        return normalize_path(home, raw)
+    return home / ".codex"
 
 
 def ensure_key(name: str, value: str, extra: str = "") -> str:
@@ -755,6 +774,215 @@ def save_credential_store(path: Path, data: Dict[str, str]) -> None:
     except Exception:
         pass
     os.replace(tmp, path)
+
+
+def load_codex_account_store(path: Path) -> Dict[str, Any]:
+    if not path.exists():
+        return {"active": "", "accounts": {}}
+
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as ex:
+        raise SwitchError(f"Failed to parse codex account store: {path}: {ex}")
+
+    if not isinstance(raw, dict):
+        raise SwitchError(f"Invalid codex account store: {path}")
+
+    accounts_raw = raw.get("accounts", {})
+    accounts: Dict[str, Dict[str, str]] = {}
+    if isinstance(accounts_raw, dict):
+        for name, meta in accounts_raw.items():
+            if not isinstance(name, str):
+                continue
+            if isinstance(meta, str) and meta:
+                accounts[name] = {"path": meta}
+                continue
+            if isinstance(meta, dict):
+                path_value = meta.get("path", "")
+                if isinstance(path_value, str) and path_value:
+                    accounts[name] = {"path": path_value}
+
+    active = raw.get("active", "")
+    if not isinstance(active, str):
+        active = ""
+
+    return {"active": active, "accounts": accounts}
+
+
+def save_codex_account_store(path: Path, data: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        path.parent.chmod(0o700)
+    except Exception:
+        pass
+
+    payload = {
+        "active": str(data.get("active", "") or ""),
+        "accounts": data.get("accounts", {}) or {},
+    }
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    try:
+        tmp.chmod(0o600)
+    except Exception:
+        pass
+    os.replace(tmp, path)
+
+
+def ensure_codex_account_name(name: str) -> str:
+    value = (name or "").strip()
+    if not value:
+        raise SwitchError("Codex account name cannot be empty")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", value):
+        raise SwitchError("Codex account name must match [A-Za-z0-9][A-Za-z0-9._-]*")
+    return value
+
+
+def normalize_codex_account_path(cfg: Config, raw: str) -> Path:
+    candidate = (raw or "").strip()
+    if candidate.lower() in ("@current", "current"):
+        return cfg.codex_home
+    if candidate:
+        return normalize_path(cfg.home, candidate)
+    return cfg.home / ".codex-profiles" / "default"
+
+
+def codex_account_auth_summary(path: Path) -> str:
+    auth_file = path / "auth.json"
+    if not auth_file.exists():
+        return "未登录"
+
+    try:
+        data = json.loads(auth_file.read_text(encoding="utf-8"))
+    except Exception:
+        return "auth.json 损坏"
+
+    auth_mode = str(data.get("auth_mode", "") or "").strip()
+    if auth_mode == "chatgpt":
+        return "ChatGPT OAuth"
+    if auth_mode == "api_key":
+        return "API key"
+    if data.get("OPENAI_API_KEY"):
+        return "API key"
+    if auth_mode:
+        return auth_mode
+    return "未知"
+
+
+def find_codex_account_name(store: Dict[str, Any], path: Path) -> str:
+    current = os.path.abspath(str(path))
+    accounts = store.get("accounts", {})
+    if not isinstance(accounts, dict):
+        return ""
+    for name, meta in accounts.items():
+        if not isinstance(meta, dict):
+            continue
+        target = meta.get("path", "")
+        if isinstance(target, str) and target and os.path.abspath(target) == current:
+            return name
+    return ""
+
+
+def cmd_codex_account_status(cfg: Config) -> None:
+    store = load_codex_account_store(cfg.codex_accounts_file)
+    active = str(store.get("active", "") or "")
+    current_name = find_codex_account_name(store, cfg.codex_home)
+    accounts = store.get("accounts", {})
+
+    print(f"{CYAN}═══ Codex Account Status ═══{NC}")
+    print(f"  CODEX_HOME   {cfg.codex_home}")
+    print(f"  auth         {codex_account_auth_summary(cfg.codex_home)}")
+    print(f"  registered   {'yes' if current_name else 'no'}")
+    print(f"  current      {current_name or '(unregistered)'}")
+    print(f"  selected     {active or '(none)'}")
+    print(f"  accounts     {len(accounts) if isinstance(accounts, dict) else 0}")
+    print(f"{CYAN}═══════════════════════════{NC}")
+
+
+def cmd_codex_account_list(cfg: Config) -> None:
+    store = load_codex_account_store(cfg.codex_accounts_file)
+    accounts = store.get("accounts", {})
+    active = str(store.get("active", "") or "")
+    current_name = find_codex_account_name(store, cfg.codex_home)
+
+    print(f"{CYAN}═══ Codex Accounts ═══{NC}")
+    if not isinstance(accounts, dict) or not accounts:
+        print("  (no accounts registered)")
+        print(f"{CYAN}══════════════════════{NC}")
+        return
+
+    for name in sorted(accounts):
+        meta = accounts.get(name, {})
+        if not isinstance(meta, dict):
+            continue
+        path_value = str(meta.get("path", "") or "")
+        marker = []
+        if name == current_name:
+            marker.append("current")
+        if name == active:
+            marker.append("selected")
+        status = ", ".join(marker) if marker else "-"
+        auth = codex_account_auth_summary(Path(path_value)) if path_value else "未配置"
+        print(f"  {name:<16} {status:<18} {auth:<14} {path_value}")
+    print(f"{CYAN}══════════════════════{NC}")
+
+
+def cmd_codex_account_add(cfg: Config, name: str, path_arg: str = "") -> None:
+    account_name = ensure_codex_account_name(name)
+    target = normalize_codex_account_path(cfg, path_arg or f".codex-profiles/{account_name}")
+    target.mkdir(parents=True, exist_ok=True)
+
+    store = load_codex_account_store(cfg.codex_accounts_file)
+    accounts = store.setdefault("accounts", {})
+    if not isinstance(accounts, dict):
+        accounts = {}
+        store["accounts"] = accounts
+
+    accounts[account_name] = {"path": str(target)}
+    if not store.get("active"):
+        current_name = find_codex_account_name(store, cfg.codex_home)
+        if current_name:
+            store["active"] = current_name
+
+    save_codex_account_store(cfg.codex_accounts_file, store)
+
+    ok(f"Codex account registered: {account_name}")
+    info(f"  path: {target}")
+    info(f"  auth: {codex_account_auth_summary(target)}")
+    if codex_account_auth_summary(target) == "未登录":
+        warn(f'可运行: CODEX_HOME="{target}" codex login --device-auth')
+
+
+def cmd_codex_account_use(cfg: Config, name: str) -> None:
+    account_name = ensure_codex_account_name(name)
+    store = load_codex_account_store(cfg.codex_accounts_file)
+    accounts = store.get("accounts", {})
+    if not isinstance(accounts, dict) or account_name not in accounts:
+        raise SwitchError(f"Unknown codex account: {account_name}")
+
+    meta = accounts.get(account_name, {})
+    if not isinstance(meta, dict):
+        raise SwitchError(f"Invalid codex account entry: {account_name}")
+
+    target_raw = str(meta.get("path", "") or "")
+    if not target_raw:
+        raise SwitchError(f"Codex account '{account_name}' has no path configured")
+
+    target = normalize_path(cfg.home, target_raw)
+    target.mkdir(parents=True, exist_ok=True)
+
+    store["active"] = account_name
+    accounts[account_name] = {"path": str(target)}
+    save_codex_account_store(cfg.codex_accounts_file, store)
+
+    os.environ["CODEX_HOME"] = str(target)
+    update_bashrc_exports(cfg.bashrc, {"CODEX_HOME": str(target)})
+    update_bashrc_exports(cfg.zshrc, {"CODEX_HOME": str(target)})
+
+    ok(f"Codex account → {account_name}")
+    info(f"  CODEX_HOME={target}")
+    info(f"  auth={codex_account_auth_summary(target)}")
+    warn("当前 shell 需要执行 `source ~/.zshrc` 或重新打开终端，普通 `codex` 才会切到该账号")
 
 
 def enrich_store_from_env(store: Dict[str, str]) -> Dict[str, str]:
@@ -1008,18 +1236,21 @@ def resolve_openclaw_openrouter_profile(profile: str) -> Tuple[str, str]:
 class Config:
     def __init__(self, home: Path):
         self.home = home
+        self.codex_home = resolve_codex_home(home)
         self.cc_settings = home / ".claude/settings.json"
         self.oc_config = home / ".openclaw/openclaw.json"
         self.oc_models = home / ".openclaw/agents/main/agent/models.json"
         self.oc_auth = home / ".openclaw/agents/main/agent/auth.json"
         self.oc_auth_profiles = home / ".openclaw/agents/main/agent/auth-profiles.json"
-        self.cx_config = home / ".codex/config.toml"
+        self.cx_config = self.codex_home / "config.toml"
         self.factory_settings = home / ".factory/settings.json"
         self.gemini_env = home / ".gemini/.env"
         self.bashrc = home / ".bashrc"
+        self.zshrc = home / ".zshrc"
         self.switch_dir = home / ".config/switch-api"
         self.cred_file = self.switch_dir / "credentials.json"
         self.provider_models_file = self.switch_dir / "provider-models.json"
+        self.codex_accounts_file = self.switch_dir / "codex-accounts.json"
 
 
 # ----------------------------- status -----------------------------
@@ -1163,6 +1394,8 @@ def detect_provider(tool: str, cfg: Config) -> str:
 
 
 def show_status(cfg: Config) -> None:
+    codex_store = load_codex_account_store(cfg.codex_accounts_file)
+    codex_account = find_codex_account_name(codex_store, cfg.codex_home)
     print(f"{CYAN}═══ API Provider Status ═══{NC}")
     for tool in TOOLS:
         p = detect_provider(tool, cfg)
@@ -1188,6 +1421,7 @@ def show_status(cfg: Config) -> None:
         elif p == "icodeeasy":
             icon = "🧊"
         print(f"  {tool:<10} {icon}  {p}")
+    print(f"  {'codex_home':<10} 📁  {cfg.codex_home}" + (f" [{codex_account}]" if codex_account else ""))
     print(f"{CYAN}═══════════════════════════{NC}")
     print("  🦆 = DuckCoding (api.duckcoding.ai)")
     print("  🔗 = Quotio Tunnel (api.ancientechoes.ai) / Quotio-Local (127.0.0.1:8317)")
@@ -2909,6 +3143,10 @@ def switch_droid(provider: str, cfg: Config, keys: Dict[str, str], profile: str 
 def usage() -> None:
     print("Usage:")
     print("  switch-api status")
+    print("  switch-api codex-account status")
+    print("  switch-api codex-account list")
+    print("  switch-api codex-account add <name> [path|@current]")
+    print("  switch-api codex-account use <name>")
     print("  switch-api <provider>")
     print("  switch-api all <provider>")
     print("  switch-api <tool> <provider>")
@@ -2918,11 +3156,17 @@ def usage() -> None:
     print("Categories:")
     print("  1) status:")
     print("       switch-api status")
+    print("       switch-api codex-account status")
+    print("       switch-api codex-account list")
     print("  2) full switch:")
     print("       switch-api duck")
     print("       switch-api quotio")
     print("       switch-api all duck")
     print("       switch-api all quotio")
+    print("  2.5) Codex 官方账号切换:")
+    print("       switch-api codex-account add main @current")
+    print("       switch-api codex-account add alt")
+    print("       switch-api codex-account use alt")
     print("  3) single tool switch:")
     print("       switch-api cc duck")
     print("       switch-api openclaw quotio")
@@ -2960,9 +3204,10 @@ def usage() -> None:
     print("  8) Duck CodeX→CC (GPT codex 模型通过 CC 使用):")
     print("       switch-api cc duck_codex2cc      # CC → Duck CodeX (opus→xhigh, sonnet→high)")
     print()
-    print("  switch-api list [provider]           # 列出可用模型")
-    print("  switch-api check [--online]          # 检查当前模型状态")
-    print("  switch-api <tool> <provider> <model> # 指定模型切换")
+    print("  switch-api list [provider]             # 列出可用模型")
+    print("  switch-api check [--online]            # 检查当前模型状态")
+    print("  switch-api codex-account use <name>    # 切换官方账号目录")
+    print("  switch-api <tool> <provider> <model>   # 指定模型切换")
 
 
 def parse_args(argv: Iterable[str]) -> Tuple[str, str, str]:
@@ -2973,6 +3218,19 @@ def parse_args(argv: Iterable[str]) -> Tuple[str, str, str]:
     args = list(argv)
 
     if not args:
+        usage()
+        raise SystemExit(1)
+
+    if args[0] == "codex-account":
+        if len(args) == 2 and args[1] in ("status", "list"):
+            return (f"codex-account-{args[1]}", "", "")
+        if len(args) == 3 and args[1] == "use":
+            return ("codex-account-use", args[2], "")
+        if len(args) == 3 and args[1] == "add":
+            return ("codex-account-add", args[2], "")
+        if len(args) == 4 and args[1] == "add":
+            return ("codex-account-add", args[2], args[3])
+        err("Usage: switch-api codex-account <status|list|add|use> ...")
         usage()
         raise SystemExit(1)
 
@@ -3068,7 +3326,7 @@ def parse_args(argv: Iterable[str]) -> Tuple[str, str, str]:
 def main() -> int:
     home = resolve_home()
     os.environ["HOME"] = str(home)
-    load_exports_from_bashrc(home)
+    load_exports_from_shell_rcs(home)
 
     cfg = Config(home)
     store = load_credential_store(cfg.cred_file)
@@ -3083,6 +3341,22 @@ def main() -> int:
 
     if tool == "status":
         show_status(cfg)
+        return 0
+
+    if tool == "codex-account-status":
+        cmd_codex_account_status(cfg)
+        return 0
+
+    if tool == "codex-account-list":
+        cmd_codex_account_list(cfg)
+        return 0
+
+    if tool == "codex-account-add":
+        cmd_codex_account_add(cfg, provider, profile)
+        return 0
+
+    if tool == "codex-account-use":
+        cmd_codex_account_use(cfg, provider)
         return 0
 
     if tool == "list":

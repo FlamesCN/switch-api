@@ -108,7 +108,7 @@
 
 - **cc** — Claude Code，配置文件 `~/.claude/settings.json`
 - **openclaw** — OpenClaw Telegram Bot，配置文件 `~/.openclaw/openclaw.json`
-- **codex** — OpenAI Codex，配置文件 `~/.codex/config.toml`
+- **codex** — OpenAI Codex，配置文件默认 `~/.codex/config.toml`，若设置 `CODEX_HOME` 则跟随该目录
 - **droid** — Factory Droid CLI，默认通过 `~/.bashrc` Gemini 环境变量控制，codex profile 通过 `~/.factory/settings.json` customModels
 - **gemini** — Gemini CLI，配置文件 `~/.gemini/.env`
 - **all** — 以上全部
@@ -150,6 +150,14 @@ switch-api droid quotio <profile>
 **方式四：查看状态**
 ```bash
 switch-api status
+switch-api codex-account status
+```
+
+**方式五：Codex 官方账号切换**
+```bash
+switch-api codex-account list
+switch-api codex-account add <name> [path|@current]
+switch-api codex-account use <name>
 ```
 
 **选项：**
@@ -164,6 +172,14 @@ switch-api check                             # 查看当前各工具模型状态
 switch-api check --online                    # 在线验证模型可用性
 switch-api list                              # 列出所有 provider 可用模型
 switch-api list quotio                       # 列出指定 provider 可用模型
+switch-api codex-account status              # 查看当前 Codex 官方账号目录
+switch-api codex-account list                # 列出已注册的官方账号
+
+# ─── Codex 官方账号切换（ChatGPT OAuth）─────────
+switch-api codex-account add main @current   # 注册当前生效中的目录
+switch-api codex-account add alt             # 创建并注册 ~/.codex-profiles/alt
+switch-api codex-account use alt             # 切换到 alt（写入 CODEX_HOME）
+CODEX_HOME="$HOME/.codex-profiles/alt" codex login --device-auth
 
 # ─── 全部切换 ───────────────────────────────────
 switch-api duck                # 全部 → DuckCoding
@@ -212,10 +228,13 @@ switch-api openrouter                        # openclaw+codex+droid → OpenRout
 switch-api openclaw openrouter llama         # OpenClaw → Llama
 switch-api droid openrouter                  # Droid → OpenRouter
 
-# ─── OpenAI 多账号 ────────────────────────────
+# ─── OpenAI 多账号（API key provider）─────────
 switch-api openai_Gq80                       # codex+droid → OpenAI[Gq80]
 switch-api droid openai_V420                 # Droid → OpenAI[V420]
 ```
+
+> `openai_Gq80` / `openai_V420` 仍然是 API key provider 切换。
+> 如果要切换两个 ChatGPT 官方账号，请使用 `codex-account`，不要混用 provider 语义。
 
 ---
 

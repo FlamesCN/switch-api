@@ -32,6 +32,24 @@ See `VERSION`.
 switch-api status                    # 查看各工具当前提供商
 switch-api check [--online]          # 检查当前模型状态
 switch-api list [provider]           # 列出可用模型
+switch-api codex-account status      # 查看当前 Codex 官方账号目录
+switch-api codex-account list        # 列出已注册的 Codex 官方账号
+```
+
+### Codex Official Accounts
+```bash
+switch-api codex-account add main @current   # 把当前生效中的 CODEX_HOME 注册为 main
+switch-api codex-account add alt             # 创建 ~/.codex-profiles/alt 并注册
+switch-api codex-account use alt             # 持久化切换到 alt（写入 CODEX_HOME）
+```
+
+`codex-account` 与 provider 是两套机制：
+- `provider` 切换的是 API endpoint / API key
+- `codex-account` 切换的是整套 Codex 状态目录（`CODEX_HOME`），适用于 ChatGPT OAuth 官方账号
+
+注册新账号后，如果目录还没登录：
+```bash
+CODEX_HOME="$HOME/.codex-profiles/alt" codex login --device-auth
 ```
 
 ### Full Switch (all tools)
