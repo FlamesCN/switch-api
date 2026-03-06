@@ -264,6 +264,64 @@ ANTIGRAVITY_BASE_URL = "https://tools.ancientechoes.ai"
 ANTIGRAVITY_BASE_URL_V1 = "https://tools.ancientechoes.ai/v1"
 ANTIGRAVITY_BASE_URL_V1BETA = "https://tools.ancientechoes.ai/v1beta"
 
+# Xingyun GPT (星云 GPT 中转)
+XINGYUN_BASE_URL = "https://ai.xingyungept.cn"
+XINGYUN_BASE_URL_V1 = "https://ai.xingyungept.cn/v1"
+XINGYUN_AVAILABLE_MODELS = (
+    "glm-4-flash",
+    "glm-4.6v",
+    "glm-4.7",
+    "glm-5",
+    "gpt-5",
+    "gpt-5-codex",
+    "gpt-5-codex-mini",
+    "gpt-5.1",
+    "gpt-5.1-codex",
+    "gpt-5.1-codex-max",
+    "gpt-5.1-codex-mini",
+    "gpt-5.2",
+    "gpt-5.2-codex",
+    "gpt-5.3-codex",
+    "gpt-5.4",
+    "grok-3",
+    "grok-3-fast",
+    "grok-3-mini",
+    "grok-3-thinking",
+    "grok-4",
+    "grok-4-fast",
+    "grok-4-heavy",
+    "grok-4-mini",
+    "grok-4-thinking",
+    "grok-4.1",
+    "grok-4.1-expert",
+    "grok-4.1-fast",
+    "grok-4.1-mini",
+    "grok-4.1-thinking",
+    "grok-4.20-beta",
+    "grok-image",
+    "grok-image-1_1",
+    "grok-image-16_9",
+    "grok-image-2_3",
+    "grok-image-3_2",
+    "grok-image-9_16",
+    "grok-imagine-1.0",
+    "grok-imagine-1.0-edit",
+    "grok-imagine-1.0-video",
+    "grok-video",
+    "grok-video-1_1",
+    "grok-video-16_9",
+    "grok-video-2_3",
+    "grok-video-3_2",
+    "grok-video-9_16",
+    "LongCat-Flash-Chat",
+    "LongCat-Flash-Lite",
+    "LongCat-Flash-Thinking",
+    "longcat-flash-lite",
+    "LongCat-Flash-Thinking-2601",
+)
+XINGYUN_DROID_MODEL = "gpt-5.4"
+XINGYUN_CODEX_MODEL = "gpt-5.4"
+
 # AI Wave (第三方中转)
 AIWAVE_BASE_URL = "https://api.ai-wave.org"
 AIWAVE_BASE_URL_V1 = "https://api.ai-wave.org/v1"
@@ -386,18 +444,21 @@ GEMINI_CLI_BASE_URLS = {
     "duck": DUCK_BASE_URL,
     "quotio": QUOTIO_BASE_URL,
     "antigravity": ANTIGRAVITY_BASE_URL,
+    "xingyun": XINGYUN_BASE_URL,
     "aiwave": AIWAVE_GEMINI_BASE_URL,
 }
 GEMINI_CLI_MODELS = {
     "duck": "gemini-3.1-pro-preview",
     "quotio": "gemini-3.1-pro-high",
     "antigravity": "gemini-3.1-pro-high",
+    "xingyun": "gpt-5.4",
     "aiwave": AIWAVE_GEMINI_MODEL,
 }
 GEMINI_CLI_KEY_MAP = {
     "duck": "duck_gemini",
     "quotio": "quotio",
     "antigravity": "antigravity",
+    "xingyun": "xingyun",
     "aiwave": "aiwave",
 }
 
@@ -414,7 +475,7 @@ DROID_QUOTIO_PROFILE_NAMES = tuple(DROID_QUOTIO_PROFILE_TO_MODEL.keys())
 
 TOOLS = ("cc", "openclaw", "codex", "droid", "gemini")
 TOOLS_WITH_ALL = ("cc", "openclaw", "codex", "droid", "gemini", "all")
-PROVIDERS = ("duck", "quotio", "quotio_local", "antigravity", "openai", "openai_Gq80", "openai_V420", "openrouter", "aiwave", "duck_cc1", "duck_codex2cc", "icodeeasy")
+PROVIDERS = ("duck", "quotio", "quotio_local", "antigravity", "xingyun", "openai", "openai_Gq80", "openai_V420", "openrouter", "aiwave", "duck_cc1", "duck_codex2cc", "icodeeasy")
 
 # CC-only providers: these providers only support Claude Code
 CC_ONLY_PROVIDERS = ("duck_cc1", "duck_codex2cc", "icodeeasy")
@@ -507,6 +568,7 @@ def load_exports_from_bashrc(home: Path) -> None:
         "GEMINI_BASE_URL",
         "GEMINI_MODEL",
         "ANTIGRAVITY_API_KEY",
+        "XINGYUN_API_KEY",
         "OPENROUTER_API_KEY",
         "AIWAVE_API_KEY",
         "DUCK_CC1_API_KEY",
@@ -623,6 +685,7 @@ def probe_provider(provider: str, keys: Dict[str, str], timeout: int = 8) -> Tup
         "quotio": (QUOTIO_BASE_URL_V1 + "/models", keys.get("quotio", "")),
         "quotio_local": (QUOTIO_LOCAL_BASE_URL_V1 + "/models", keys.get("quotio", "")),
         "antigravity": (ANTIGRAVITY_BASE_URL_V1 + "/models", keys.get("antigravity", "")),
+        "xingyun": (XINGYUN_BASE_URL_V1 + "/models", keys.get("xingyun", "")),
         "openai": ("https://api.openai.com/v1/models", keys.get("openai", "")),
         "openai_Gq80": ("https://api.openai.com/v1/models", keys.get("openai_Gq80", "")),
         "openai_V420": ("https://api.openai.com/v1/models", keys.get("openai_V420", "")),
@@ -704,6 +767,7 @@ def enrich_store_from_env(store: Dict[str, str]) -> Dict[str, str]:
         "duck_codex": os.environ.get("DUCKCODING_API_KEY", ""),
         "quotio": os.environ.get("QUOTIO_API_KEY", ""),
         "antigravity": os.environ.get("ANTIGRAVITY_API_KEY", ""),
+        "xingyun": os.environ.get("XINGYUN_API_KEY", ""),
         "openrouter": os.environ.get("OPENROUTER_API_KEY", ""),
         "aiwave": os.environ.get("AIWAVE_API_KEY", ""),
         "duck_cc1": os.environ.get("DUCK_CC1_API_KEY", ""),
@@ -749,6 +813,8 @@ def get_keys(store: Dict[str, str]) -> Dict[str, str]:
         or store.get("quotio", ""),
         "antigravity": os.environ.get("ANTIGRAVITY_API_KEY")
         or store.get("antigravity", ""),
+        "xingyun": os.environ.get("XINGYUN_API_KEY")
+        or store.get("xingyun", ""),
         "openai": os.environ.get("OPENAI_API_KEY")
         or store.get("openai", ""),
         "openrouter": os.environ.get("OPENROUTER_API_KEY")
@@ -809,6 +875,19 @@ def provider_model_catalog() -> Dict[str, Any]:
                 },
                 "droid": {
                     "default_model": ANTIGRAVITY_DROID_MODEL,
+                },
+            },
+            "xingyun": {
+                "available_models": list(XINGYUN_AVAILABLE_MODELS),
+                "base_url": XINGYUN_BASE_URL,
+                "openclaw": {
+                    "default_model": "xingyun/gpt-5.4",
+                },
+                "codex": {
+                    "default_model": XINGYUN_CODEX_MODEL,
+                },
+                "droid": {
+                    "default_model": XINGYUN_DROID_MODEL,
                 },
             },
         }
@@ -988,6 +1067,8 @@ def detect_provider(tool: str, cfg: Config) -> str:
             return "quotio"
         if model.startswith("duckcoding/") or model.startswith("duckcoding-claude/"):
             return "duck"
+        if model.startswith("xingyun/"):
+            return "xingyun"
         if model.startswith("openrouter/"):
             return "openrouter"
         if model.startswith("openai-direct/"):
@@ -1092,6 +1173,8 @@ def show_status(cfg: Config) -> None:
             icon = "🔗"
         elif p == "antigravity":
             icon = "🚀"
+        elif p == "xingyun":
+            icon = "☁️"
         elif p == "openai" or p.startswith("openai_"):
             icon = "🔑"
         elif p == "openrouter":
@@ -1171,6 +1254,8 @@ def get_provider_models(provider: str) -> Dict[str, Tuple[str, ...]]:
     elif provider == "antigravity":
         # Antigravity shares Quotio model set (same tunnel backend)
         models = QUOTIO_AVAILABLE_MODELS
+    elif provider == "xingyun":
+        models = XINGYUN_AVAILABLE_MODELS
     elif provider == "icodeeasy":
         models = ICODEEASY_AVAILABLE_MODELS
     elif provider == "duck_codex2cc":
@@ -1193,6 +1278,8 @@ def model_in_provider(model: str, provider: str) -> bool:
     m = model.split("/")[-1]  # strip provider prefix
     if provider == "quotio" or provider == "antigravity":
         return m in QUOTIO_AVAILABLE_MODELS
+    if provider == "xingyun":
+        return m in XINGYUN_AVAILABLE_MODELS
     if provider == "icodeeasy":
         return m in ICODEEASY_AVAILABLE_MODELS
     if provider == "duck_codex2cc":
@@ -1211,7 +1298,7 @@ def tools_for_model(model: str) -> Tuple[str, ...]:
 # ----------------------------- list command ----------------------------
 def cmd_list_models(provider: str = "") -> None:
     """Print available models for one or all providers."""
-    providers = [provider] if provider else ["quotio", "duck", "antigravity", "icodeeasy", "duck_codex2cc", "openrouter"]
+    providers = [provider] if provider else ["quotio", "duck", "antigravity", "xingyun", "icodeeasy", "duck_codex2cc", "openrouter"]
 
     for prov in providers:
         catalog = get_provider_models(prov)
@@ -1220,6 +1307,7 @@ def cmd_list_models(provider: str = "") -> None:
             "quotio": "Quotio",
             "duck": "DuckCoding",
             "antigravity": "Antigravity",
+            "xingyun": "Xingyun",
             "icodeeasy": "iCodeEasy (CC-only)",
             "duck_codex2cc": "Duck CodeX→CC (CC-only)",
             "openrouter": "OpenRouter (Free)",
@@ -1308,6 +1396,7 @@ def probe_model_curl(provider: str, model: str, keys: Dict[str, str]) -> Tuple[b
         "duck": (DUCK_BASE_URL_V1 + "/chat/completions", None),
         "quotio": (QUOTIO_BASE_URL_V1 + "/chat/completions", None),
         "antigravity": (ANTIGRAVITY_BASE_URL_V1 + "/chat/completions", None),
+        "xingyun": (XINGYUN_BASE_URL_V1 + "/chat/completions", None),
         "openai": (OPENAI_BASE_URL_V1 + "/chat/completions", XRAY_PROXY),
         "openrouter": (OPENROUTER_BASE_URL_V1 + "/chat/completions", None),
     }
@@ -1329,6 +1418,8 @@ def probe_model_curl(provider: str, model: str, keys: Dict[str, str]) -> Tuple[b
         key = keys.get("quotio", "")
     elif provider == "antigravity":
         key = keys.get("antigravity", "")
+    elif provider == "xingyun":
+        key = keys.get("xingyun", "")
     elif provider == "openai":
         key = keys.get("openai", "")
     elif provider == "openrouter":
@@ -1382,7 +1473,7 @@ def cmd_check(cfg: Config, keys: Dict[str, str], online: bool = False) -> None:
     for tool in TOOLS:
         prov = detect_provider(tool, cfg)
         model = detect_current_model(tool, cfg)
-        icon = {"duck": "🦆", "quotio": "🔗", "antigravity": "🚀", "openai": "🔑", "openrouter": "🌐", "icodeeasy": "🧊"}.get(prov, "❓")
+        icon = {"duck": "🦆", "quotio": "🔗", "antigravity": "🚀", "xingyun": "☁️", "openai": "🔑", "openrouter": "🌐", "icodeeasy": "🧊"}.get(prov, "❓")
 
         # Truncate model for display
         model_display = model if len(model) <= 32 else model[:29] + "..."
@@ -1764,6 +1855,43 @@ def antigravity_gemini_models_payload_for_models_json() -> Dict[str, Any]:
     p["models"] = models
     return p
 
+def xingyun_openai_models_payload() -> Dict[str, Any]:
+    return {
+        "baseUrl": XINGYUN_BASE_URL_V1,
+        "api": "openai-completions",
+        "apiKey": "",
+        "models": [
+            {
+                "id": "gpt-5.4",
+                "name": "GPT-5.4 (Xingyun)",
+                "reasoning": True,
+                "input": ["text"],
+                "contextWindow": 200000,
+                "maxTokens": 32768,
+            },
+            {
+                "id": "gpt-5.3-codex",
+                "name": "GPT-5.3 Codex (Xingyun)",
+                "reasoning": True,
+                "input": ["text"],
+                "contextWindow": 200000,
+                "maxTokens": 32768,
+            },
+        ],
+    }
+
+
+def xingyun_openai_models_payload_for_models_json() -> Dict[str, Any]:
+    p = xingyun_openai_models_payload()
+    models = []
+    for item in p["models"]:
+        it = dict(item)
+        it["cost"] = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}
+        it["api"] = "openai-completions"
+        models.append(it)
+    p["models"] = models
+    return p
+
 def openrouter_models_payload() -> Dict[str, Any]:
     return {
         "baseUrl": OPENROUTER_BASE_URL_V1,
@@ -2016,6 +2144,41 @@ def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], profile: s
         agm["apiKey"] = a_key
         model_providers["antigravity-gemini"] = agm
 
+    elif provider == "xingyun":
+        x_key = ensure_key("XINGYUN_API_KEY", keys["xingyun"], "required for OpenClaw xingyun")
+        target_model = model or "gpt-5.4"
+        oc_agents["primary"] = f"xingyun/{target_model}"
+        info(f"Xingyun OpenClaw models: gpt-5.4, gpt-5.3-codex, ...")
+
+        xo = xingyun_openai_models_payload()
+        # Add custom model if specified
+        if model and model not in [m["id"] for m in xo["models"]]:
+            xo["models"].append({
+                "id": model,
+                "name": f"GPT {model} (Xingyun)",
+                "reasoning": True,
+                "input": ["text"],
+                "contextWindow": 200000,
+                "maxTokens": 32768,
+            })
+        xo["apiKey"] = x_key
+        oc_providers["xingyun"] = xo
+
+        xom = xingyun_openai_models_payload_for_models_json()
+        if model and model not in [m["id"] for m in xom["models"]]:
+            xom["models"].append({
+                "id": model,
+                "name": f"GPT {model} (Xingyun)",
+                "reasoning": True,
+                "input": ["text"],
+                "contextWindow": 200000,
+                "maxTokens": 32768,
+                "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+                "api": "openai-completions",
+            })
+        xom["apiKey"] = x_key
+        model_providers["xingyun"] = xom
+
     elif provider == "openrouter":
         or_key = ensure_key("OPENROUTER_API_KEY", keys["openrouter"], "required for OpenClaw openrouter")
         target_primary, reason = resolve_openclaw_openrouter_profile(profile)
@@ -2168,6 +2331,25 @@ def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], profile: s
 
         info("Updated OpenClaw auth store for antigravity")
 
+    elif provider == "xingyun":
+        x_key = ensure_key("XINGYUN_API_KEY", keys["xingyun"], "required for OpenClaw xingyun")
+
+        auth["xingyun"] = {"type": "api_key", "key": x_key}
+
+        profiles["xingyun:manual"] = {
+            "type": "token",
+            "provider": "xingyun",
+            "token": x_key,
+        }
+
+        last_good["xingyun"] = "xingyun:manual"
+
+        primary_provider = str(oc_agents.get("primary", "xingyun") or "xingyun").split("/", 1)[0]
+        if primary_provider == "xingyun":
+            last_good[primary_provider] = f"{primary_provider}:manual"
+
+        info("Updated OpenClaw auth store for xingyun")
+
     elif provider == "openrouter":
         or_key = ensure_key("OPENROUTER_API_KEY", keys["openrouter"], "required for OpenClaw openrouter")
 
@@ -2204,21 +2386,7 @@ def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], profile: s
     save_json(cfg.oc_auth, auth)
     save_json(cfg.oc_auth_profiles, auth_profiles)
 
-    restart_openclaw_gateway(cfg.home)
-
-    # --- Post-restart health probe ---
-    reachable, reason = probe_provider(provider, keys, timeout=5)
-    if not reachable:
-        warn(f"Post-restart probe: {provider} unreachable — {reason}")
-        warn("Rolling back to previous config...")
-        for _fp, _content in _rollback_snapshot.items():
-            _fp.write_bytes(_content)
-        restart_openclaw_gateway(cfg.home)
-        raise SwitchError(
-            f"OpenClaw → {provider} FAILED and rolled back. Provider became unreachable during restart."
-        )
-
-    ok(f"OpenClaw → {provider}")
+    ok(f"OpenClaw → {provider} (配置已写入，未重启)")
 
 
 def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = "") -> None:
@@ -2226,7 +2394,7 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
     backup(cfg.cx_config)
 
     text = read_text(cfg.cx_config)
-    provider_map = {"duck": "duckcoding", "quotio": "quotio", "quotio_local": "quotio-local", "antigravity": "antigravity", "openai": "openai-official", "openrouter": "openrouter", "aiwave": "aiwave"}
+    provider_map = {"duck": "duckcoding", "quotio": "quotio", "quotio_local": "quotio-local", "antigravity": "antigravity", "xingyun": "xingyun", "openai": "openai-official", "openrouter": "openrouter", "aiwave": "aiwave"}
     provider_map.update({np: f"openai-{np[7:]}" for np in OPENAI_NAMED_PROVIDERS})
     model_provider = provider_map[provider]
 
@@ -2335,6 +2503,34 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
             )
             text += block
             info("Added antigravity provider to codex config")
+
+    if provider == "xingyun":
+        # xingyun uses GPT models, no model mapping needed
+        target_model_x = model or "gpt-5.4"
+        
+        model_match_x = re.search(r'^\s*model\s*=\s*"([^"]+)"\s*$', text, flags=re.M)
+        if model_match_x:
+            text = re.sub(
+                r'^\s*model\s*=\s*"[^"]+"\s*$',
+                f'model = "{target_model_x}"',
+                text,
+                count=1,
+                flags=re.M,
+            )
+        else:
+            text = f'model = "{target_model_x}"\n' + text
+        
+        if not re.search(r"^\[model_providers\.xingyun\]\s*$", text, flags=re.M):
+            block = (
+                "\n\n# Xingyun GPT\n"
+                "[model_providers.xingyun]\n"
+                'name = "xingyun"\n'
+                f'base_url = "{XINGYUN_BASE_URL_V1}"\n'
+                'wire_api = "responses"\n'
+                'env_key = "XINGYUN_API_KEY"\n'
+            )
+            text += block
+            info("Added xingyun provider to codex config")
 
     if provider == "openai" or provider in OPENAI_NAMED_PROVIDERS:
         if provider in OPENAI_NAMED_PROVIDERS:
@@ -2624,6 +2820,22 @@ def switch_droid(provider: str, cfg: Config, keys: Dict[str, str], profile: str 
         os.environ["GEMINI_MODEL"] = ANTIGRAVITY_DROID_MODEL
         ok(f"Droid → antigravity / {ANTIGRAVITY_DROID_MODEL} (run 'source ~/.bashrc' to apply)")
         update_gemini_cli_env(provider, cfg, keys)
+
+    elif provider == "xingyun":
+        x_key = ensure_key("XINGYUN_API_KEY", keys["xingyun"], "required for Droid xingyun")
+        droid_model = model or XINGYUN_DROID_MODEL
+        _write_factory_custom_models(cfg.factory_settings, [
+            {
+                "model": droid_model,
+                "displayName": f"Xingyun {droid_model}",
+                "baseUrl": XINGYUN_BASE_URL_V1,
+                "apiKey": x_key,
+                "provider": "openai",
+            }
+        ])
+        ok(f"Droid → xingyun / {droid_model}")
+        info(f"  Written to {cfg.factory_settings}")
+        info(f"  In Droid: /model → select \"Xingyun {droid_model}\" under Custom Models")
 
     elif provider == "openrouter":
         or_key = ensure_key("OPENROUTER_API_KEY", keys["openrouter"], "required for Droid openrouter")

@@ -13,6 +13,7 @@ Unified API provider switcher across:
 | `duck` | 🦆 | all | DuckCoding (api.duckcoding.ai) |
 | `quotio` | 🔗 | all | Quotio Tunnel (api.ancientechoes.ai) |
 | `antigravity` | 🚀 | all | Antigravity-tools (tools.ancientechoes.ai) |
+| `xingyun` | ☁️ | openclaw, codex, droid | Xingyun GPT (ai.xingyungept.cn) |
 | `openai` | 🔑 | codex | OpenAI 官方 (api.openai.com via proxy) |
 | `quotio_local` | 🔗 | codex, droid | Quotio Local (本地 app, 127.0.0.1:8317) |
 | `openrouter` | 🌐 | openclaw, codex, droid | OpenRouter (openrouter.ai) — free models |
@@ -38,6 +39,7 @@ switch-api list [provider]           # 列出可用模型
 switch-api duck                      # 全部 → DuckCoding
 switch-api quotio                    # 全部 → Quotio
 switch-api antigravity               # 全部 → Antigravity
+switch-api xingyun                   # openclaw+codex+droid → Xingyun GPT
 switch-api openrouter                # openclaw+codex+droid → OpenRouter (free)
 ```
 
@@ -45,6 +47,7 @@ switch-api openrouter                # openclaw+codex+droid → OpenRouter (free
 ```bash
 switch-api cc duck
 switch-api openclaw quotio [profile]
+switch-api openclaw xingyun gpt-5.4
 switch-api codex openai
 switch-api droid quotio [profile]
 switch-api gemini duck
@@ -84,6 +87,7 @@ switch-api droid quotio_local gpt-5.3-codex-high  # 指定模型+思考等级
 ```bash
 switch-api <tool> <provider> <model>          # 指定具体模型
 switch-api codex duck gpt-5.3-codex
+switch-api codex xingyun gpt-5.4
 switch-api droid quotio_local gpt-5.3-codex-high  # 高思考等级
 ```
 
@@ -102,6 +106,7 @@ switch-api droid quotio_local gpt-5.3-codex-xhigh  # 超高思考
   - `DUCK_ANTHROPIC_API_KEY`, `DUCK_GEMINI_API_KEY`, `DUCKCODING_API_KEY`
   - `QUOTIO_API_KEY`
   - `ANTIGRAVITY_API_KEY`
+  - `XINGYUN_API_KEY`
   - `OPENAI_API_KEY`
   - `OPENROUTER_API_KEY`
   - `ICODEEASY_API_KEY`
