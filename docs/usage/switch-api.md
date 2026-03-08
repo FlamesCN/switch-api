@@ -1,6 +1,6 @@
 # API Provider 切换系统
 
-在 DuckCoding、Quotio 本地隧道、Antigravity-tools 三个 provider 之间一键切换所有 AI 工具的 API 后端。
+在 DuckCoding、Quotio 本地隧道、Antigravity-tools、OpenAI 官方等 provider 之间一键切换所有 AI 工具的 API 后端。
 
 ## 架构
 
@@ -40,6 +40,12 @@
   - `claude-opus-4-6` → `gpt-5.3-codex-xhigh`
   - `claude-sonnet-4-6` → `gpt-5.3-codex-high`
   - `claude-haiku-4-5-20251001` → `gpt-5.3-codex-medium`
+- **openai** — OpenAI 官方 `https://api.openai.com/v1`
+  - `codex` / `droid` 使用静态 API key
+  - `openclaw` 支持两种模式：
+    - `key` → `openai-direct/...`
+    - `oauth` → `openai-codex/...`
+  - `openclaw oauth` 切换前需先执行：`~/.npm-global/bin/openclaw models auth login --provider openai-codex`
 
 ## Antigravity-tools 可用模型
 
@@ -117,7 +123,7 @@
 
 ## 命令行用法
 
-脚本位置：`~/bin/switch-api`（Python 脚本，v2.0.0）
+脚本位置：`~/bin/switch-api`（Python 脚本，v2.0.1）
 
 ### 语法
 
@@ -130,7 +136,7 @@ switch-api [--force] <参数1> [参数2] [参数3]
 switch-api <tool> <provider>
 ```
 - `<tool>` = `cc` | `openclaw` | `codex` | `droid` | `all`
-- `<provider>` = `duck` | `quotio` | `antigravity`
+- `<provider>` = `duck` | `quotio` | `antigravity` | `openai`
 
 **方式二：单参数（快捷全切）**
 ```bash
@@ -142,9 +148,11 @@ switch-api <provider>
 switch-api openclaw duck <profile>
 switch-api openclaw quotio <profile>
 switch-api openclaw antigravity <profile>
+switch-api openclaw openai <mode>
 switch-api droid quotio <profile>
 ```
-- OpenClaw `<profile>` = `default` | `opus` | `sonnet` | `gemini` | `gemini3`
+- OpenClaw `duck/quotio/antigravity <profile>` = `default` | `opus` | `sonnet` | `gemini` | `gemini3`
+- OpenClaw `openai <mode>` = `key` | `oauth`
 - Droid `<profile>` = `default` | `gemini` | `codex`
 
 **方式四：查看状态**
@@ -204,6 +212,8 @@ switch-api openclaw quotio                  # 默认 Opus 4.6 Thinking
 switch-api openclaw quotio gemini3          # Quotio Gemini 3 ⚠️
 switch-api openclaw antigravity             # 默认 Opus 4.6 Thinking
 switch-api openclaw antigravity gemini3     # Antigravity Gemini 3 ⚠️
+switch-api openclaw openai key              # OpenClaw → OpenAI API Key (openai-direct)
+switch-api openclaw openai oauth            # OpenClaw → OpenAI OAuth (openai-codex)
 
 # ─── 只切 Codex ────────────────────────────────
 switch-api codex duck
@@ -294,6 +304,8 @@ switch-api codex duck gpt-5.3-codex-high
 /switch codex quotio gpt-5.3-codex
 /switch droid quotio gpt-5.3-codex
 /switch openclaw quotio claude-sonnet-4-6
+/switch openclaw openai key
+/switch openclaw openai oauth
 ```
 
 ### 只切某个工具
@@ -359,6 +371,37 @@ OpenClaw 工具 schema 使用 `patternProperties`，Gemini API 不支持此特�
 
 ---
 
+## OpenClaw × OpenAI 双认证模式
+
+`switch-api` 对 OpenClaw 的 OpenAI 路径支持两条独立链路：
+
+| 模式 | 主模型前缀 | 认证来源 | 说明 |
+|------|------------|----------|------|
+| `key` | `openai-direct/...` | `OPENAI_API_KEY` / manual auth store | 静态 API key 模式 |
+| `oauth` | `openai-codex/...` | `~/.openclaw/agents/main/agent/auth-profiles.json` | OpenClaw 官方 OAuth 模式 |
+
+### 常用命令
+
+```bash
+switch-api openclaw openai key
+switch-api openclaw openai oauth
+switch-api status
+switch-api check
+```
+
+### 关键说明
+
+- `oauth` 模式检查的是 `~/.openclaw/agents/main/agent/auth-profiles.json`
+- `~/.openclaw/openclaw.json` 中的 `auth.profiles` 只保存 metadata 和默认顺序，不保存真实 OAuth token
+- `status` / `check` 会区分显示 `openai (key)` 和 `openai (oauth)`
+- 如果本机还没有 `openai-codex` OAuth 凭据，先运行：
+
+```bash
+~/.npm-global/bin/openclaw models auth login --provider openai-codex
+```
+
+---
+
 ## 模型映射策略
 
 ### Claude Code 映射（Quotio / Antigravity 通用）
@@ -419,7 +462,7 @@ droid exec -m "custom:OpenRouter-stepfun/step-3.5-flash:free-0" "解释这段代
 ```
 ═══ API Provider Status ═══
   cc         🚀  antigravity
-  openclaw   🚀  antigravity
+  openclaw   🔑  openai (oauth)
   codex      🚀  antigravity
   droid      🚀  antigravity
 ═══════════════════════════
@@ -427,7 +470,10 @@ droid exec -m "custom:OpenRouter-stepfun/step-3.5-flash:free-0" "解释这段代
   🔗 = Quotio Tunnel (api.ancientechoes.ai)
   🚀 = Antigravity-tools (tools.ancientechoes.ai)
   🧊 = iCodeEasy (api.icodeeasy.cc)
+  🔑 = OpenAI 官方 (api.openai.com via proxy)
 ```
+
+OpenClaw 走 OpenAI 时会额外显示认证模式后缀，避免把 OAuth 和 API key 两条链路混在一起。
 
 ---
 
@@ -442,7 +488,7 @@ droid exec -m "custom:OpenRouter-stepfun/step-3.5-flash:free-0" "解释这段代
 | antigravity | OpenAI + Anthropic + Gemini | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **icodeeasy** | **Anthropic 原生 only** | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **duck_codex2cc** | **Anthropic 原生 (映射)** | ✅ | ❌ | ❌ | ❌ | ❌ |
-| openai | OpenAI | ❌ | ❌ | ✅ | ✅ | ❌ |
+| openai | OpenAI | ❌ | ✅* | ✅ | ✅ | ❌ |
 | openrouter | OpenAI | ❌ | ✅ | ✅ | ✅ | ❌ |
 | aiwave | OpenAI + Gemini | ❌ | ❌ | ✅ | ✅ | ✅ |
 | duck_cc1 | Anthropic 原生 only | ✅ | ❌ | ❌ | ❌ | ❌ |
@@ -450,6 +496,46 @@ droid exec -m "custom:OpenRouter-stepfun/step-3.5-flash:free-0" "解释这段代
 > **关键限制**：`icodeeasy`、`duck_cc1` 和 `duck_codex2cc` 仅支持 Anthropic 原生 API（`/v1/messages`），
 > OpenClaw / Codex / Droid 需要 OpenAI 格式（`/v1/chat/completions`），因此这些 provider
 > 只能用于 Claude Code。`duck_codex2cc` 特殊之处在于后端将 Claude 模型名映射到 GPT codex 模型。
+>
+> `openai` 对 OpenClaw 支持两种模式：
+> `switch-api openclaw openai key` 与 `switch-api openclaw openai oauth`。
+> `oauth` 依赖 agent-local `auth-profiles.json` 中真实存在的 `type: "oauth"` 凭据。
+
+---
+
+## 排错：`No API key found for provider "openai-codex"`
+
+### 现象
+
+OpenClaw 切到 `openai oauth` 后启动失败，日志类似：
+
+```text
+No API key found for provider "openai-codex"
+```
+
+### 根因
+
+- `openai-codex` 是 OpenClaw 官方 OAuth provider，不应该被当成普通 static-key provider 处理
+- `~/.openclaw/openclaw.json` 中看到 `auth.profiles["openai-codex:*"]`，只说明 metadata 存在
+- 真正的 OAuth access token / refresh token 必须在 `~/.openclaw/agents/main/agent/auth-profiles.json`
+- 如果 agent-local auth store 里没有真实 OAuth 凭据，运行时就会退回到“找 API key”的错误路径
+
+### 修复步骤
+
+```bash
+~/.npm-global/bin/openclaw models auth login --provider openai-codex
+switch-api openclaw openai oauth
+switch-api status
+switch-api check
+```
+
+### 临时回退
+
+如果当前只想先恢复可用性，不等 OAuth 登录，可以先切回 API key 模式：
+
+```bash
+switch-api openclaw openai key
+```
 
 ---
 
@@ -479,6 +565,9 @@ droid exec -m "custom:OpenRouter-stepfun/step-3.5-flash:free-0" "解释这段代
 - 切换到 `antigravity` 时检查 `ANTIGRAVITY_API_KEY`
 - 切换到 `icodeeasy` 时检查 `ICODEEASY_API_KEY`
 - 切换到 `duck_codex2cc` 时检查 `DUCK_CODEX2CC_API_KEY`
+- 切换到 `openai` 时：
+  - `codex` / `droid` / `openclaw key` 检查 `OPENAI_API_KEY`
+  - `openclaw oauth` 检查 `~/.openclaw/agents/main/agent/auth-profiles.json` 中的真实 OAuth 凭据
 - 密钥快照保存到 `~/.config/switch-api/credentials.json`（权限 600）
 - Key 配置在 `~/.bashrc` 中，脚本自动读取 `export` 行
 
@@ -487,13 +576,14 @@ droid exec -m "custom:OpenRouter-stepfun/step-3.5-flash:free-0" "解释这段代
 ## 文件清单
 
 ```
-~/bin/switch-api → ~/tools/switch-api/bin/switch-api  主切换脚本 (v2.0.0)
+~/bin/switch-api                              部署脚本 (v2.0.1)
+~/code/switch-api/bin/switch-api             源码仓库脚本 (v2.0.1)
 ~/.bashrc                                     环境变量 (API Keys) + 快捷别名
 ~/.claude/settings.json                       Claude Code 配置
-~/.openclaw/openclaw.json                     OpenClaw 主配置
+~/.openclaw/openclaw.json                     OpenClaw 主配置 + auth metadata / 默认路由
 ~/.openclaw/agents/main/agent/models.json     OpenClaw 模型配置
 ~/.openclaw/agents/main/agent/auth.json       OpenClaw 认证
-~/.openclaw/agents/main/agent/auth-profiles.json  OpenClaw 认证 Profile
+~/.openclaw/agents/main/agent/auth-profiles.json  OpenClaw 真实认证 Profile（含 OAuth token）
 ~/.openclaw/workspace/TOOLS.md                OpenClaw /switch 指令说明
 ~/.codex/config.toml                          Codex 配置
 ~/.factory/settings.json                      Droid customModels（codex profile）
