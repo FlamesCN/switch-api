@@ -2501,7 +2501,8 @@ def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], profile: s
             if not oauth_profile_id:
                 raise SwitchError(
                     "OpenAI OAuth credentials not found in ~/.openclaw/agents/main/agent/auth-profiles.json. "
-                    "Run ~/.npm-global/bin/openclaw models auth login --provider openai-codex first."
+                    "Run 'openclaw onboard --auth-choice openai-codex' first "
+                    "(or '~/.npm-global/bin/openclaw models auth login --provider openai-codex')."
                 )
 
             oc_auth = oc.setdefault("auth", {})
@@ -2699,7 +2700,8 @@ def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], profile: s
             if not oauth_profile_id:
                 raise SwitchError(
                     "OpenAI OAuth credentials not found in ~/.openclaw/agents/main/agent/auth-profiles.json. "
-                    "Run ~/.npm-global/bin/openclaw models auth login --provider openai-codex first."
+                    "Run 'openclaw onboard --auth-choice openai-codex' first "
+                    "(or '~/.npm-global/bin/openclaw models auth login --provider openai-codex')."
                 )
 
             last_good["openai-codex"] = oauth_profile_id

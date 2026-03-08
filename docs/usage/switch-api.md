@@ -45,7 +45,8 @@
   - `openclaw` 支持两种模式：
     - `key` → `openai-direct/...`
     - `oauth` → `openai-codex/...`
-  - `openclaw oauth` 切换前需先执行：`~/.npm-global/bin/openclaw models auth login --provider openai-codex`
+  - `openclaw oauth` 切换前需先执行：`openclaw onboard --auth-choice openai-codex`
+  - 或使用：`~/.npm-global/bin/openclaw models auth login --provider openai-codex`
 
 ## Antigravity-tools 可用模型
 
@@ -397,6 +398,8 @@ switch-api check
 - 如果本机还没有 `openai-codex` OAuth 凭据，先运行：
 
 ```bash
+openclaw onboard --auth-choice openai-codex
+# 或
 ~/.npm-global/bin/openclaw models auth login --provider openai-codex
 ```
 
@@ -523,6 +526,8 @@ No API key found for provider "openai-codex"
 ### 修复步骤
 
 ```bash
+openclaw onboard --auth-choice openai-codex
+# 或
 ~/.npm-global/bin/openclaw models auth login --provider openai-codex
 switch-api openclaw openai oauth
 switch-api status
