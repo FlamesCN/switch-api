@@ -341,7 +341,7 @@ DUCK_CODEX2CC_MODEL_MAP = {
 }
 DUCK_CODEX2CC_AVAILABLE_MODELS = tuple(DUCK_CODEX2CC_MODEL_MAP.keys())
 
-# iCodeEasy (Anthropic 原生 API 代理, CC 专用)
+# iCodeEasy (Anthropic 原生 API 代理, 支持 Claude Code + OpenClaw)
 ICODEEASY_BASE_URL = "https://api.icodeeasy.cc"
 ICODEEASY_BASE_URL_V1 = "https://api.icodeeasy.cc/v1"
 ICODEEASY_AVAILABLE_MODELS = (
@@ -355,6 +355,17 @@ ICODEEASY_AVAILABLE_MODELS = (
     "claude-sonnet-4-5-20250929",
     "claude-sonnet-4-6",
 )
+ICODEEASY_MODEL_NAMES = {
+    "claude-3-5-haiku-20241022": "Claude 3.5 Haiku (iCodeEasy)",
+    "claude-3-7-sonnet-20250219": "Claude 3.7 Sonnet (iCodeEasy)",
+    "claude-haiku-4-5-20251001": "Claude Haiku 4.5 (iCodeEasy)",
+    "claude-opus-4-1-20250805": "Claude Opus 4.1 (iCodeEasy)",
+    "claude-opus-4-5-20251101": "Claude Opus 4.5 (iCodeEasy)",
+    "claude-opus-4-6": "Claude Opus 4.6 (iCodeEasy)",
+    "claude-sonnet-4-20250514": "Claude Sonnet 4 (iCodeEasy)",
+    "claude-sonnet-4-5-20250929": "Claude Sonnet 4.5 (iCodeEasy)",
+    "claude-sonnet-4-6": "Claude Sonnet 4.6 (iCodeEasy)",
+}
 
 ANTIGRAVITY_AVAILABLE_MODELS = (
     "claude-opus-4-6-thinking",
@@ -478,14 +489,14 @@ TOOLS_WITH_ALL = ("cc", "openclaw", "codex", "droid", "gemini", "all")
 PROVIDERS = ("duck", "quotio", "quotio_local", "antigravity", "xingyun", "openai", "openai_Gq80", "openai_V420", "openrouter", "aiwave", "duck_cc1", "duck_codex2cc", "icodeeasy")
 
 # CC-only providers: these providers only support Claude Code
-CC_ONLY_PROVIDERS = ("duck_cc1", "duck_codex2cc", "icodeeasy")
+CC_ONLY_PROVIDERS = ("duck_cc1", "duck_codex2cc")
 
 # OpenClaw compatibility: Gemini models don't support patternProperties in tool schema.
 # All three providers have Claude models; Gemini profiles get a warning.
-OPENCLAW_CLAUDE_PROVIDERS = ("duck", "quotio", "antigravity")
+OPENCLAW_CLAUDE_PROVIDERS = ("duck", "quotio", "antigravity", "icodeeasy")
 OPENCLAW_GEMINI_PROFILES = frozenset(("gemini", "gemini3", "gemini-3", "gemini3-pro-high"))
 
-APP_VERSION = "2.0.1"
+APP_VERSION = "2.0.2"
 
 RED = "\033[0;31m"
 GREEN = "\033[0;32m"
@@ -720,7 +731,11 @@ def probe_provider(provider: str, keys: Dict[str, str], timeout: int = 8) -> Tup
 
     url, api_key = entry
     headers: Dict[str, str] = {"User-Agent": "switch-api/" + APP_VERSION}
-    if api_key:
+    if provider == "icodeeasy":
+        if api_key:
+            headers["x-api-key"] = api_key
+        headers["anthropic-version"] = "2023-06-01"
+    elif api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
     try:
@@ -1245,6 +1260,7 @@ class Config:
         self.cx_config = self.codex_home / "config.toml"
         self.factory_settings = home / ".factory/settings.json"
         self.gemini_env = home / ".gemini/.env"
+        self.oc_env = home / ".openclaw/.env"
         self.bashrc = home / ".bashrc"
         self.zshrc = home / ".zshrc"
         self.switch_dir = home / ".config/switch-api"
@@ -1345,6 +1361,8 @@ def detect_provider(tool: str, cfg: Config) -> str:
             return "quotio"
         if model.startswith("duckcoding/") or model.startswith("duckcoding-claude/"):
             return "duck"
+        if model.startswith("icodeeasy/"):
+            return "icodeeasy"
         if model.startswith("xingyun/"):
             return "xingyun"
         if model.startswith("openrouter/"):
@@ -1594,7 +1612,7 @@ def cmd_list_models(provider: str = "") -> None:
             "duck": "DuckCoding",
             "antigravity": "Antigravity",
             "xingyun": "Xingyun",
-            "icodeeasy": "iCodeEasy (CC-only)",
+            "icodeeasy": "iCodeEasy (CC + OpenClaw)",
             "duck_codex2cc": "Duck CodeX→CC (CC-only)",
             "openrouter": "OpenRouter (Free)",
         }.get(prov, prov)
@@ -1685,6 +1703,7 @@ def probe_model_curl(provider: str, model: str, keys: Dict[str, str]) -> Tuple[b
         "xingyun": (XINGYUN_BASE_URL_V1 + "/chat/completions", None),
         "openai": (OPENAI_BASE_URL_V1 + "/chat/completions", XRAY_PROXY),
         "openrouter": (OPENROUTER_BASE_URL_V1 + "/chat/completions", None),
+        "icodeeasy": (ICODEEASY_BASE_URL_V1 + "/messages", None),
     }
     entry = endpoint_map.get(provider)
     if not entry:
@@ -1710,23 +1729,34 @@ def probe_model_curl(provider: str, model: str, keys: Dict[str, str]) -> Tuple[b
         key = keys.get("openai", "")
     elif provider == "openrouter":
         key = keys.get("openrouter", "")
+    elif provider == "icodeeasy":
+        key = keys.get("icodeeasy", "")
     else:
         key = ""
 
     if not key:
         return False, "no API key"
 
+    bare_model = model.split("/")[-1]
     payload = json.dumps({
-        "model": model.split("/")[-1],
+        "model": bare_model,
         "messages": [{"role": "user", "content": "hi"}],
         "max_tokens": 1,
     })
 
-    cmd = ["curl", "-s", "-w", "\n%{http_code}", "-X", "POST", url,
-           "-H", f"Authorization: Bearer {key}",
-           "-H", "Content-Type: application/json",
-           "-d", payload,
-           "--max-time", "10"]
+    if provider == "icodeeasy":
+        cmd = ["curl", "-s", "-w", "\n%{http_code}", "-X", "POST", url,
+               "-H", f"x-api-key: {key}",
+               "-H", "anthropic-version: 2023-06-01",
+               "-H", "Content-Type: application/json",
+               "-d", payload,
+               "--max-time", "10"]
+    else:
+        cmd = ["curl", "-s", "-w", "\n%{http_code}", "-X", "POST", url,
+               "-H", f"Authorization: Bearer {key}",
+               "-H", "Content-Type: application/json",
+               "-d", payload,
+               "--max-time", "10"]
     if proxy:
         cmd.extend(["--proxy", proxy])
 
@@ -1775,7 +1805,7 @@ def cmd_check(cfg: Config, keys: Dict[str, str], online: bool = False) -> None:
         else:
             status = "—"
 
-        if online and prov in ("quotio", "antigravity", "duck", "openai"):
+        if online and prov in ("quotio", "antigravity", "duck", "openai", "icodeeasy"):
             ok, reason = probe_model_curl(prov, bare_model, keys)
             if ok:
                 status = "✅ online"
@@ -1957,6 +1987,38 @@ def duck_gemini_models_payload_for_models_json() -> Dict[str, Any]:
         it = dict(item)
         it["cost"] = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}
         it["api"] = "openai-completions"
+        models.append(it)
+    p["models"] = models
+    return p
+
+
+def _build_icodeeasy_model_entry(model_id: str) -> Dict[str, Any]:
+    return {
+        "id": model_id,
+        "name": ICODEEASY_MODEL_NAMES.get(model_id, f"{model_id} (iCodeEasy)"),
+        "reasoning": True,
+        "input": ["text"],
+        "contextWindow": 200000,
+        "maxTokens": 32768,
+    }
+
+
+def icodeeasy_models_payload() -> Dict[str, Any]:
+    return {
+        "baseUrl": ICODEEASY_BASE_URL,
+        "api": "anthropic-messages",
+        "apiKey": "",
+        "models": [_build_icodeeasy_model_entry(model_id) for model_id in ICODEEASY_AVAILABLE_MODELS],
+    }
+
+
+def icodeeasy_models_payload_for_models_json() -> Dict[str, Any]:
+    p = icodeeasy_models_payload()
+    models = []
+    for item in p["models"]:
+        it = dict(item)
+        it["cost"] = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}
+        it["api"] = "anthropic-messages"
         models.append(it)
     p["models"] = models
     return p
@@ -2435,6 +2497,27 @@ def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], profile: s
         agm["apiKey"] = a_key
         model_providers["antigravity-gemini"] = agm
 
+    elif provider == "icodeeasy":
+        i_key = ensure_key("ICODEEASY_API_KEY", keys["icodeeasy"], "required for OpenClaw icodeeasy")
+        target_model = model or "claude-sonnet-4-6"
+        oc_agents["primary"] = f"icodeeasy/{target_model}"
+        info("iCodeEasy OpenClaw models: claude-sonnet-4-6, claude-opus-4-6, claude-haiku-4-5-20251001, ...")
+
+        ic = icodeeasy_models_payload()
+        if target_model not in [m["id"] for m in ic["models"]]:
+            ic["models"].append(_build_icodeeasy_model_entry(target_model))
+        ic["apiKey"] = i_key
+        oc_providers["icodeeasy"] = ic
+
+        icm = icodeeasy_models_payload_for_models_json()
+        if target_model not in [m["id"] for m in icm["models"]]:
+            extra = _build_icodeeasy_model_entry(target_model)
+            extra["cost"] = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}
+            extra["api"] = "anthropic-messages"
+            icm["models"].append(extra)
+        icm["apiKey"] = i_key
+        model_providers["icodeeasy"] = icm
+
     elif provider == "xingyun":
         x_key = ensure_key("XINGYUN_API_KEY", keys["xingyun"], "required for OpenClaw xingyun")
         target_model = model or "gpt-5.4"
@@ -2690,6 +2773,25 @@ def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], profile: s
 
         info("Updated OpenClaw auth store for openrouter")
 
+    elif provider == "icodeeasy":
+        i_key = ensure_key("ICODEEASY_API_KEY", keys["icodeeasy"], "required for OpenClaw icodeeasy")
+
+        auth["icodeeasy"] = {"type": "api_key", "key": i_key}
+
+        profiles["icodeeasy:manual"] = {
+            "type": "token",
+            "provider": "icodeeasy",
+            "token": i_key,
+        }
+
+        last_good["icodeeasy"] = "icodeeasy:manual"
+
+        primary_provider = str(oc_agents.get("primary", "icodeeasy") or "icodeeasy").split("/", 1)[0]
+        if primary_provider == "icodeeasy":
+            last_good[primary_provider] = "icodeeasy:manual"
+
+        info("Updated OpenClaw auth store for icodeeasy")
+
     elif provider == "openai" or provider in OPENAI_NAMED_PROVIDERS:
         openai_mode = (profile or "key").strip().lower()
         if openai_mode not in ("key", "oauth"):
@@ -2873,6 +2975,14 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
             text += block
             info("Added xingyun provider to codex config")
 
+        xingyun_key = ensure_key(
+            "API key (xingyun)",
+            keys.get("xingyun", ""),
+            "required for Codex xingyun provider",
+        )
+        update_dotenv_file(cfg.oc_env, {"XINGYUN_API_KEY": xingyun_key})
+        info(f"Synced {cfg.oc_env} -> XINGYUN_API_KEY")
+
     if provider == "openai" or provider in OPENAI_NAMED_PROVIDERS:
         if provider in OPENAI_NAMED_PROVIDERS:
             tag = provider[7:]  # e.g. "Gq80"
@@ -2982,6 +3092,34 @@ def update_bashrc_exports(bashrc: Path, updates: Dict[str, str]) -> None:
 
     content = "".join(lines)
     write_text(bashrc, content)
+
+
+def update_dotenv_file(env_path: Path, updates: Dict[str, str]) -> None:
+    if env_path.exists():
+        lines = env_path.read_text(encoding="utf-8", errors="ignore").splitlines(keepends=True)
+    else:
+        lines = []
+
+    env_path.parent.mkdir(parents=True, exist_ok=True)
+
+    for var, value in updates.items():
+        pattern = re.compile(rf"^\s*{re.escape(var)}=")
+        indices = [i for i, line in enumerate(lines) if pattern.match(line)]
+        new_line = f"{var}={value}\n"
+
+        if indices:
+            last = indices[-1]
+            lines[last] = new_line
+            for idx in reversed(indices[:-1]):
+                del lines[idx]
+        else:
+            if lines and not lines[-1].endswith("\n"):
+                lines[-1] += "\n"
+            if lines and lines[-1].strip() != "":
+                lines.append("\n")
+            lines.append(new_line)
+
+    write_text(env_path, "".join(lines))
 
 
 def _write_factory_custom_models(settings_path: Path, models: list) -> None:
@@ -3307,8 +3445,9 @@ def usage() -> None:
     print("       switch-api codex openai_V420    # 账号 V420")
     print("       switch-api openai_Gq80          # codex+droid 切 Gq80")
     print()
-    print("  7) iCodeEasy (Anthropic 原生 API, CC 专用):")
+    print("  7) iCodeEasy (Anthropic 原生 API, CC + OpenClaw):")
     print("       switch-api cc icodeeasy          # Claude Code → iCodeEasy")
+    print("       switch-api openclaw icodeeasy    # OpenClaw → Claude Sonnet 4.6")
     print()
     print("  8) Duck CodeX→CC (GPT codex 模型通过 CC 使用):")
     print("       switch-api cc duck_codex2cc      # CC → Duck CodeX (opus→xhigh, sonnet→high)")
@@ -3530,8 +3669,8 @@ def main() -> int:
     if provider == "duck_codex2cc" and not keys["duck_codex2cc"]:
         raise SwitchError("DUCK_CODEX2CC_API_KEY is not set! Edit ~/.env and run: source ~/.zshrc")
 
-    if provider == "icodeeasy" and tool not in ("cc",):
-        raise SwitchError(f"Provider 'icodeeasy' is CC-only (Anthropic 原生 API, 不支持 OpenAI 格式), not {tool}")
+    if provider == "icodeeasy" and tool not in ("cc", "openclaw", "all"):
+        raise SwitchError(f"Provider 'icodeeasy' only supports cc/openclaw (Anthropic 原生 API), not {tool}")
 
     if provider == "icodeeasy" and not keys["icodeeasy"]:
         raise SwitchError("ICODEEASY_API_KEY is not set! Edit ~/.env and run: source ~/.zshrc")
@@ -3583,6 +3722,10 @@ def main() -> int:
             info(f"Quotio Local only supports codex/droid — switching those only")
             switch_codex(provider, cfg, keys, model=model)
             switch_droid(provider, cfg, keys, "", model=model)
+        elif provider == "icodeeasy":
+            info("iCodeEasy supports cc/openclaw only — switching those only")
+            switch_cc(provider, cfg, keys, model=model)
+            switch_openclaw(provider, cfg, keys, "", model=model)
         elif provider in CC_ONLY_PROVIDERS:
             info(f"{provider} is CC-only — switching Claude Code only")
             switch_cc(provider, cfg, keys, model=model)

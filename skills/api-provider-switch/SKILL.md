@@ -8,7 +8,7 @@ metadata: { "openclaw": { "emoji": "🔀", "requires": { "anyBins": ["switch-api
 
 ## 工具
 
-`~/bin/switch-api`（v2.0.0）— 一键切换所有 AI 工具的 API 后端和模型。
+`~/bin/switch-api`（v2.0.2）— 一键切换所有 AI 工具的 API 后端和模型。
 
 ## Providers
 
@@ -20,6 +20,7 @@ metadata: { "openclaw": { "emoji": "🔀", "requires": { "anyBins": ["switch-api
 | antigravity | Antigravity-tools | tools.ancientechoes.ai | 🚀 |
 | openai | OpenAI 官方 | api.openai.com (via xray proxy) | 🔑 |
 | openrouter | OpenRouter | openrouter.ai (free models) | 🌐 |
+| icodeeasy | iCodeEasy | api.icodeeasy.cc | 🧊 |
 
 ## 工具 × 模型兼容矩阵
 
@@ -77,6 +78,7 @@ switch-api gemini <provider>
 ```bash
 switch-api openclaw quotio gemini3     # Quotio + Gemini 模型
 switch-api openclaw duck sonnet        # Duck + Sonnet 模型
+switch-api openclaw icodeeasy          # iCodeEasy + Claude Sonnet 4.6
 switch-api droid quotio codex          # Droid + GPT-5.3 Codex
 ```
 
@@ -98,6 +100,7 @@ switch-api codex quotio gpt-5.3-codex
 switch-api droid quotio gpt-5.3-codex         # Quotio 互联网直连
 switch-api droid quotio_local gpt-5.3-codex-high  # 本地代理 + 高思考
 switch-api openclaw quotio claude-sonnet-4-6
+switch-api openclaw icodeeasy claude-sonnet-4-6
 switch-api cc duck claude-opus-4-6
 switch-api gemini quotio gemini-3.1-pro-high
 ```

@@ -19,7 +19,7 @@ Unified API provider switcher across:
 | `openrouter` | 🌐 | openclaw, codex, droid | OpenRouter (openrouter.ai) — free models |
 | `openai` | 🔑 | codex, droid | OpenAI 官方 (api.openai.com via proxy) |
 | `aiwave` | 🌊 | codex, droid, gemini | AI Wave (api.ai-wave.org) |
-| `icodeeasy` | 🧊 | cc | iCodeEasy (api.icodeeasy.cc) — Anthropic 原生 API |
+| `icodeeasy` | 🧊 | cc, openclaw | iCodeEasy (api.icodeeasy.cc) — Anthropic 原生 API |
 | `duck_codex2cc` | 🦆 | cc | Duck CodeX→CC 映射 key（Claude 名称映射到 gpt-5.3-codex） |
 
 ## Version
@@ -64,7 +64,9 @@ switch-api openrouter                # openclaw+codex+droid → OpenRouter (free
 ### Single Tool Switch
 ```bash
 switch-api cc duck
+switch-api cc icodeeasy
 switch-api openclaw quotio [profile]
+switch-api openclaw icodeeasy [model]
 switch-api openclaw xingyun gpt-5.4
 switch-api codex openai
 switch-api droid quotio [profile]
