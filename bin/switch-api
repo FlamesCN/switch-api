@@ -2779,9 +2779,9 @@ def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], profile: s
         auth["icodeeasy"] = {"type": "api_key", "key": i_key}
 
         profiles["icodeeasy:manual"] = {
-            "type": "token",
+            "type": "api_key",
             "provider": "icodeeasy",
-            "token": i_key,
+            "key": i_key,
         }
 
         last_good["icodeeasy"] = "icodeeasy:manual"
