@@ -123,6 +123,37 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertEqual(auth_profiles["lastGood"]["flames"], "flames:manual")
         self.assertEqual(self.mod.detect_provider("openclaw", self.cfg), "flames")
 
+    def test_switch_openclaw_duck_codex_profile_writes_codex_provider(self):
+        self.init_openclaw_files()
+
+        self.mod.switch_openclaw(
+            "duck",
+            self.cfg,
+            {"duck_anthropic": "anth", "duck_gemini": "gem", "duck_codex": "codex"},
+            profile="codex",
+            model="",
+        )
+
+        oc = json.loads(self.cfg.oc_config.read_text(encoding="utf-8"))
+        self.assertEqual(
+            oc["agents"]["defaults"]["model"]["primary"],
+            "duckcoding-codex/gpt-5.4-xhigh-openai-compact",
+        )
+
+        models = json.loads(self.cfg.oc_models.read_text(encoding="utf-8"))
+        self.assertEqual(models["providers"]["duckcoding-codex"]["apiKey"], "codex")
+        self.assertEqual(
+            models["providers"]["duckcoding-codex"]["models"][0]["id"],
+            "gpt-5.4-xhigh-openai-compact",
+        )
+
+        auth = json.loads(self.cfg.oc_auth.read_text(encoding="utf-8"))
+        self.assertEqual(auth["duckcoding-codex"]["key"], "codex")
+
+        auth_profiles = json.loads(self.cfg.oc_auth_profiles.read_text(encoding="utf-8"))
+        self.assertEqual(auth_profiles["lastGood"]["duckcoding-codex"], "duckcoding-codex:manual")
+        self.assertEqual(self.mod.detect_provider("openclaw", self.cfg), "duck")
+
     def test_codex_account_use_reads_auth_snapshot_from_accounts_dir(self):
         self.write_json(
             self.cfg.codex_accounts_dir / "auth.json_demo@example.com",

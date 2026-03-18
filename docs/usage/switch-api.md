@@ -26,6 +26,8 @@
 
 - **duck** — DuckCoding 中转 `https://api.duckcoding.ai`，支持 Claude Opus / Gemini 3 / GPT 等
   - 三个独立 API Key：`duck_anthropic`（Claude）、`duck_gemini`（Gemini）、`duck_codex`（Codex）
+  - `openclaw` 现在包含 `duckcoding-codex` 分组，可用 `switch-api openclaw duck codex`
+  - 默认 Duck Codex 模型：`gpt-5.4-xhigh-openai-compact`
 - **quotio** — Quotio 本地隧道 `https://api.ancientechoes.ai`，支持 Claude Opus / Gemini 3 / OpenAI GPT-5 系列
   - 依赖本地电脑运行 Quotio (port 8317) + Cloudflare Tunnel
 - **antigravity** — Antigravity-tools `https://tools.ancientechoes.ai`，支持 Claude / Gemini 全系列
@@ -131,7 +133,7 @@
 
 ## 命令行用法
 
-脚本位置：`~/bin/switch-api`（Python 脚本，v2.0.3）
+脚本位置：`~/bin/switch-api`（Python 脚本，v2.0.4）
 
 ### 语法
 
@@ -220,6 +222,7 @@ switch-api cc duck_codex2cc          # Duck CodeX→CC (GPT codex via CC)
 switch-api openclaw duck                    # 默认 Claude Opus 4.6
 switch-api openclaw duck gemini3            # Duck Gemini 3 ⚠️
 switch-api openclaw duck sonnet             # Duck Sonnet 4.6
+switch-api openclaw duck codex              # Duck Codex → gpt-5.4-xhigh-openai-compact
 switch-api openclaw quotio                  # 默认 Opus 4.6 Thinking
 switch-api openclaw quotio gemini3          # Quotio Gemini 3 ⚠️
 switch-api openclaw antigravity             # 默认 Opus 4.6 Thinking
@@ -383,13 +386,13 @@ OpenClaw 工具 schema 使用 `patternProperties`，Gemini API 不支持此特�
 - 如果遇到 HTTP 400 错误，切回默认（Claude）profile
 
 ### OpenClaw provider 结构
-每个 provider 在 OpenClaw 中注册两个 sub-provider：
+每个 provider 在 OpenClaw 中注册 2-3 个 sub-provider：
 
-| Provider | Claude sub-provider | Gemini sub-provider |
-|----------|-------------------|-------------------|
-| duck | `duckcoding-claude` | `duckcoding` |
-| quotio | `quotio` | `quotio-gemini` |
-| antigravity | `antigravity` | `antigravity-gemini` |
+| Provider | Claude sub-provider | Gemini sub-provider | Codex/GPT sub-provider |
+|----------|-------------------|-------------------|------------------------|
+| duck | `duckcoding-claude` | `duckcoding` | `duckcoding-codex` |
+| quotio | `quotio` | `quotio-gemini` | — |
+| antigravity | `antigravity` | `antigravity-gemini` | — |
 
 ---
 

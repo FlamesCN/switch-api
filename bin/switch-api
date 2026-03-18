@@ -206,6 +206,7 @@ DUCK_CODEX_MODELS = (
     "gpt-5.3-codex-spark-xhigh",
     "gpt-5.3-codex-xhigh",
     "gpt-5.3-codex-xhigh-openai-compact",
+    "gpt-5.4-xhigh-openai-compact",
 )
 
 # Claude Code on Quotio: allowed models + fallback policy
@@ -248,6 +249,7 @@ OPENCLAW_QUOTIO_PROFILE_TO_PRIMARY = {
 OPENCLAW_QUOTIO_PROFILE_NAMES = tuple(OPENCLAW_QUOTIO_PROFILE_TO_PRIMARY.keys())
 
 DUCK_DROID_MODEL = "gemini-3.1-pro-preview"
+DUCK_OPENCLAW_CODEX_MODEL = "gpt-5.4-xhigh-openai-compact"
 
 # Duck OpenClaw profiles: default is Claude (avoids Gemini patternProperties issue)
 DUCK_OPENCLAW_DEFAULT_PRIMARY = "duckcoding/gemini-3.1-pro-preview-customtools"
@@ -257,6 +259,7 @@ OPENCLAW_DUCK_PROFILE_TO_PRIMARY = {
     "gemini3": "duckcoding/gemini-3.1-pro-preview-customtools",
     "gemini-3": "duckcoding/gemini-3.1-pro-preview-customtools",
     "sonnet": "duckcoding-claude/claude-sonnet-4-5-20250929-thinking",
+    "codex": f"duckcoding-codex/{DUCK_OPENCLAW_CODEX_MODEL}",
 }
 OPENCLAW_DUCK_PROFILE_NAMES = tuple(OPENCLAW_DUCK_PROFILE_TO_PRIMARY.keys())
 # Antigravity-tools provider
@@ -506,7 +509,7 @@ CC_ONLY_PROVIDERS = ("duck_cc1", "duck_codex2cc")
 OPENCLAW_CLAUDE_PROVIDERS = ("duck", "quotio", "antigravity", "icodeeasy")
 OPENCLAW_GEMINI_PROFILES = frozenset(("gemini", "gemini3", "gemini-3", "gemini3-pro-high"))
 
-APP_VERSION = "2.0.3"
+APP_VERSION = "2.0.4"
 
 RED = "\033[0;31m"
 GREEN = "\033[0;32m"
@@ -727,7 +730,7 @@ def probe_provider(provider: str, keys: Dict[str, str], timeout: int = 8) -> Tup
     import urllib.error
 
     endpoints: Dict[str, Tuple[str, str]] = {
-        "duck": (DUCK_BASE_URL_V1 + "/models", keys.get("duck_gemini", "")),
+        "duck": (DUCK_BASE_URL_V1 + "/models", keys.get("duck_gemini", "") or keys.get("duck_codex", "") or keys.get("duck_anthropic", "")),
         "quotio": (QUOTIO_BASE_URL_V1 + "/models", keys.get("quotio", "")),
         "quotio_local": (QUOTIO_LOCAL_BASE_URL_V1 + "/models", keys.get("quotio", "")),
         "antigravity": (ANTIGRAVITY_BASE_URL_V1 + "/models", keys.get("antigravity", "")),
@@ -1599,7 +1602,7 @@ def detect_provider(tool: str, cfg: Config) -> str:
             return "antigravity"
         if model.startswith("quotio/") or model.startswith("quotio-gemini/"):
             return "quotio"
-        if model.startswith("duckcoding/") or model.startswith("duckcoding-claude/"):
+        if model.startswith("duckcoding/") or model.startswith("duckcoding-claude/") or model.startswith("duckcoding-codex/"):
             return "duck"
         if model.startswith("icodeeasy/"):
             return "icodeeasy"
@@ -2263,6 +2266,36 @@ def duck_gemini_models_payload_for_models_json() -> Dict[str, Any]:
     return p
 
 
+def duck_codex_models_payload(target_model: str = DUCK_OPENCLAW_CODEX_MODEL) -> Dict[str, Any]:
+    return {
+        "baseUrl": DUCK_BASE_URL_V1,
+        "api": "openai-completions",
+        "apiKey": "",
+        "models": [
+            {
+                "id": target_model,
+                "name": f"{target_model} (Duck Codex)",
+                "reasoning": True,
+                "input": ["text"],
+                "contextWindow": 200000,
+                "maxTokens": 32768,
+            },
+        ],
+    }
+
+
+def duck_codex_models_payload_for_models_json(target_model: str = DUCK_OPENCLAW_CODEX_MODEL) -> Dict[str, Any]:
+    p = duck_codex_models_payload(target_model)
+    models = []
+    for item in p["models"]:
+        it = dict(item)
+        it["cost"] = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}
+        it["api"] = "openai-completions"
+        models.append(it)
+    p["models"] = models
+    return p
+
+
 def _build_icodeeasy_model_entry(model_id: str) -> Dict[str, Any]:
     return {
         "id": model_id,
@@ -2702,11 +2735,16 @@ def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], profile: s
         duck_gemini_key = ensure_key(
             "DUCK_GEMINI_API_KEY/GEMINI_API_KEY", keys["duck_gemini"], "required for OpenClaw duck Gemini"
         )
-        target_primary, reason = resolve_openclaw_duck_profile(profile)
+        target_primary = ""
+        if model and model_family(model) == "gpt":
+            target_primary = f"duckcoding-codex/{model}"
+            info(f"OpenClaw → {target_primary} (Duck Codex via DUCKCODING_API_KEY)")
+        else:
+            target_primary, reason = resolve_openclaw_duck_profile(profile)
+            if reason:
+                info(reason)
         oc_agents["primary"] = target_primary
-        if reason:
-            info(reason)
-        info("Duck OpenClaw models: claude-opus-4-6, claude-sonnet-4-6, gemini-3.1-pro-preview, ...")
+        info("Duck OpenClaw models: claude-opus-4-6, claude-sonnet-4-6, gemini-3.1-pro-preview, gpt-5.4-xhigh-openai-compact")
 
         # Claude provider (duckcoding-claude)
         dc = duck_claude_models_payload()
@@ -2725,6 +2763,22 @@ def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], profile: s
         dgm = duck_gemini_models_payload_for_models_json()
         dgm["apiKey"] = duck_gemini_key
         model_providers["duckcoding"] = dgm
+
+        needs_codex = target_primary.startswith("duckcoding-codex/")
+        duck_codex_key = keys.get("duck_codex", "")
+        if needs_codex or duck_codex_key:
+            duck_codex_key = ensure_key(
+                "DUCKCODING_API_KEY", duck_codex_key, "required for OpenClaw duck Codex"
+            )
+            duck_codex_model = target_primary.split("/", 1)[1] if needs_codex else DUCK_OPENCLAW_CODEX_MODEL
+
+            dco = duck_codex_models_payload(duck_codex_model)
+            dco["apiKey"] = duck_codex_key
+            oc_providers["duckcoding-codex"] = dco
+
+            dcom = duck_codex_models_payload_for_models_json(duck_codex_model)
+            dcom["apiKey"] = duck_codex_key
+            model_providers["duckcoding-codex"] = dcom
 
     elif provider == "quotio":
         q_key = ensure_key("QUOTIO_API_KEY", keys["quotio"], "required for OpenClaw quotio")
@@ -2989,6 +3043,7 @@ def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], profile: s
         duck_gemini_key = ensure_key(
             "DUCK_GEMINI_API_KEY/GEMINI_API_KEY", keys["duck_gemini"], "required for OpenClaw duck Gemini"
         )
+        current_primary_provider = str(oc_agents.get("primary", "") or "").split("/", 1)[0]
         # Claude auth
         auth["duckcoding-claude"] = {"type": "api_key", "key": duck_anthropic_key}
         profiles["duckcoding-claude:manual"] = {
@@ -3005,7 +3060,19 @@ def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], profile: s
             "token": duck_gemini_key,
         }
         last_good["duckcoding"] = "duckcoding:manual"
-        info("Updated OpenClaw auth store for duckcoding (Claude + Gemini)")
+        duck_codex_key = keys.get("duck_codex", "")
+        if current_primary_provider == "duckcoding-codex" or duck_codex_key:
+            duck_codex_key = ensure_key(
+                "DUCKCODING_API_KEY", duck_codex_key, "required for OpenClaw duck Codex"
+            )
+            auth["duckcoding-codex"] = {"type": "api_key", "key": duck_codex_key}
+            profiles["duckcoding-codex:manual"] = {
+                "type": "token",
+                "provider": "duckcoding-codex",
+                "token": duck_codex_key,
+            }
+            last_good["duckcoding-codex"] = "duckcoding-codex:manual"
+        info("Updated OpenClaw auth store for duckcoding (Claude + Gemini + Codex)")
     elif provider == "quotio":
         q_key = ensure_key("QUOTIO_API_KEY", keys["quotio"], "required for OpenClaw quotio")
 

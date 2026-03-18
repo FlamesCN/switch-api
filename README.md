@@ -74,6 +74,7 @@ switch-api cc icodeeasy
 switch-api openclaw quotio [profile]
 switch-api openclaw icodeeasy [model]
 switch-api openclaw xingyun gpt-5.4
+switch-api openclaw duck codex             # duckcoding-codex/gpt-5.4-xhigh-openai-compact
 switch-api openclaw flames [model]
 switch-api codex openai                    # OpenAI 官方 OAuth
 switch-api codex openai_V420               # flames_newapi + OPENAI_V420_API_KEY
