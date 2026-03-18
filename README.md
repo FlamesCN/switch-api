@@ -14,10 +14,10 @@ Unified API provider switcher across:
 | `quotio` | 🔗 | all | Quotio Tunnel (api.ancientechoes.ai) |
 | `antigravity` | 🚀 | all | Antigravity-tools (tools.ancientechoes.ai) |
 | `xingyun` | ☁️ | openclaw, codex, droid | Xingyun GPT (ai.xingyungept.cn) |
-| `openai` | 🔑 | codex | OpenAI 官方 (api.openai.com via proxy) |
+| `flames` | 🔥 | openclaw, codex | Flames NewAPI (www.flamescn.vip) |
 | `quotio_local` | 🔗 | codex, droid | Quotio Local (本地 app, 127.0.0.1:8317) |
 | `openrouter` | 🌐 | openclaw, codex, droid | OpenRouter (openrouter.ai) — free models |
-| `openai` | 🔑 | codex, droid | OpenAI 官方 (api.openai.com via proxy) |
+| `openai` | 🔑 | openclaw, codex, droid | OpenAI 官方 (api.openai.com via proxy) |
 | `aiwave` | 🌊 | codex, droid, gemini | AI Wave (api.ai-wave.org) |
 | `icodeeasy` | 🧊 | cc, openclaw | iCodeEasy (api.icodeeasy.cc) — Anthropic 原生 API |
 | `duck_codex2cc` | 🦆 | cc | Duck CodeX→CC 映射 key（Claude 名称映射到 gpt-5.3-codex） |
@@ -63,6 +63,7 @@ switch-api duck                      # 全部 → DuckCoding
 switch-api quotio                    # 全部 → Quotio
 switch-api antigravity               # 全部 → Antigravity
 switch-api xingyun                   # openclaw+codex+droid → Xingyun GPT
+switch-api flames                    # openclaw+codex → Flames NewAPI
 switch-api openrouter                # openclaw+codex+droid → OpenRouter (free)
 ```
 
@@ -73,8 +74,10 @@ switch-api cc icodeeasy
 switch-api openclaw quotio [profile]
 switch-api openclaw icodeeasy [model]
 switch-api openclaw xingyun gpt-5.4
+switch-api openclaw flames [model]
 switch-api codex openai                    # OpenAI 官方 OAuth
 switch-api codex openai_V420               # flames_newapi + OPENAI_V420_API_KEY
+switch-api codex flames                    # flames_newapi + FLAMES_API_KEY
 switch-api droid quotio [profile]
 switch-api gemini duck
 ```

@@ -54,6 +54,24 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
     def write_json(self, path: Path, data) -> None:
         self.write(path, json.dumps(data))
 
+    def init_openclaw_files(self) -> None:
+        self.write_json(
+            self.cfg.oc_config,
+            {
+                "agents": {
+                    "defaults": {
+                        "model": {
+                            "primary": "quotio/claude-sonnet-4-6",
+                        }
+                    }
+                },
+                "models": {"providers": {}},
+            },
+        )
+        self.write_json(self.cfg.oc_models, {"providers": {}})
+        self.write_json(self.cfg.oc_auth, {})
+        self.write_json(self.cfg.oc_auth_profiles, {})
+
     def test_switch_codex_openai_comments_model_provider_for_official_mode(self):
         self.mod.switch_codex("openai", self.cfg, {}, model="")
 
@@ -76,6 +94,34 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertIsNotNone(re.search(r'^\s*model_provider\s*=\s*"flames_newapi"\s*$', text, re.M))
         self.assertIn('env_key = "OPENAI_V420_API_KEY"', text)
         self.assertEqual(self.mod.detect_provider("codex", self.cfg), "openai_V420")
+
+    def test_switch_codex_flames_uses_flames_api_key_and_detects_flames(self):
+        self.mod.switch_codex("flames", self.cfg, {"flames": "dummy"}, model="")
+
+        text = self.cfg.cx_config.read_text(encoding="utf-8")
+        self.assertIsNotNone(re.search(r'^\s*model_provider\s*=\s*"flames_newapi"\s*$', text, re.M))
+        self.assertIn('model = "gpt-5.4"', text)
+        self.assertIn('env_key = "FLAMES_API_KEY"', text)
+        self.assertEqual(self.mod.detect_provider("codex", self.cfg), "flames")
+
+    def test_switch_openclaw_flames_writes_provider_and_auth_store(self):
+        self.init_openclaw_files()
+
+        self.mod.switch_openclaw("flames", self.cfg, {"flames": "dummy"}, profile="", model="")
+
+        oc = json.loads(self.cfg.oc_config.read_text(encoding="utf-8"))
+        self.assertEqual(oc["agents"]["defaults"]["model"]["primary"], "flames/gpt-5.4")
+
+        models = json.loads(self.cfg.oc_models.read_text(encoding="utf-8"))
+        self.assertEqual(models["providers"]["flames"]["baseUrl"], "https://www.flamescn.vip/v1")
+        self.assertEqual(models["providers"]["flames"]["apiKey"], "dummy")
+
+        auth = json.loads(self.cfg.oc_auth.read_text(encoding="utf-8"))
+        self.assertEqual(auth["flames"]["key"], "dummy")
+
+        auth_profiles = json.loads(self.cfg.oc_auth_profiles.read_text(encoding="utf-8"))
+        self.assertEqual(auth_profiles["lastGood"]["flames"], "flames:manual")
+        self.assertEqual(self.mod.detect_provider("openclaw", self.cfg), "flames")
 
     def test_codex_account_use_reads_auth_snapshot_from_accounts_dir(self):
         self.write_json(

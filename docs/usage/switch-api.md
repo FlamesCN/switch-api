@@ -1,6 +1,6 @@
 # API Provider 切换系统
 
-在 DuckCoding、Quotio 本地隧道、Antigravity-tools、OpenAI 官方等 provider 之间一键切换所有 AI 工具的 API 后端。
+在 DuckCoding、Quotio 本地隧道、Antigravity-tools、Flames NewAPI、OpenAI 官方等 provider 之间一键切换 AI 工具的 API 后端。
 
 ## 架构
 
@@ -36,6 +36,10 @@
   - 支持所有 Claude 模型（3.5 haiku → opus 4.6）
   - `openclaw` 通过自定义 provider `api: anthropic-messages` 接入
   - 不能用于 codex / droid / gemini（这些工具需要 OpenAI 或 Gemini 兼容格式）
+- **flames** — Flames NewAPI `https://www.flamescn.vip/v1`，支持 **Codex + OpenClaw**
+  - `codex` 复用内部 provider block：`model_provider = "flames_newapi"`
+  - `env_key` 固定切回 `FLAMES_API_KEY`
+  - `openclaw` 通过自定义 provider `flames/...` 接入，默认模型 `gpt-5.4`
 - **duck_codex2cc** — Duck CodeX→CC 映射 key，**CC-only**
   - 在 CC 中用 Claude 模型名，duck 后端自动映射到 GPT codex 模型
   - `claude-opus-4-6` → `gpt-5.3-codex-xhigh`
@@ -127,7 +131,7 @@
 
 ## 命令行用法
 
-脚本位置：`~/bin/switch-api`（Python 脚本，v2.0.2）
+脚本位置：`~/bin/switch-api`（Python 脚本，v2.0.3）
 
 ### 语法
 
@@ -140,7 +144,7 @@ switch-api [--force] <参数1> [参数2] [参数3]
 switch-api <tool> <provider>
 ```
 - `<tool>` = `cc` | `openclaw` | `codex` | `droid` | `all`
-- `<provider>` = `duck` | `quotio` | `antigravity` | `openai`
+- `<provider>` = `duck` | `quotio` | `antigravity` | `xingyun` | `flames` | `openai` | `openrouter` | `icodeeasy` | ...
 
 **方式二：单参数（快捷全切）**
 ```bash
@@ -200,6 +204,7 @@ CODEX_HOME="$HOME/.codex-profiles/alt" codex login --device-auth
 switch-api duck                # 全部 → DuckCoding
 switch-api quotio              # 全部 → Quotio
 switch-api antigravity         # 全部 → Antigravity-tools
+switch-api flames              # openclaw+codex → Flames NewAPI
 switch-api all duck            # 同上（完整写法）
 switch-api all quotio
 switch-api all antigravity
@@ -221,6 +226,8 @@ switch-api openclaw antigravity             # 默认 Opus 4.6 Thinking
 switch-api openclaw antigravity gemini3     # Antigravity Gemini 3 ⚠️
 switch-api openclaw icodeeasy               # 默认 Claude Sonnet 4.6
 switch-api openclaw icodeeasy claude-opus-4-6
+switch-api openclaw flames                  # Flames → gpt-5.4
+switch-api openclaw flames gpt-5.3-codex
 switch-api openclaw openai key              # OpenClaw → OpenAI API Key (openai-direct)
 switch-api openclaw openai oauth            # OpenClaw → OpenAI OAuth (openai-codex)
 
@@ -228,6 +235,7 @@ switch-api openclaw openai oauth            # OpenClaw → OpenAI OAuth (openai-
 switch-api codex duck
 switch-api codex quotio
 switch-api codex antigravity
+switch-api codex flames                     # flames_newapi + FLAMES_API_KEY
 switch-api codex openai                     # 官方 ChatGPT OAuth
 switch-api codex openai_Gq80                # flames_newapi + OPENAI_GQ80_API_KEY
 switch-api codex openai_V420                # flames_newapi + OPENAI_V420_API_KEY
