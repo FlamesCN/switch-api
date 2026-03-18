@@ -42,7 +42,9 @@
   - `claude-sonnet-4-6` → `gpt-5.3-codex-high`
   - `claude-haiku-4-5-20251001` → `gpt-5.3-codex-medium`
 - **openai** — OpenAI 官方 `https://api.openai.com/v1`
-  - `codex` / `droid` 使用静态 API key
+  - `codex openai` 使用 `auth.json` / ChatGPT OAuth 官方模式
+  - `codex openai_Gq80` / `codex openai_V420` 不再写独立 provider，而是回到 `flames_newapi` 并切换 `env_key` 槽位
+  - `droid` 使用静态 API key
   - `openclaw` 支持两种模式：
     - `key` → `openai-direct/...`
     - `oauth` → `openai-codex/...`
@@ -166,6 +168,7 @@ switch-api codex-account status
 **方式五：Codex 官方账号切换**
 ```bash
 switch-api codex-account list
+switch-api codex-account use cool1982405@gmail.com
 switch-api codex-account add <name> [path|@current]
 switch-api codex-account use <name>
 ```
@@ -182,11 +185,13 @@ switch-api check                             # 查看当前各工具模型状态
 switch-api check --online                    # 在线验证模型可用性
 switch-api list                              # 列出所有 provider 可用模型
 switch-api list quotio                       # 列出指定 provider 可用模型
-switch-api codex-account status              # 查看当前 Codex 官方账号目录
-switch-api codex-account list                # 列出已注册的官方账号
+switch-api codex-account status              # 查看当前 Codex 官方 auth / 目录状态
+switch-api codex-account list                # 列出 accounts/auth.json_* 与已注册目录
 
 # ─── Codex 官方账号切换（ChatGPT OAuth）─────────
-switch-api codex-account add main @current   # 注册当前生效中的目录
+switch-api codex openai                      # 注释 model_provider，切回官方 auth.json 模式
+switch-api codex-account use cool1982405@gmail.com   # 复制 accounts/auth.json_cool1982405@gmail.com → auth.json
+switch-api codex-account add main @current   # 如仍使用多目录方案，可注册当前目录
 switch-api codex-account add alt             # 创建并注册 ~/.codex-profiles/alt
 switch-api codex-account use alt             # 切换到 alt（写入 CODEX_HOME）
 CODEX_HOME="$HOME/.codex-profiles/alt" codex login --device-auth
@@ -223,6 +228,9 @@ switch-api openclaw openai oauth            # OpenClaw → OpenAI OAuth (openai-
 switch-api codex duck
 switch-api codex quotio
 switch-api codex antigravity
+switch-api codex openai                     # 官方 ChatGPT OAuth
+switch-api codex openai_Gq80                # flames_newapi + OPENAI_GQ80_API_KEY
+switch-api codex openai_V420                # flames_newapi + OPENAI_V420_API_KEY
 
 # ─── 只切 Droid ────────────────────────────────
 switch-api droid duck                       # Duck Gemini
@@ -242,13 +250,15 @@ switch-api openrouter                        # openclaw+codex+droid → OpenRout
 switch-api openclaw openrouter llama         # OpenClaw → Llama
 switch-api droid openrouter                  # Droid → OpenRouter
 
-# ─── OpenAI 多账号（API key provider）─────────
-switch-api openai_Gq80                       # codex+droid → OpenAI[Gq80]
+# ─── OpenAI / flames_newapi key 槽位 ─────────
+switch-api openai_Gq80                       # codex+droid：Codex→flames_newapi[Gq80], Droid→OpenAI[Gq80]
 switch-api droid openai_V420                 # Droid → OpenAI[V420]
 ```
 
-> `openai_Gq80` / `openai_V420` 仍然是 API key provider 切换。
-> 如果要切换两个 ChatGPT 官方账号，请使用 `codex-account`，不要混用 provider 语义。
+> `codex openai` 是官方 ChatGPT OAuth 模式。
+> `codex openai_Gq80` / `codex openai_V420` 是 `flames_newapi` 的 key 槽位切换，不是官方账号切换。
+> 如果要切换多个 ChatGPT 官方账号，请使用 `codex-account use <auth.json_后缀>`，账号快照默认放在 `CODEX_HOME/accounts/`。
+> `switch-api` 改写 `config.toml` / `auth.json` 前会把原文件备份到 `CODEX_HOME/backups/`。
 
 ---
 
@@ -594,6 +604,9 @@ switch-api openclaw openai key
 ~/.openclaw/agents/main/agent/auth-profiles.json  OpenClaw 真实认证 Profile（含 OAuth token）
 ~/.openclaw/workspace/TOOLS.md                OpenClaw /switch 指令说明
 ~/.codex/config.toml                          Codex 配置
+~/.codex/auth.json                            Codex 当前生效中的官方认证
+~/.codex/accounts/auth.json_<name>            Codex 官方账号快照源文件
+~/.codex/backups/                             switch-api 改写前的 Codex 备份目录
 ~/.factory/settings.json                      Droid customModels（codex profile）
 ~/.config/switch-api/credentials.json         Provider 密钥快照
 ~/.config/switch-api/provider-models.json     Provider 模型目录

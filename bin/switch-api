@@ -412,9 +412,14 @@ OPENROUTER_DROID_MODEL = "stepfun/step-3.5-flash:free"
 
 XRAY_PROXY = "http://127.0.0.1:1081"
 OPENAI_BASE_URL_V1 = "https://api.openai.com/v1"
+FLAMES_NEWAPI_BASE_URL_V1 = "https://www.flamescn.vip/v1"
 
 # OpenAI named accounts: same base URL, different keys (tag = first 4 chars of key after sk-proj-)
 OPENAI_NAMED_PROVIDERS = ("openai_Gq80", "openai_V420")
+OPENAI_PROVIDER_ENV_KEYS = {
+    "openai_Gq80": "OPENAI_GQ80_API_KEY",
+    "openai_V420": "OPENAI_V420_API_KEY",
+}
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api"
 OPENROUTER_BASE_URL_V1 = "https://openrouter.ai/api/v1"
@@ -605,10 +610,12 @@ def load_exports_from_shell_rcs(home: Path) -> None:
         "GEMINI_MODEL",
         "ANTIGRAVITY_API_KEY",
         "XINGYUN_API_KEY",
+        "OPENAI_API_KEY",
         "OPENROUTER_API_KEY",
         "AIWAVE_API_KEY",
         "DUCK_CC1_API_KEY",
         "DUCK_CODEX2CC_API_KEY",
+        "FLAMES_API_KEY",
         "OPENAI_GQ80_API_KEY",
         "OPENAI_V420_API_KEY",
         "ICODEEASY_API_KEY",
@@ -622,9 +629,13 @@ def timestamp() -> str:
     return datetime.now().strftime("%Y%m%d-%H%M%S")
 
 
-def backup(path: Path) -> None:
+def backup(path: Path, destination_dir: Path | None = None) -> None:
     if path.exists():
-        dst = path.with_name(f"{path.name}.bak.switch-{timestamp()}")
+        if destination_dir is not None:
+            destination_dir.mkdir(parents=True, exist_ok=True)
+            dst = destination_dir / f"{path.name}.bak.switch-{timestamp()}"
+        else:
+            dst = path.with_name(f"{path.name}.bak.switch-{timestamp()}")
         shutil.copy2(path, dst)
 
 
@@ -862,8 +873,7 @@ def normalize_codex_account_path(cfg: Config, raw: str) -> Path:
     return cfg.home / ".codex-profiles" / "default"
 
 
-def codex_account_auth_summary(path: Path) -> str:
-    auth_file = path / "auth.json"
+def codex_auth_file_summary(auth_file: Path) -> str:
     if not auth_file.exists():
         return "未登录"
 
@@ -882,6 +892,168 @@ def codex_account_auth_summary(path: Path) -> str:
     if auth_mode:
         return auth_mode
     return "未知"
+
+
+def codex_account_auth_summary(path: Path) -> str:
+    return codex_auth_file_summary(path / "auth.json")
+
+
+def codex_backup(cfg: Config, path: Path) -> None:
+    backup(path, cfg.codex_backup_dir)
+
+
+def codex_auth_snapshot_dirs(cfg: Config) -> Iterable[Path]:
+    # Prefer the dedicated accounts directory, but keep legacy root-level files readable.
+    yield cfg.codex_accounts_dir
+    yield cfg.codex_home
+
+
+def codex_auth_backup_files(cfg: Config) -> Dict[str, Path]:
+    backups: Dict[str, Path] = {}
+    for directory in codex_auth_snapshot_dirs(cfg):
+        if not directory.exists():
+            continue
+        for path in sorted(directory.glob("auth.json_*")):
+            if not path.is_file():
+                continue
+            suffix = path.name[len("auth.json_") :]
+            if suffix and suffix not in backups:
+                backups[suffix] = path
+    return backups
+
+
+def codex_auth_account_id(path: Path) -> str:
+    if not path.exists():
+        return ""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    tokens = data.get("tokens") or {}
+    if isinstance(tokens, dict):
+        account_id = str(tokens.get("account_id") or "").strip()
+        if account_id:
+            return account_id
+    return str(data.get("account_id") or "").strip()
+
+
+def find_current_codex_auth_backup_name(cfg: Config) -> str:
+    current_id = codex_auth_account_id(cfg.codex_home / "auth.json")
+    if not current_id:
+        return ""
+    for name, path in codex_auth_backup_files(cfg).items():
+        if codex_auth_account_id(path) == current_id:
+            return name
+    return ""
+
+
+def read_codex_model_provider(text: str) -> str:
+    m = re.search(r'^\s*model_provider\s*=\s*"([^"]+)"\s*$', text, re.M)
+    return m.group(1).strip() if m else ""
+
+
+def set_codex_model_provider(text: str, provider: str) -> str:
+    line = f'model_provider = "{provider}"'
+    if re.search(r'^\s*model_provider\s*=\s*"[^"]+"\s*$', text, flags=re.M):
+        return re.sub(
+            r'^\s*model_provider\s*=\s*"[^"]+"\s*$',
+            line,
+            text,
+            count=1,
+            flags=re.M,
+        )
+    return line + "\n" + text
+
+
+def comment_codex_model_provider(text: str) -> str:
+    m = re.search(r'^(?P<indent>\s*)model_provider\s*=\s*"(?P<provider>[^"]+)"\s*$', text, re.M)
+    if not m:
+        return text
+    replacement = f'{m.group("indent")}# model_provider = "{m.group("provider").strip()}"'
+    return text[: m.start()] + replacement + text[m.end() :]
+
+
+def read_codex_provider_env_key(text: str, provider_name: str) -> str:
+    section_re = re.compile(
+        rf'(?ms)^\[model_providers\.{re.escape(provider_name)}\]\s*$\n(?P<body>.*?)(?=^\[|\Z)'
+    )
+    section = section_re.search(text)
+    if not section:
+        return ""
+    body = section.group("body")
+    m = re.search(r'^\s*env_key\s*=\s*"([^"]+)"\s*$', body, re.M)
+    return m.group(1).strip() if m else ""
+
+
+def set_codex_provider_env_key(text: str, provider_name: str, env_key_name: str) -> str:
+    section_re = re.compile(
+        rf'(?ms)^(?P<header>\[model_providers\.{re.escape(provider_name)}\]\s*$\n)(?P<body>.*?)(?=^\[|\Z)'
+    )
+    section = section_re.search(text)
+    if section:
+        body = section.group("body")
+        if re.search(r'^\s*env_key\s*=\s*"[^"]+"\s*$', body, re.M):
+            body = re.sub(
+                r'^\s*env_key\s*=\s*"[^"]+"\s*$',
+                f'env_key = "{env_key_name}"',
+                body,
+                count=1,
+                flags=re.M,
+            )
+        elif re.search(r'^\s*wire_api\s*=\s*"[^"]+"\s*$', body, re.M):
+            body = re.sub(
+                r'^(\s*wire_api\s*=\s*"[^"]+"\s*$)',
+                f'env_key = "{env_key_name}"\n\\1',
+                body,
+                count=1,
+                flags=re.M,
+            )
+        else:
+            if body and not body.endswith("\n"):
+                body += "\n"
+            body += f'env_key = "{env_key_name}"\n'
+        return text[: section.start()] + section.group("header") + body + text[section.end() :]
+
+    block = (
+        "\n\n# Flames NewAPI\n"
+        "[model_providers.flames_newapi]\n"
+        'name = "Flames NewAPI"\n'
+        f'base_url = "{FLAMES_NEWAPI_BASE_URL_V1}"\n'
+        f'env_key = "{env_key_name}"\n'
+        'wire_api = "responses"\n'
+    )
+    return text.rstrip() + block + "\n"
+
+
+def detect_codex_openai_mode(cfg: Config) -> str:
+    if not cfg.cx_config.exists():
+        return ""
+    text = read_text(cfg.cx_config)
+    provider = read_codex_model_provider(text)
+    if provider == "flames_newapi":
+        env_key = read_codex_provider_env_key(text, "flames_newapi")
+        if env_key == "OPENAI_GQ80_API_KEY":
+            return "flames_newapi:Gq80"
+        if env_key == "OPENAI_V420_API_KEY":
+            return "flames_newapi:V420"
+        if env_key:
+            return f"flames_newapi:{env_key}"
+        return "flames_newapi"
+
+    auth_file = cfg.codex_home / "auth.json"
+    if not auth_file.exists():
+        return ""
+    try:
+        data = json.loads(auth_file.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    auth_mode = str(data.get("auth_mode", "") or "").strip()
+    if auth_mode == "chatgpt":
+        backup_name = find_current_codex_auth_backup_name(cfg)
+        return f"official:{backup_name}" if backup_name else "official"
+    if auth_mode == "api_key" or data.get("OPENAI_API_KEY"):
+        return "api_key"
+    return ""
 
 
 def find_codex_account_name(store: Dict[str, Any], path: Path) -> str:
@@ -903,10 +1075,14 @@ def cmd_codex_account_status(cfg: Config) -> None:
     active = str(store.get("active", "") or "")
     current_name = find_codex_account_name(store, cfg.codex_home)
     accounts = store.get("accounts", {})
+    auth_backup = find_current_codex_auth_backup_name(cfg)
 
     print(f"{CYAN}═══ Codex Account Status ═══{NC}")
     print(f"  CODEX_HOME   {cfg.codex_home}")
+    print(f"  accounts_dir {cfg.codex_accounts_dir}")
+    print(f"  backup_dir   {cfg.codex_backup_dir}")
     print(f"  auth         {codex_account_auth_summary(cfg.codex_home)}")
+    print(f"  auth_backup  {auth_backup or '(none)'}")
     print(f"  registered   {'yes' if current_name else 'no'}")
     print(f"  current      {current_name or '(unregistered)'}")
     print(f"  selected     {active or '(none)'}")
@@ -919,26 +1095,43 @@ def cmd_codex_account_list(cfg: Config) -> None:
     accounts = store.get("accounts", {})
     active = str(store.get("active", "") or "")
     current_name = find_codex_account_name(store, cfg.codex_home)
+    auth_backups = codex_auth_backup_files(cfg)
+    current_auth_name = find_current_codex_auth_backup_name(cfg)
 
     print(f"{CYAN}═══ Codex Accounts ═══{NC}")
-    if not isinstance(accounts, dict) or not accounts:
+    has_registered = isinstance(accounts, dict) and bool(accounts)
+    if not has_registered and not auth_backups:
         print("  (no accounts registered)")
         print(f"{CYAN}══════════════════════{NC}")
         return
 
-    for name in sorted(accounts):
-        meta = accounts.get(name, {})
-        if not isinstance(meta, dict):
-            continue
-        path_value = str(meta.get("path", "") or "")
-        marker = []
-        if name == current_name:
-            marker.append("current")
-        if name == active:
-            marker.append("selected")
-        status = ", ".join(marker) if marker else "-"
-        auth = codex_account_auth_summary(Path(path_value)) if path_value else "未配置"
-        print(f"  {name:<16} {status:<18} {auth:<14} {path_value}")
+    if has_registered:
+        for name in sorted(accounts):
+            meta = accounts.get(name, {})
+            if not isinstance(meta, dict):
+                continue
+            path_value = str(meta.get("path", "") or "")
+            marker = []
+            if name == current_name:
+                marker.append("current")
+            if name == active:
+                marker.append("selected")
+            status = ", ".join(marker) if marker else "-"
+            auth = codex_account_auth_summary(Path(path_value)) if path_value else "未配置"
+            print(f"  {name:<16} {status:<18} {auth:<14} {path_value}")
+
+    if auth_backups:
+        if has_registered:
+            print("  -- auth snapshots --")
+        for name, path in auth_backups.items():
+            marker = []
+            if name == current_auth_name:
+                marker.append("current-auth")
+            if name == active:
+                marker.append("selected")
+            status = ", ".join(marker) if marker else "-"
+            auth = codex_auth_file_summary(path)
+            print(f"  {name:<16} {status:<18} {auth:<14} {path}")
     print(f"{CYAN}══════════════════════{NC}")
 
 
@@ -969,7 +1162,31 @@ def cmd_codex_account_add(cfg: Config, name: str, path_arg: str = "") -> None:
 
 
 def cmd_codex_account_use(cfg: Config, name: str) -> None:
-    account_name = ensure_codex_account_name(name)
+    raw_name = (name or "").strip()
+    if not raw_name:
+        raise SwitchError("Codex account name cannot be empty")
+    auth_backups = codex_auth_backup_files(cfg)
+    if raw_name in auth_backups:
+        source = auth_backups[raw_name]
+        target = cfg.codex_home / "auth.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        codex_backup(cfg, target)
+        shutil.copy2(source, target)
+        try:
+            target.chmod(0o600)
+        except Exception:
+            pass
+
+        store = load_codex_account_store(cfg.codex_accounts_file)
+        store["active"] = raw_name
+        save_codex_account_store(cfg.codex_accounts_file, store)
+
+        ok(f"Codex auth → {raw_name}")
+        info(f"  copied: {source} -> {target}")
+        warn("如果当前使用 Codex 官方模式，请重新启动 codex 会话使新的 auth.json 生效")
+        return
+
+    account_name = ensure_codex_account_name(raw_name)
     store = load_codex_account_store(cfg.codex_accounts_file)
     accounts = store.get("accounts", {})
     if not isinstance(accounts, dict) or account_name not in accounts:
@@ -1252,6 +1469,8 @@ class Config:
     def __init__(self, home: Path):
         self.home = home
         self.codex_home = resolve_codex_home(home)
+        self.codex_backup_dir = self.codex_home / "backups"
+        self.codex_accounts_dir = self.codex_home / "accounts"
         self.cc_settings = home / ".claude/settings.json"
         self.oc_config = home / ".openclaw/openclaw.json"
         self.oc_models = home / ".openclaw/agents/main/agent/models.json"
@@ -1375,8 +1594,9 @@ def detect_provider(tool: str, cfg: Config) -> str:
         if not cfg.cx_config.exists():
             return "no-config"
         text = read_text(cfg.cx_config)
-        m = re.search(r'^\s*model_provider\s*=\s*"([^"]+)"\s*$', text, re.M)
-        provider = m.group(1) if m else "unknown"
+        provider = read_codex_model_provider(text)
+        if not provider and codex_account_auth_summary(cfg.codex_home) == "ChatGPT OAuth":
+            return "openai"
         if provider == "antigravity":
             return "antigravity"
         if provider == "quotio":
@@ -1385,6 +1605,13 @@ def detect_provider(tool: str, cfg: Config) -> str:
             return "duck"
         if provider == "quotio-local":
             return "quotio_local"
+        if provider == "flames_newapi":
+            env_key_name = read_codex_provider_env_key(text, "flames_newapi")
+            if env_key_name == "OPENAI_GQ80_API_KEY":
+                return "openai_Gq80"
+            if env_key_name == "OPENAI_V420_API_KEY":
+                return "openai_V420"
+            return "openai"
         if provider == "openai-official":
             return "openai"
         # Named OpenAI accounts: openai-Gq80 → openai_Gq80
@@ -1478,6 +1705,10 @@ def show_status(cfg: Config) -> None:
             icon = "🔑"
             if tool == "openclaw":
                 mode = detect_openclaw_openai_mode(cfg)
+                if mode:
+                    suffix = f" ({mode})"
+            elif tool == "codex":
+                mode = detect_codex_openai_mode(cfg)
                 if mode:
                     suffix = f" ({mode})"
         elif p == "openrouter":
@@ -1789,7 +2020,7 @@ def cmd_check(cfg: Config, keys: Dict[str, str], online: bool = False) -> None:
     for tool in TOOLS:
         prov = detect_provider(tool, cfg)
         model = detect_current_model(tool, cfg)
-        icon = {"duck": "🦆", "quotio": "🔗", "antigravity": "🚀", "xingyun": "☁️", "openai": "🔑", "openrouter": "🌐", "icodeeasy": "🧊"}.get(prov, "❓")
+        icon = {"duck": "🦆", "quotio": "🔗", "antigravity": "🚀", "xingyun": "☁️", "openai": "🔑", "openrouter": "🌐", "icodeeasy": "🧊"}.get(prov, "🔑" if prov.startswith("openai_") else "❓")
 
         # Truncate model for display
         model_display = model if len(model) <= 32 else model[:29] + "..."
@@ -1815,6 +2046,10 @@ def cmd_check(cfg: Config, keys: Dict[str, str], online: bool = False) -> None:
         prov_display = prov
         if tool == "openclaw" and prov == "openai":
             mode = detect_openclaw_openai_mode(cfg)
+            if mode:
+                prov_display = f"{prov}({mode})"
+        elif tool == "codex" and (prov == "openai" or prov.startswith("openai_")):
+            mode = detect_codex_openai_mode(cfg)
             if mode:
                 prov_display = f"{prov}({mode})"
         print(f"  {tool:<10} {icon} {prov_display:<14} {model_display:<34} {status}")
@@ -2834,23 +3069,36 @@ def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], profile: s
 
 def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = "") -> None:
     info(f"Switching Codex → {provider}")
-    backup(cfg.cx_config)
+    codex_backup(cfg, cfg.cx_config)
 
     text = read_text(cfg.cx_config)
-    provider_map = {"duck": "duckcoding", "quotio": "quotio", "quotio_local": "quotio-local", "antigravity": "antigravity", "xingyun": "xingyun", "openai": "openai-official", "openrouter": "openrouter", "aiwave": "aiwave"}
-    provider_map.update({np: f"openai-{np[7:]}" for np in OPENAI_NAMED_PROVIDERS})
-    model_provider = provider_map[provider]
+    if provider == "openai":
+        text = comment_codex_model_provider(text)
+        write_text(cfg.cx_config, text)
+        ok("Codex → openai")
+        info("Codex 已切到 OpenAI 官方模式（auth.json / ChatGPT OAuth）")
+        return
 
-    if re.search(r"^\s*model_provider\s*=\s*\"[^\"]+\"\s*$", text, flags=re.M):
-        text = re.sub(
-            r"^\s*model_provider\s*=\s*\"[^\"]+\"\s*$",
-            f'model_provider = "{model_provider}"',
-            text,
-            count=1,
-            flags=re.M,
-        )
-    else:
-        text = f'model_provider = "{model_provider}"\n' + text
+    if provider in OPENAI_NAMED_PROVIDERS:
+        env_key_name = OPENAI_PROVIDER_ENV_KEYS[provider]
+        text = set_codex_model_provider(text, "flames_newapi")
+        text = set_codex_provider_env_key(text, "flames_newapi", env_key_name)
+        write_text(cfg.cx_config, text)
+        ok(f"Codex → {provider}")
+        info(f"Codex 通过 flames_newapi 走 key 槽位 {env_key_name}")
+        return
+
+    provider_map = {
+        "duck": "duckcoding",
+        "quotio": "quotio",
+        "quotio_local": "quotio-local",
+        "antigravity": "antigravity",
+        "xingyun": "xingyun",
+        "openrouter": "openrouter",
+        "aiwave": "aiwave",
+    }
+    model_provider = provider_map[provider]
+    text = set_codex_model_provider(text, model_provider)
 
     if provider == "quotio":
         # model safety mapping for known unsupported 4.5-series Claude names
@@ -2982,29 +3230,6 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
         )
         update_dotenv_file(cfg.oc_env, {"XINGYUN_API_KEY": xingyun_key})
         info(f"Synced {cfg.oc_env} -> XINGYUN_API_KEY")
-
-    if provider == "openai" or provider in OPENAI_NAMED_PROVIDERS:
-        if provider in OPENAI_NAMED_PROVIDERS:
-            tag = provider[7:]  # e.g. "Gq80"
-            toml_name = f"openai-{tag}"
-            env_key_name = f"OPENAI_{tag.upper()}_API_KEY"
-            label = f"OpenAI 官方 [{tag}]"
-        else:
-            toml_name = "openai-official"
-            env_key_name = "OPENAI_API_KEY"
-            label = "OpenAI 官方"
-        if not re.search(rf"^\[model_providers\.{re.escape(toml_name)}\]\s*$", text, flags=re.M):
-            block = (
-                f"\n\n# {label}（走本地 Xray 代理 → 美国家宽 REALITY）\n"
-                f"[model_providers.{toml_name}]\n"
-                f'name = "{toml_name}"\n'
-                f'base_url = "https://api.openai.com/v1"\n'
-                f'wire_api = "responses"\n'
-                f'env_key = "{env_key_name}"\n'
-            )
-            text += block
-            info(f"Added {toml_name} provider to codex config")
-        info(f"Codex → {label} (需要 HTTPS_PROXY 走代理)")
 
     if provider == "openrouter":
         # Set default model to step 3.5 flash
@@ -3440,10 +3665,13 @@ def usage() -> None:
     print("       switch-api codex quotio_local")
     print("       switch-api quotio_local          # codex+droid")
     print()
-    print("  6) OpenAI 多账号 (命名账号, key前缀区分):")
-    print("       switch-api droid openai_Gq80    # 账号 Gq80")
-    print("       switch-api codex openai_V420    # 账号 V420")
-    print("       switch-api openai_Gq80          # codex+droid 切 Gq80")
+    print("  6) OpenAI / Codex 官方账号:")
+    print("       switch-api codex openai         # Codex → OpenAI 官方 OAuth（auth.json）")
+    print("       switch-api codex-account list   # 列出 accounts/auth.json_* 与已注册目录")
+    print("       switch-api codex-account use <name>  # 切换 accounts/auth.json_<name>")
+    print("       switch-api droid openai_Gq80    # Droid → OpenAI[Gq80]")
+    print("       switch-api codex openai_V420    # Codex → flames_newapi[V420]")
+    print("       switch-api openai_Gq80          # codex+droid 切到 key 槽位 Gq80")
     print()
     print("  7) iCodeEasy (Anthropic 原生 API, CC + OpenClaw):")
     print("       switch-api cc icodeeasy          # Claude Code → iCodeEasy")
@@ -3454,7 +3682,7 @@ def usage() -> None:
     print()
     print("  switch-api list [provider]             # 列出可用模型")
     print("  switch-api check [--online]            # 检查当前模型状态")
-    print("  switch-api codex-account use <name>    # 切换官方账号目录")
+    print("  switch-api codex-account use <name>    # 切换 accounts/auth.json_* 或官方账号目录")
     print("  switch-api <tool> <provider> <model>   # 指定模型切换")
 
 
@@ -3629,10 +3857,12 @@ def main() -> int:
 
     _is_openai = provider == "openai" or provider in OPENAI_NAMED_PROVIDERS
     is_openclaw_openai_oauth = tool == "openclaw" and _is_openai and profile == "oauth"
+    is_codex_openai_official = tool == "codex" and provider == "openai"
+    is_codex_openai_named = tool == "codex" and provider in OPENAI_NAMED_PROVIDERS
     if _is_openai and tool not in ("codex", "droid", "openclaw", "all"):
         raise SwitchError(f"Provider '{provider}' is only supported for codex/droid, not {tool}")
 
-    if provider == "openai" and not keys["openai"] and not is_openclaw_openai_oauth:
+    if provider == "openai" and not keys["openai"] and not is_openclaw_openai_oauth and not is_codex_openai_official:
         raise SwitchError("OPENAI_API_KEY is not set! Edit ~/.env and run: source ~/.zshrc")
 
     if provider in OPENAI_NAMED_PROVIDERS and not keys.get(provider, "") and not is_openclaw_openai_oauth:
@@ -3679,6 +3909,10 @@ def main() -> int:
     if not force:
         if is_openclaw_openai_oauth:
             info("Pre-flight skipped for OpenClaw OpenAI OAuth (agent-local OAuth credentials decide availability)")
+        elif is_codex_openai_official:
+            info("Pre-flight skipped for Codex OpenAI 官方模式（auth.json / ChatGPT OAuth 决定可用性）")
+        elif is_codex_openai_named:
+            info("Pre-flight skipped for Codex flames_newapi key route（本地 config.toml 的 env_key 决定槽位）")
         else:
             reachable, reason = probe_provider(provider, keys)
             if not reachable:
@@ -3714,8 +3948,12 @@ def main() -> int:
             switch_openclaw(provider, cfg, keys, "", model=model)
             switch_codex(provider, cfg, keys, model=model)
             switch_droid(provider, cfg, keys, "", model=model)
-        elif provider == "openai" or provider in OPENAI_NAMED_PROVIDERS:
-            info(f"OpenAI 官方 only supports codex/droid — switching those only")
+        elif provider == "openai":
+            info("OpenAI: Codex 切官方 OAuth；Droid 切 API key，跳过 cc/gemini")
+            switch_codex(provider, cfg, keys, model=model)
+            switch_droid(provider, cfg, keys, "", model=model)
+        elif provider in OPENAI_NAMED_PROVIDERS:
+            info(f"{provider}: Codex 切 flames_newapi key 槽位；Droid 切 OpenAI API key，跳过 cc/gemini")
             switch_codex(provider, cfg, keys, model=model)
             switch_droid(provider, cfg, keys, "", model=model)
         elif provider == "quotio_local":

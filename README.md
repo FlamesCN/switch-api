@@ -32,12 +32,15 @@ See `VERSION`.
 switch-api status                    # 查看各工具当前提供商
 switch-api check [--online]          # 检查当前模型状态
 switch-api list [provider]           # 列出可用模型
-switch-api codex-account status      # 查看当前 Codex 官方账号目录
-switch-api codex-account list        # 列出已注册的 Codex 官方账号
+switch-api codex-account status      # 查看当前 Codex 官方 auth / 目录状态
+switch-api codex-account list        # 列出 accounts/auth.json_* 与已注册的官方账号目录
 ```
 
 ### Codex Official Accounts
 ```bash
+switch-api codex openai                    # 切到 OpenAI 官方模式（注释 model_provider，使用 auth.json）
+switch-api codex-account list              # 列出 ~/.codex/accounts/auth.json_* 与已注册目录
+switch-api codex-account use cool1982405@gmail.com
 switch-api codex-account add main @current   # 把当前生效中的 CODEX_HOME 注册为 main
 switch-api codex-account add alt             # 创建 ~/.codex-profiles/alt 并注册
 switch-api codex-account use alt             # 持久化切换到 alt（写入 CODEX_HOME）
@@ -45,7 +48,9 @@ switch-api codex-account use alt             # 持久化切换到 alt（写入 C
 
 `codex-account` 与 provider 是两套机制：
 - `provider` 切换的是 API endpoint / API key
-- `codex-account` 切换的是整套 Codex 状态目录（`CODEX_HOME`），适用于 ChatGPT OAuth 官方账号
+- `codex openai` 切换的是 Codex 官方 OAuth 模式（`auth.json`）
+- `codex-account` 优先切换当前 `CODEX_HOME/accounts/` 下的 `auth.json_*` 账号快照；若名称匹配已注册目录，则切换整套 `CODEX_HOME`
+- Codex 被 `switch-api` 改写前的 `config.toml` / `auth.json` 会统一备份到 `CODEX_HOME/backups/`
 
 注册新账号后，如果目录还没登录：
 ```bash
@@ -68,7 +73,8 @@ switch-api cc icodeeasy
 switch-api openclaw quotio [profile]
 switch-api openclaw icodeeasy [model]
 switch-api openclaw xingyun gpt-5.4
-switch-api codex openai
+switch-api codex openai                    # OpenAI 官方 OAuth
+switch-api codex openai_V420               # flames_newapi + OPENAI_V420_API_KEY
 switch-api droid quotio [profile]
 switch-api gemini duck
 ```
@@ -127,7 +133,8 @@ switch-api droid quotio_local gpt-5.3-codex-xhigh  # 超高思考
   - `QUOTIO_API_KEY`
   - `ANTIGRAVITY_API_KEY`
   - `XINGYUN_API_KEY`
-  - `OPENAI_API_KEY`
+  - `OPENAI_API_KEY`, `OPENAI_GQ80_API_KEY`, `OPENAI_V420_API_KEY`
+  - `FLAMES_API_KEY`
   - `OPENROUTER_API_KEY`
   - `ICODEEASY_API_KEY`
   - `DUCK_CODEX2CC_API_KEY`
