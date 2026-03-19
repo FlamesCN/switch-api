@@ -19,7 +19,7 @@ Unified API provider switcher across:
 | `openrouter` | 🌐 | openclaw, codex, droid | OpenRouter (openrouter.ai) — free models |
 | `openai` | 🔑 | openclaw, codex, droid | OpenAI 官方 (api.openai.com via proxy) |
 | `aiwave` | 🌊 | codex, droid, gemini | AI Wave (api.ai-wave.org) |
-| `icodeeasy` | 🧊 | cc, openclaw | iCodeEasy (api.icodeeasy.cc) — Anthropic 原生 API |
+| `icodeeasy` | 🧊 | cc, openclaw, codex, gemini | iCodeEasy (api.icodeeasy.cc) — 统一网关（Anthropic + OpenAI + Gemini） |
 | `duck_codex2cc` | 🦆 | cc | Duck CodeX→CC 映射 key（Claude 名称映射到 gpt-5.3-codex） |
 
 ## Version
@@ -64,6 +64,7 @@ switch-api quotio                    # 全部 → Quotio
 switch-api antigravity               # 全部 → Antigravity
 switch-api xingyun                   # openclaw+codex+droid → Xingyun GPT
 switch-api flames                    # openclaw+codex → Flames NewAPI
+switch-api icodeeasy                 # cc+openclaw+codex+gemini → iCodeEasy
 switch-api openrouter                # openclaw+codex+droid → OpenRouter (free)
 ```
 
@@ -73,6 +74,7 @@ switch-api cc duck
 switch-api cc icodeeasy
 switch-api openclaw quotio [profile]
 switch-api openclaw icodeeasy [model]
+switch-api codex icodeeasy [model]
 switch-api openclaw xingyun gpt-5.4
 switch-api openclaw duck codex             # duckcoding-codex/gpt-5.4-xhigh-openai-compact
 switch-api openclaw flames [model]
@@ -81,6 +83,7 @@ switch-api codex openai_V420               # flames_newapi + OPENAI_V420_API_KEY
 switch-api codex flames                    # flames_newapi + FLAMES_API_KEY
 switch-api droid quotio [profile]
 switch-api gemini duck
+switch-api gemini icodeeasy
 ```
 
 ### OpenRouter (Free Models)

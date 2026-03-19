@@ -104,6 +104,17 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertIn('env_key = "FLAMES_API_KEY"', text)
         self.assertEqual(self.mod.detect_provider("codex", self.cfg), "flames")
 
+    def test_switch_codex_icodeeasy_writes_provider_block_and_detects_icodeeasy(self):
+        self.mod.switch_codex("icodeeasy", self.cfg, {"icodeeasy": "dummy"}, model="")
+
+        text = self.cfg.cx_config.read_text(encoding="utf-8")
+        self.assertIsNotNone(re.search(r'^\s*model_provider\s*=\s*"icodeeasy"\s*$', text, re.M))
+        self.assertIn('model = "gpt-5.4"', text)
+        self.assertIn("[model_providers.icodeeasy]", text)
+        self.assertIn('base_url = "https://api.icodeeasy.cc/v1"', text)
+        self.assertIn('env_key = "ICODEEASY_API_KEY"', text)
+        self.assertEqual(self.mod.detect_provider("codex", self.cfg), "icodeeasy")
+
     def test_switch_openclaw_flames_writes_provider_and_auth_store(self):
         self.init_openclaw_files()
 
@@ -153,6 +164,26 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         auth_profiles = json.loads(self.cfg.oc_auth_profiles.read_text(encoding="utf-8"))
         self.assertEqual(auth_profiles["lastGood"]["duckcoding-codex"], "duckcoding-codex:manual")
         self.assertEqual(self.mod.detect_provider("openclaw", self.cfg), "duck")
+
+    def test_switch_gemini_cli_icodeeasy_updates_env_and_detects_icodeeasy(self):
+        self.mod.switch_gemini_cli("icodeeasy", self.cfg, {"icodeeasy": "dummy"}, model="")
+
+        gemini_env = self.cfg.gemini_env.read_text(encoding="utf-8")
+        self.assertIn("GOOGLE_GEMINI_BASE_URL=https://api.icodeeasy.cc", gemini_env)
+        self.assertIn("GEMINI_API_KEY=dummy", gemini_env)
+        self.assertIn("GEMINI_MODEL=gemini-2.5-flash", gemini_env)
+        self.assertEqual(self.mod.detect_provider("gemini", self.cfg), "icodeeasy")
+
+        bashrc = self.cfg.bashrc.read_text(encoding="utf-8")
+        self.assertIn('export GEMINI_API_KEY="dummy"', bashrc)
+
+    def test_model_validation_rejects_openclaw_icodeeasy_gpt_model(self):
+        with self.assertRaises(self.mod.SwitchError):
+            self.mod.validate_model_for_tool("openclaw", "gpt-5.4", "icodeeasy")
+
+    def test_model_in_provider_accepts_icodeeasy_gpt_and_gemini(self):
+        self.assertTrue(self.mod.model_in_provider("gpt-5.4", "icodeeasy"))
+        self.assertTrue(self.mod.model_in_provider("gemini-2.5-flash", "icodeeasy"))
 
     def test_codex_account_use_reads_auth_snapshot_from_accounts_dir(self):
         self.write_json(

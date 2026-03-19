@@ -33,11 +33,13 @@
 - **antigravity** — Antigravity-tools `https://tools.ancientechoes.ai`，支持 Claude / Gemini 全系列
   - 依赖本地电脑运行 antigravity-tools (port 8045) + Cloudflare Tunnel
   - 同时支持 OpenAI / Anthropic / Gemini 三种协议
-- **icodeeasy** — iCodeEasy `https://api.icodeeasy.cc`，支持 **Claude Code + OpenClaw**
-  - 使用 Anthropic 原生 API（`/v1/messages` + `x-api-key`）
-  - 支持所有 Claude 模型（3.5 haiku → opus 4.6）
-  - `openclaw` 通过自定义 provider `api: anthropic-messages` 接入
-  - 不能用于 codex / droid / gemini（这些工具需要 OpenAI 或 Gemini 兼容格式）
+- **icodeeasy** — iCodeEasy `https://api.icodeeasy.cc`，支持 **Claude Code + OpenClaw + Codex + Gemini**
+  - 统一网关：同一域名同时暴露 Anthropic / OpenAI / Gemini 兼容入口
+  - `cc` 继续使用 Anthropic 原生 API（`/v1/messages`）
+  - `openclaw` 当前通过自定义 provider `api: anthropic-messages` 接入，仍以 Claude 模型为主
+  - `codex` 走 OpenAI Responses 兼容入口（`model_provider = "icodeeasy"`）
+  - `gemini` 走 Gemini `v1beta` 兼容入口
+  - 实际可用模型以服务端鉴权结果为准；`switch-api` 当前默认模型：`claude-sonnet-4-6` / `gpt-5.4` / `gemini-2.5-flash`
 - **flames** — Flames NewAPI `https://www.flamescn.vip/v1`，支持 **Codex + OpenClaw**
   - `codex` 复用内部 provider block：`model_provider = "flames_newapi"`
   - `env_key` 固定切回 `FLAMES_API_KEY`
@@ -103,11 +105,12 @@
 - `gpt-oss-120b-medium`
 - `tab_flash_lite_preview` / `tab_jump_flash_lite_preview`
 
-## iCodeEasy 可用模型（CC + OpenClaw, 2026-03-12 更新）
+## iCodeEasy 可用模型（统一网关, 2026-03-19 更新）
 
-> iCodeEasy 使用 Anthropic 原生 API（`/v1/messages`）。
-> `cc` 可直接使用；`openclaw` 通过自定义 provider `api: anthropic-messages` 接入。
-> 仍然不能用于 codex / droid / gemini。
+> iCodeEasy 主页已明确支持 Claude Code / Codex / Gemini。
+> 只读探测确认 `api.icodeeasy.cc` 同时暴露了 `/v1/messages`、`/v1/chat/completions`、`/v1/responses`、`/v1beta/models/*:generateContent`。
+> `cc` 走 Anthropic；`codex` 走 OpenAI Responses；`gemini` 走 Gemini v1beta；`openclaw` 当前仍使用 Claude 路由。
+> 实际模型列表以 iCodeEasy 服务端为准，下面只列出 `switch-api` 当前内置的默认/常用模型。
 
 **Claude 系列：**
 - `claude-opus-4-6`
@@ -119,6 +122,12 @@
 - `claude-haiku-4-5-20251001`
 - `claude-3-5-haiku-20241022`（→ 实际返回 haiku-4-5-20251001）
 - `claude-3-7-sonnet-20250219`
+
+**Gemini 系列：**
+- `gemini-2.5-flash`（Gemini CLI 默认）
+
+**OpenAI/GPT 系列：**
+- `gpt-5.4`（Codex 默认）
 
 ## 工具说明
 
@@ -206,6 +215,7 @@ CODEX_HOME="$HOME/.codex-profiles/alt" codex login --device-auth
 switch-api duck                # 全部 → DuckCoding
 switch-api quotio              # 全部 → Quotio
 switch-api antigravity         # 全部 → Antigravity-tools
+switch-api icodeeasy           # cc+openclaw+codex+gemini → iCodeEasy
 switch-api flames              # openclaw+codex → Flames NewAPI
 switch-api all duck            # 同上（完整写法）
 switch-api all quotio
@@ -238,6 +248,7 @@ switch-api openclaw openai oauth            # OpenClaw → OpenAI OAuth (openai-
 switch-api codex duck
 switch-api codex quotio
 switch-api codex antigravity
+switch-api codex icodeeasy                 # iCodeEasy / gpt-5.4
 switch-api codex flames                     # flames_newapi + FLAMES_API_KEY
 switch-api codex openai                     # 官方 ChatGPT OAuth
 switch-api codex openai_Gq80                # flames_newapi + OPENAI_GQ80_API_KEY
@@ -249,6 +260,11 @@ switch-api droid quotio                     # Quotio Gemini (默认)
 switch-api droid quotio codex               # Quotio GPT-5.3 Codex (profile)
 switch-api droid quotio gpt-5.3-codex       # Quotio GPT-5.3 Codex (直接指定) ⭐
 switch-api droid antigravity                # Antigravity Gemini
+
+# ─── 只切 Gemini CLI ───────────────────────────
+switch-api gemini duck
+switch-api gemini antigravity
+switch-api gemini icodeeasy                 # iCodeEasy / gemini-2.5-flash
 
 # ─── Quotio Local (本地 Quotio app, 127.0.0.1:8317) ───
 switch-api quotio_local                      # codex+droid → Quotio Local
@@ -513,15 +529,15 @@ OpenClaw 走 OpenAI 时会额外显示认证模式后缀，避免把 OAuth 和 A
 | duck | OpenAI + Anthropic | ✅ | ✅ | ✅ | ✅ | ✅ |
 | quotio | OpenAI + Anthropic + Gemini | ✅ | ✅ | ✅ | ✅ | ✅ |
 | antigravity | OpenAI + Anthropic + Gemini | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **icodeeasy** | **Anthropic 原生 only** | ✅ | ✅ | ❌ | ❌ | ❌ |
+| **icodeeasy** | **Anthropic + OpenAI + Gemini** | ✅ | ✅* | ✅ | ❌ | ✅ |
 | **duck_codex2cc** | **Anthropic 原生 (映射)** | ✅ | ❌ | ❌ | ❌ | ❌ |
 | openai | OpenAI | ❌ | ✅* | ✅ | ✅ | ❌ |
 | openrouter | OpenAI | ❌ | ✅ | ✅ | ✅ | ❌ |
 | aiwave | OpenAI + Gemini | ❌ | ❌ | ✅ | ✅ | ✅ |
 | duck_cc1 | Anthropic 原生 only | ✅ | ❌ | ❌ | ❌ | ❌ |
 
-> **关键限制**：`icodeeasy`、`duck_cc1` 和 `duck_codex2cc` 都不是 OpenAI 兼容 provider。
-> 其中 `icodeeasy` 可用于 `cc` 和 `openclaw`，因为两者都能走 Anthropic 原生链路；
+> **关键限制**：
+> `icodeeasy` 现在可用于 `cc` / `openclaw` / `codex` / `gemini`，但 `openclaw` 当前仍走 Anthropic `messages` 链路，所以只支持 Claude 模型。
 > `duck_cc1` 和 `duck_codex2cc` 仍然只能用于 Claude Code。
 >
 > `openai` 对 OpenClaw 支持两种模式：
