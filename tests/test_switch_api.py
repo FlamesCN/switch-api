@@ -72,6 +72,26 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.write_json(self.cfg.oc_auth, {})
         self.write_json(self.cfg.oc_auth_profiles, {})
 
+    def test_config_uses_default_openclaw_agent_paths(self):
+        self.write_json(
+            self.home / ".openclaw/openclaw.json",
+            {
+                "agents": {
+                    "list": [
+                        {"id": "dev", "default": True},
+                        {"id": "lingxi"},
+                    ]
+                }
+            },
+        )
+
+        cfg = self.mod.Config(self.home)
+
+        self.assertEqual(cfg.oc_agent_id, "dev")
+        self.assertEqual(cfg.oc_models, self.home / ".openclaw/agents/dev/agent/models.json")
+        self.assertEqual(cfg.oc_auth, self.home / ".openclaw/agents/dev/agent/auth.json")
+        self.assertEqual(cfg.oc_auth_profiles, self.home / ".openclaw/agents/dev/agent/auth-profiles.json")
+
     def test_switch_codex_openai_comments_model_provider_for_official_mode(self):
         self.mod.switch_codex("openai", self.cfg, {}, model="")
 
@@ -125,7 +145,10 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
 
         models = json.loads(self.cfg.oc_models.read_text(encoding="utf-8"))
         self.assertEqual(models["providers"]["flames"]["baseUrl"], "https://www.flamescn.vip/v1")
+        self.assertEqual(models["providers"]["flames"]["api"], "openai-responses")
+        self.assertTrue(models["providers"]["flames"]["authHeader"])
         self.assertEqual(models["providers"]["flames"]["apiKey"], "dummy")
+        self.assertEqual(models["providers"]["flames"]["models"][0]["api"], "openai-responses")
 
         auth = json.loads(self.cfg.oc_auth.read_text(encoding="utf-8"))
         self.assertEqual(auth["flames"]["key"], "dummy")

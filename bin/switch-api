@@ -698,6 +698,33 @@ def resolve_codex_home(home: Path) -> Path:
     return home / ".codex"
 
 
+def resolve_openclaw_default_agent_id(home: Path) -> str:
+    oc_config = home / ".openclaw/openclaw.json"
+    if not oc_config.exists():
+        return "main"
+    try:
+        oc = load_json(oc_config)
+    except Exception:
+        return "main"
+
+    agents = oc.get("agents") or {}
+    agent_list = agents.get("list") or []
+    if isinstance(agent_list, list):
+        for item in agent_list:
+            if not isinstance(item, dict):
+                continue
+            agent_id = str(item.get("id") or "").strip()
+            if agent_id and item.get("default") is True:
+                return agent_id
+        for item in agent_list:
+            if not isinstance(item, dict):
+                continue
+            agent_id = str(item.get("id") or "").strip()
+            if agent_id:
+                return agent_id
+    return "main"
+
+
 def ensure_key(name: str, value: str, extra: str = "") -> str:
     if value:
         return value
@@ -1525,9 +1552,11 @@ class Config:
         self.codex_accounts_dir = self.codex_home / "accounts"
         self.cc_settings = home / ".claude/settings.json"
         self.oc_config = home / ".openclaw/openclaw.json"
-        self.oc_models = home / ".openclaw/agents/main/agent/models.json"
-        self.oc_auth = home / ".openclaw/agents/main/agent/auth.json"
-        self.oc_auth_profiles = home / ".openclaw/agents/main/agent/auth-profiles.json"
+        self.oc_agent_id = resolve_openclaw_default_agent_id(home)
+        self.oc_agent_dir = home / f".openclaw/agents/{self.oc_agent_id}/agent"
+        self.oc_models = self.oc_agent_dir / "models.json"
+        self.oc_auth = self.oc_agent_dir / "auth.json"
+        self.oc_auth_profiles = self.oc_agent_dir / "auth-profiles.json"
         self.cx_config = self.codex_home / "config.toml"
         self.factory_settings = home / ".factory/settings.json"
         self.gemini_env = home / ".gemini/.env"
@@ -2719,7 +2748,8 @@ def flames_models_payload(target_model: str = FLAMES_DEFAULT_MODEL) -> Dict[str,
         model_ids.append(target_model)
     return {
         "baseUrl": FLAMES_NEWAPI_BASE_URL_V1,
-        "api": "openai-completions",
+        "api": "openai-responses",
+        "authHeader": True,
         "apiKey": "",
         "models": [_build_flames_model_entry(model_id) for model_id in model_ids],
     }
@@ -2731,7 +2761,7 @@ def flames_models_payload_for_models_json(target_model: str = FLAMES_DEFAULT_MOD
     for item in p["models"]:
         it = dict(item)
         it["cost"] = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}
-        it["api"] = "openai-completions"
+        it["api"] = "openai-responses"
         models.append(it)
     p["models"] = models
     return p
@@ -3032,7 +3062,7 @@ def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], profile: s
             oauth_profile_id, oauth_profile = find_openclaw_oauth_profile(cfg)
             if not oauth_profile_id:
                 raise SwitchError(
-                    "OpenAI OAuth credentials not found in ~/.openclaw/agents/main/agent/auth-profiles.json. "
+                    f"OpenAI OAuth credentials not found in {cfg.oc_auth_profiles}. "
                     "Run 'openclaw onboard --auth-choice openai-codex' first "
                     "(or '~/.npm-global/bin/openclaw models auth login --provider openai-codex')."
                 )
@@ -3282,7 +3312,7 @@ def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], profile: s
             oauth_profile_id, _oauth_profile = find_openclaw_oauth_profile(cfg)
             if not oauth_profile_id:
                 raise SwitchError(
-                    "OpenAI OAuth credentials not found in ~/.openclaw/agents/main/agent/auth-profiles.json. "
+                    f"OpenAI OAuth credentials not found in {cfg.oc_auth_profiles}. "
                     "Run 'openclaw onboard --auth-choice openai-codex' first "
                     "(or '~/.npm-global/bin/openclaw models auth login --provider openai-codex')."
                 )
