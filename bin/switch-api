@@ -36,7 +36,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, Tuple
+from typing import Any, Dict, Iterable, List, Tuple
 
 # ----------------------------- constants -----------------------------
 DUCK_BASE_URL = "https://api.duckcoding.ai"
@@ -698,15 +698,18 @@ def resolve_codex_home(home: Path) -> Path:
     return home / ".codex"
 
 
-def resolve_openclaw_default_agent_id(home: Path) -> str:
+def resolve_openclaw_agent_metadata(home: Path) -> Tuple[List[str], str]:
     oc_config = home / ".openclaw/openclaw.json"
     if not oc_config.exists():
-        return "main"
+        return ["main"], "main"
+
     try:
         oc = load_json(oc_config)
     except Exception:
-        return "main"
+        return ["main"], "main"
 
+    agent_ids: List[str] = []
+    default_agent_id = ""
     agents = oc.get("agents") or {}
     agent_list = agents.get("list") or []
     if isinstance(agent_list, list):
@@ -714,15 +717,29 @@ def resolve_openclaw_default_agent_id(home: Path) -> str:
             if not isinstance(item, dict):
                 continue
             agent_id = str(item.get("id") or "").strip()
-            if agent_id and item.get("default") is True:
-                return agent_id
-        for item in agent_list:
-            if not isinstance(item, dict):
+            if not agent_id:
                 continue
-            agent_id = str(item.get("id") or "").strip()
-            if agent_id:
-                return agent_id
-    return "main"
+            if agent_id not in agent_ids:
+                agent_ids.append(agent_id)
+            if item.get("default") is True and not default_agent_id:
+                default_agent_id = agent_id
+
+    if not agent_ids:
+        agent_ids = ["main"]
+    if not default_agent_id:
+        default_agent_id = agent_ids[0]
+
+    return agent_ids, default_agent_id
+
+
+def resolve_openclaw_agent_ids(home: Path) -> List[str]:
+    agent_ids, _default_agent_id = resolve_openclaw_agent_metadata(home)
+    return agent_ids
+
+
+def resolve_openclaw_default_agent_id(home: Path) -> str:
+    _agent_ids, default_agent_id = resolve_openclaw_agent_metadata(home)
+    return default_agent_id
 
 
 def ensure_key(name: str, value: str, extra: str = "") -> str:
@@ -1544,6 +1561,14 @@ def resolve_openclaw_openrouter_profile(profile: str) -> Tuple[str, str]:
     return target, f"OpenClaw openrouter profile {p} -> {target}"
 
 
+def configure_openclaw_agent_paths(cfg: "Config", agent_id: str) -> None:
+    cfg.oc_agent_id = agent_id
+    cfg.oc_agent_dir = cfg.home / f".openclaw/agents/{agent_id}/agent"
+    cfg.oc_models = cfg.oc_agent_dir / "models.json"
+    cfg.oc_auth = cfg.oc_agent_dir / "auth.json"
+    cfg.oc_auth_profiles = cfg.oc_agent_dir / "auth-profiles.json"
+
+
 class Config:
     def __init__(self, home: Path):
         self.home = home
@@ -1552,11 +1577,9 @@ class Config:
         self.codex_accounts_dir = self.codex_home / "accounts"
         self.cc_settings = home / ".claude/settings.json"
         self.oc_config = home / ".openclaw/openclaw.json"
+        self.oc_agent_ids = resolve_openclaw_agent_ids(home)
         self.oc_agent_id = resolve_openclaw_default_agent_id(home)
-        self.oc_agent_dir = home / f".openclaw/agents/{self.oc_agent_id}/agent"
-        self.oc_models = self.oc_agent_dir / "models.json"
-        self.oc_auth = self.oc_agent_dir / "auth.json"
-        self.oc_auth_profiles = self.oc_agent_dir / "auth-profiles.json"
+        configure_openclaw_agent_paths(self, self.oc_agent_id)
         self.cx_config = self.codex_home / "config.toml"
         self.factory_settings = home / ".factory/settings.json"
         self.gemini_env = home / ".gemini/.env"
@@ -2806,8 +2829,8 @@ def restart_openclaw_gateway(home: Path) -> None:
         warn("OpenClaw gateway may not have started — check: sudo systemctl status openclaw")
 
 
-def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], profile: str = "", model: str = "") -> None:
-    info(f"Switching OpenClaw → {provider}")
+def _switch_openclaw_single_agent(provider: str, cfg: Config, keys: Dict[str, str], profile: str = "", model: str = "") -> None:
+    info(f"Switching OpenClaw[{cfg.oc_agent_id}] → {provider}")
 
     # --- Snapshot current configs for rollback ---
     _rollback_snapshot: Dict[Path, bytes] = {}
@@ -2825,6 +2848,8 @@ def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], profile: s
 
     backup(cfg.oc_config)
     backup(cfg.oc_models)
+    backup(cfg.oc_auth)
+    backup(cfg.oc_auth_profiles)
 
     oc = load_json(cfg.oc_config)
     models_json = load_json(cfg.oc_models)
@@ -3341,6 +3366,49 @@ def switch_openclaw(provider: str, cfg: Config, keys: Dict[str, str], profile: s
     save_json(cfg.oc_auth_profiles, auth_profiles)
 
     ok(f"OpenClaw → {provider} (配置已写入，未重启)")
+
+
+def resolve_openclaw_target_agent_ids(home: Path, agent_id: str = "", all_agents: bool = False) -> List[str]:
+    agent_ids = resolve_openclaw_agent_ids(home)
+    if all_agents:
+        return agent_ids
+
+    requested = agent_id.strip()
+    if requested:
+        if requested not in agent_ids:
+            raise SwitchError(
+                f"Unknown OpenClaw agent: {requested} (available: {', '.join(agent_ids)})"
+            )
+        return [requested]
+
+    if len(agent_ids) > 1:
+        return agent_ids
+
+    return [resolve_openclaw_default_agent_id(home)]
+
+
+def switch_openclaw(
+    provider: str,
+    cfg: Config,
+    keys: Dict[str, str],
+    profile: str = "",
+    model: str = "",
+    agent_id: str = "",
+    all_agents: bool = False,
+) -> None:
+    target_agent_ids = resolve_openclaw_target_agent_ids(cfg.home, agent_id=agent_id, all_agents=all_agents)
+    if len(target_agent_ids) > 1:
+        info(
+            "OpenClaw 多 agent 模式：将同步更新 "
+            + ", ".join(target_agent_ids)
+            + "；如需只切一个 agent，请使用 --agent <id>"
+        )
+
+    for target_agent_id in target_agent_ids:
+        agent_cfg = Config(cfg.home)
+        configure_openclaw_agent_paths(agent_cfg, target_agent_id)
+        agent_cfg.oc_agent_ids = list(target_agent_ids)
+        _switch_openclaw_single_agent(provider, agent_cfg, keys, profile, model=model)
 
 
 def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = "") -> None:
@@ -3948,6 +4016,7 @@ def usage() -> None:
     print("  switch-api <provider>")
     print("  switch-api all <provider>")
     print("  switch-api <tool> <provider>")
+    print("  switch-api [--agent <id> | --all-agents] openclaw <provider>")
     print("  switch-api openclaw quotio <profile>")
     print("  switch-api openclaw antigravity <profile>")
     print("")
@@ -3974,6 +4043,8 @@ def usage() -> None:
     print("       switch-api codex duck")
     print("       switch-api codex flames")
     print("       switch-api openclaw flames")
+    print("       switch-api openclaw flames --agent lingxi")
+    print("       switch-api openclaw flames --all-agents")
     print("       switch-api codex openai")
     print("       switch-api openclaw openai oauth   # OpenClaw 切到 OpenAI OAuth")
     print("       switch-api openclaw openai key     # OpenClaw 切到 OpenAI API Key")
@@ -4005,6 +4076,7 @@ def usage() -> None:
     print()
     print("  6.5) Flames NewAPI (OpenAI-compatible relay):")
     print("       switch-api flames              # openclaw+codex → Flames")
+    print("       switch-api flames --all-agents # OpenClaw 多 agent 全量同步")
     print("       switch-api codex flames        # Codex → flames_newapi + FLAMES_API_KEY")
     print("       switch-api openclaw flames     # OpenClaw → flames/gpt-5.4")
     print()
@@ -4022,6 +4094,65 @@ def usage() -> None:
     print("  switch-api check [--online]            # 检查当前模型状态")
     print("  switch-api codex-account use <name>    # 切换 accounts/auth.json_* 或官方账号目录")
     print("  switch-api <tool> <provider> <model>   # 指定模型切换")
+
+
+def parse_global_flags(argv: Iterable[str]) -> Tuple[List[str], bool, str, bool]:
+    args = list(argv)
+    positional: List[str] = []
+    force = False
+    agent_id = ""
+    all_agents = False
+
+    idx = 0
+    while idx < len(args):
+        arg = args[idx]
+        if arg == "--force":
+            force = True
+            idx += 1
+            continue
+        if arg == "--all-agents":
+            all_agents = True
+            idx += 1
+            continue
+        if arg == "--agent":
+            if idx + 1 >= len(args):
+                err("Missing value for --agent")
+                raise SystemExit(1)
+            agent_id = args[idx + 1].strip()
+            if not agent_id:
+                err("--agent requires a non-empty agent id")
+                raise SystemExit(1)
+            idx += 2
+            continue
+        if arg.startswith("--agent="):
+            agent_id = arg.split("=", 1)[1].strip()
+            if not agent_id:
+                err("--agent requires a non-empty agent id")
+                raise SystemExit(1)
+            idx += 1
+            continue
+        positional.append(arg)
+        idx += 1
+
+    if agent_id and all_agents:
+        err("--agent and --all-agents cannot be used together")
+        raise SystemExit(1)
+
+    return positional, force, agent_id, all_agents
+
+
+def switch_path_touches_openclaw(tool: str, provider: str) -> bool:
+    if tool == "openclaw":
+        return True
+    if tool != "all":
+        return False
+    if provider == "openai" or provider in OPENAI_NAMED_PROVIDERS:
+        return False
+    if provider == "quotio_local":
+        return False
+    if provider in CC_ONLY_PROVIDERS:
+        return False
+    return True
 
 
 def parse_args(argv: Iterable[str]) -> Tuple[str, str, str]:
@@ -4151,9 +4282,11 @@ def main() -> int:
     save_provider_model_catalog(cfg.provider_models_file)
     keys = get_keys(store)
 
-    force = "--force" in sys.argv
-    argv_clean = [a for a in sys.argv[1:] if a != "--force"]
+    argv_clean, force, openclaw_agent_id, openclaw_all_agents = parse_global_flags(sys.argv[1:])
     tool, provider, profile = parse_args(argv_clean)
+
+    if (openclaw_agent_id or openclaw_all_agents) and not switch_path_touches_openclaw(tool, provider):
+        raise SwitchError("--agent/--all-agents 仅适用于会触发 OpenClaw 切换的命令")
 
     if tool == "status":
         show_status(cfg)
@@ -4279,7 +4412,7 @@ def main() -> int:
     if tool == "cc":
         switch_cc(provider, cfg, keys, model=model)
     elif tool == "openclaw":
-        switch_openclaw(provider, cfg, keys, profile, model=model)
+        switch_openclaw(provider, cfg, keys, profile, model=model, agent_id=openclaw_agent_id, all_agents=openclaw_all_agents)
     elif tool == "codex":
         switch_codex(provider, cfg, keys, model=model)
     elif tool == "droid":
@@ -4289,7 +4422,7 @@ def main() -> int:
     elif tool == "all":
         if provider == "openrouter":
             warn("OpenRouter is OpenAI-compatible — skipping cc and gemini (not compatible)")
-            switch_openclaw(provider, cfg, keys, "", model=model)
+            switch_openclaw(provider, cfg, keys, "", model=model, agent_id=openclaw_agent_id, all_agents=openclaw_all_agents)
             switch_codex(provider, cfg, keys, model=model)
             switch_droid(provider, cfg, keys, "", model=model)
         elif provider == "openai":
@@ -4302,7 +4435,7 @@ def main() -> int:
             switch_droid(provider, cfg, keys, "", model=model)
         elif provider == "flames":
             info("Flames only supports openclaw/codex — switching those only")
-            switch_openclaw(provider, cfg, keys, "", model=model)
+            switch_openclaw(provider, cfg, keys, "", model=model, agent_id=openclaw_agent_id, all_agents=openclaw_all_agents)
             switch_codex(provider, cfg, keys, model=model)
         elif provider == "quotio_local":
             info(f"Quotio Local only supports codex/droid — switching those only")
@@ -4311,7 +4444,7 @@ def main() -> int:
         elif provider == "icodeeasy":
             info("iCodeEasy supports cc/openclaw/codex/gemini — switching those only")
             switch_cc(provider, cfg, keys, model=model)
-            switch_openclaw(provider, cfg, keys, "", model=model)
+            switch_openclaw(provider, cfg, keys, "", model=model, agent_id=openclaw_agent_id, all_agents=openclaw_all_agents)
             switch_codex(provider, cfg, keys, model=model)
             switch_gemini_cli(provider, cfg, keys, model=model)
         elif provider in CC_ONLY_PROVIDERS:
@@ -4319,7 +4452,7 @@ def main() -> int:
             switch_cc(provider, cfg, keys, model=model)
         else:
             switch_cc(provider, cfg, keys, model=model)
-            switch_openclaw(provider, cfg, keys, "", model=model)
+            switch_openclaw(provider, cfg, keys, "", model=model, agent_id=openclaw_agent_id, all_agents=openclaw_all_agents)
             switch_codex(provider, cfg, keys, model=model)
             switch_droid(provider, cfg, keys, "", model=model)
             switch_gemini_cli(provider, cfg, keys, model=model)

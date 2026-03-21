@@ -147,7 +147,7 @@
 ### 语法
 
 ```bash
-switch-api [--force] <参数1> [参数2] [参数3]
+switch-api [--force] [--agent <id> | --all-agents] <参数1> [参数2] [参数3]
 ```
 
 **方式一：双参数（指定工具 + Provider）**
@@ -190,6 +190,14 @@ switch-api codex-account use <name>
 
 **选项：**
 - `--force` — 跳过 pre-flight 连接检查（隧道检测）
+- `--agent <id>` — 仅切换指定 OpenClaw agent
+- `--all-agents` — 同步切换所有已配置的 OpenClaw agent
+
+### 多 agent 说明
+
+- OpenClaw 的 `openclaw.json` 是全局默认模型入口，但 `models.json` / `auth.json` / `auth-profiles.json` 是 **按 agent 分目录** 保存。
+- 因此从本版本开始，`switch-api openclaw ...` 在检测到多个 agent 时，会默认**同步更新所有 agent**。
+- 如只想切某一个 agent，请显式使用 `--agent <id>`。
 
 ### 完整命令列表
 
@@ -241,6 +249,8 @@ switch-api openclaw icodeeasy               # 默认 Claude Sonnet 4.6
 switch-api openclaw icodeeasy claude-opus-4-6
 switch-api openclaw flames                  # Flames → gpt-5.4
 switch-api openclaw flames gpt-5.3-codex
+switch-api openclaw flames --agent lingxi   # 仅切换 lingxi agent
+switch-api openclaw flames --all-agents     # dev / lingxi 等全部一起切
 switch-api openclaw openai key              # OpenClaw → OpenAI API Key (openai-direct)
 switch-api openclaw openai oauth            # OpenClaw → OpenAI OAuth (openai-codex)
 

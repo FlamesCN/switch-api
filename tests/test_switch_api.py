@@ -92,6 +92,66 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertEqual(cfg.oc_auth, self.home / ".openclaw/agents/dev/agent/auth.json")
         self.assertEqual(cfg.oc_auth_profiles, self.home / ".openclaw/agents/dev/agent/auth-profiles.json")
 
+    def test_parse_global_flags_supports_openclaw_agent_options(self):
+        positional, force, agent_id, all_agents = self.mod.parse_global_flags(
+            ["openclaw", "flames", "--agent", "lingxi"]
+        )
+        self.assertEqual(positional, ["openclaw", "flames"])
+        self.assertFalse(force)
+        self.assertEqual(agent_id, "lingxi")
+        self.assertFalse(all_agents)
+
+        positional, force, agent_id, all_agents = self.mod.parse_global_flags(
+            ["--force", "flames", "--all-agents"]
+        )
+        self.assertEqual(positional, ["flames"])
+        self.assertTrue(force)
+        self.assertEqual(agent_id, "")
+        self.assertTrue(all_agents)
+
+    def test_switch_openclaw_flames_updates_all_agents_by_default(self):
+        self.write_json(
+            self.home / ".openclaw/openclaw.json",
+            {
+                "agents": {
+                    "defaults": {
+                        "model": {
+                            "primary": "quotio/claude-sonnet-4-6",
+                        }
+                    },
+                    "list": [
+                        {"id": "dev", "default": True},
+                        {"id": "lingxi"},
+                    ],
+                },
+                "models": {"providers": {}},
+            },
+        )
+        for agent_id in ("dev", "lingxi"):
+            agent_dir = self.home / f".openclaw/agents/{agent_id}/agent"
+            self.write_json(agent_dir / "models.json", {"providers": {}})
+            self.write_json(agent_dir / "auth.json", {})
+            self.write_json(agent_dir / "auth-profiles.json", {})
+
+        cfg = self.mod.Config(self.home)
+        self.mod.switch_openclaw("flames", cfg, {"flames": "dummy"}, profile="", model="")
+
+        oc = json.loads((self.home / ".openclaw/openclaw.json").read_text(encoding="utf-8"))
+        self.assertEqual(oc["agents"]["defaults"]["model"]["primary"], "flames/gpt-5.4")
+
+        for agent_id in ("dev", "lingxi"):
+            agent_dir = self.home / f".openclaw/agents/{agent_id}/agent"
+            models = json.loads((agent_dir / "models.json").read_text(encoding="utf-8"))
+            self.assertEqual(models["providers"]["flames"]["api"], "openai-responses")
+            self.assertTrue(models["providers"]["flames"]["authHeader"])
+            self.assertEqual(models["providers"]["flames"]["apiKey"], "dummy")
+
+            auth = json.loads((agent_dir / "auth.json").read_text(encoding="utf-8"))
+            self.assertEqual(auth["flames"]["key"], "dummy")
+
+            auth_profiles = json.loads((agent_dir / "auth-profiles.json").read_text(encoding="utf-8"))
+            self.assertEqual(auth_profiles["lastGood"]["flames"], "flames:manual")
+
     def test_switch_codex_openai_comments_model_provider_for_official_mode(self):
         self.mod.switch_codex("openai", self.cfg, {}, model="")
 

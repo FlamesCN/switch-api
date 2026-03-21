@@ -78,6 +78,8 @@ switch-api codex icodeeasy [model]
 switch-api openclaw xingyun gpt-5.4
 switch-api openclaw duck codex             # duckcoding-codex/gpt-5.4-xhigh-openai-compact
 switch-api openclaw flames [model]
+switch-api openclaw flames --agent lingxi  # 仅切换指定 OpenClaw agent
+switch-api openclaw flames --all-agents    # 同步切换所有 OpenClaw agent
 switch-api codex openai                    # OpenAI 官方 OAuth
 switch-api codex openai_V420               # flames_newapi + OPENAI_V420_API_KEY
 switch-api codex flames                    # flames_newapi + FLAMES_API_KEY
