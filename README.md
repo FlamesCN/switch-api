@@ -145,9 +145,16 @@ switch-api droid quotio_local gpt-5.3-codex-xhigh  # 超高思考
   - `OPENAI_API_KEY`, `OPENAI_GQ80_API_KEY`, `OPENAI_V420_API_KEY`
   - `FLAMES_API_KEY`
   - `OPENROUTER_API_KEY`
+  - `AIWAVE_CODEX_API_KEY`, `AIWAVE_GEMINI_API_KEY`
+  - `AIWAVE_CLAUDE_ANTI_API_KEY`, `AIWAVE_CLAUDE_OMG_API_KEY`
+  - `AIWAVE_API_KEY` (legacy fallback)
   - `ICODEEASY_API_KEY`
   - `DUCK_CODEX2CC_API_KEY`
 - Keys are loaded from env → credential store (auto-merged on each run)
+- `aiwave` 当前分槽规则：
+  - `codex` / `droid` 使用 `AIWAVE_CODEX_API_KEY`
+  - `gemini` 使用 `AIWAVE_GEMINI_API_KEY`
+  - `AIWAVE_API_KEY` 只作为旧配置兼容兜底
 
 ## Security
 - Real keys must NOT be committed.

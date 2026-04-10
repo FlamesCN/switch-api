@@ -14,6 +14,7 @@ logs/
 *.bak
 *.bak.*
 *.tmp
+.spec-workflow/
 
 # switch-api local credential snapshot (never commit real keys)
 credentials.json

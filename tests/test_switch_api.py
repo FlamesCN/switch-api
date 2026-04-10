@@ -1,10 +1,12 @@
 import importlib.machinery
 import importlib.util
 import json
+import os
 import re
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 def load_switch_api_module():
@@ -152,6 +154,59 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
             auth_profiles = json.loads((agent_dir / "auth-profiles.json").read_text(encoding="utf-8"))
             self.assertEqual(auth_profiles["lastGood"]["flames"], "flames:manual")
 
+    def test_switch_openclaw_flames_with_explicit_agent_uses_agent_model_override(self):
+        self.write_json(
+            self.home / ".openclaw/openclaw.json",
+            {
+                "agents": {
+                    "defaults": {
+                        "model": {
+                            "primary": "quotio/claude-sonnet-4-6",
+                        }
+                    },
+                    "list": [
+                        {"id": "dev", "default": True},
+                        {"id": "lingxi"},
+                    ],
+                },
+                "models": {"providers": {}},
+            },
+        )
+        for agent_id in ("dev", "lingxi"):
+            agent_dir = self.home / f".openclaw/agents/{agent_id}/agent"
+            self.write_json(agent_dir / "models.json", {"providers": {}})
+            self.write_json(agent_dir / "auth.json", {})
+            self.write_json(agent_dir / "auth-profiles.json", {})
+
+        cfg = self.mod.Config(self.home)
+        self.mod.switch_openclaw(
+            "flames",
+            cfg,
+            {"flames": "dummy"},
+            profile="",
+            model="",
+            agent_id="lingxi",
+        )
+
+        oc = json.loads((self.home / ".openclaw/openclaw.json").read_text(encoding="utf-8"))
+        self.assertEqual(oc["agents"]["defaults"]["model"]["primary"], "quotio/claude-sonnet-4-6")
+
+        agent_entries = {entry["id"]: entry for entry in oc["agents"]["list"]}
+        self.assertNotIn("model", agent_entries["dev"])
+        self.assertEqual(agent_entries["lingxi"]["model"], "flames/gpt-5.4")
+
+        dev_cfg = self.mod.Config(self.home)
+        self.assertEqual(self.mod.detect_provider("openclaw", dev_cfg), "quotio")
+
+        lingxi_cfg = self.mod.Config(self.home)
+        self.mod.configure_openclaw_agent_paths(lingxi_cfg, "lingxi")
+        self.assertEqual(self.mod.detect_provider("openclaw", lingxi_cfg), "flames")
+
+        lingxi_models = json.loads(
+            (self.home / ".openclaw/agents/lingxi/agent/models.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(lingxi_models["providers"]["flames"]["api"], "openai-responses")
+
     def test_switch_codex_openai_comments_model_provider_for_official_mode(self):
         self.mod.switch_codex("openai", self.cfg, {}, model="")
 
@@ -259,6 +314,51 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
 
         bashrc = self.cfg.bashrc.read_text(encoding="utf-8")
         self.assertIn('export GEMINI_API_KEY="dummy"', bashrc)
+
+    def test_switch_gemini_cli_aiwave_uses_gemini_key_slot(self):
+        self.mod.switch_gemini_cli(
+            "aiwave",
+            self.cfg,
+            {"aiwave_gemini": "gem-slot", "aiwave_codex": "codex-slot"},
+            model="",
+        )
+
+        gemini_env = self.cfg.gemini_env.read_text(encoding="utf-8")
+        self.assertIn("GOOGLE_GEMINI_BASE_URL=https://api.ai-wave.org/gemini", gemini_env)
+        self.assertIn("GEMINI_API_KEY=gem-slot", gemini_env)
+        self.assertIn("GEMINI_MODEL=gemini-3.1-pro-preview", gemini_env)
+
+        bashrc = self.cfg.bashrc.read_text(encoding="utf-8")
+        self.assertIn('export GEMINI_API_KEY="gem-slot"', bashrc)
+
+    def test_switch_droid_aiwave_uses_codex_key_slot(self):
+        self.mod.switch_droid(
+            "aiwave",
+            self.cfg,
+            {"aiwave_gemini": "gem-slot", "aiwave_codex": "codex-slot"},
+            profile="",
+            model="",
+        )
+
+        settings = json.loads(self.cfg.factory_settings.read_text(encoding="utf-8"))
+        self.assertEqual(settings["customModels"][0]["apiKey"], "codex-slot")
+        self.assertEqual(settings["customModels"][0]["baseUrl"], "https://api.ai-wave.org/v1")
+
+    def test_get_keys_prefers_split_aiwave_slots(self):
+        with patch.dict(
+            os.environ,
+            {
+                "AIWAVE_CODEX_API_KEY": "codex-slot",
+                "AIWAVE_GEMINI_API_KEY": "gem-slot",
+                "AIWAVE_API_KEY": "legacy-slot",
+            },
+            clear=False,
+        ):
+            keys = self.mod.get_keys({})
+
+        self.assertEqual(keys["aiwave_codex"], "codex-slot")
+        self.assertEqual(keys["aiwave_gemini"], "gem-slot")
+        self.assertEqual(keys["aiwave"], "legacy-slot")
 
     def test_model_validation_rejects_openclaw_icodeeasy_gpt_model(self):
         with self.assertRaises(self.mod.SwitchError):

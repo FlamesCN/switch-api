@@ -549,6 +549,7 @@ OpenClaw 走 OpenAI 时会额外显示认证模式后缀，避免把 OAuth 和 A
 > **关键限制**：
 > `icodeeasy` 现在可用于 `cc` / `openclaw` / `codex` / `gemini`，但 `openclaw` 当前仍走 Anthropic `messages` 链路，所以只支持 Claude 模型。
 > `duck_cc1` 和 `duck_codex2cc` 仍然只能用于 Claude Code。
+> `aiwave` 现按 key 槽拆分：`codex` / `droid` 使用 `AIWAVE_CODEX_API_KEY`，`gemini` 使用 `AIWAVE_GEMINI_API_KEY`；`AIWAVE_API_KEY` 仅作为旧配置兼容兜底。
 >
 > `openai` 对 OpenClaw 支持两种模式：
 > `switch-api openclaw openai key` 与 `switch-api openclaw openai oauth`。
