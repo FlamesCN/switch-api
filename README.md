@@ -5,6 +5,7 @@ Unified API provider switcher across:
 - Codex (`codex`)
 - Droid (`droid`)
 - Gemini CLI (`gemini`)
+- Hermes (`hermes`)
 
 ## Supported Providers
 
@@ -14,11 +15,11 @@ Unified API provider switcher across:
 | `quotio` | 🔗 | all | Quotio Tunnel (api.ancientechoes.ai) |
 | `antigravity` | 🚀 | all | Antigravity-tools (tools.ancientechoes.ai) |
 | `xingyun` | ☁️ | openclaw, codex, droid | Xingyun GPT (ai.xingyungept.cn) |
-| `flames` | 🔥 | openclaw, codex | Flames NewAPI (www.flamescn.vip) |
+| `flames` | 🔥 | openclaw, codex, hermes | Flames NewAPI (www.flamescn.vip) |
 | `quotio_local` | 🔗 | codex, droid | Quotio Local (本地 app, 127.0.0.1:8317) |
 | `openrouter` | 🌐 | openclaw, codex, droid | OpenRouter (openrouter.ai) — free models |
 | `openai` | 🔑 | openclaw, codex, droid | OpenAI 官方 (api.openai.com via proxy) |
-| `aiwave` | 🌊 | codex, droid, gemini | AI Wave (api.ai-wave.org) |
+| `aiwave` | 🌊 | openclaw, codex, droid, gemini, hermes | AI Wave (api.ai-wave.org) |
 | `icodeeasy` | 🧊 | cc, openclaw, codex, gemini | iCodeEasy (api.icodeeasy.cc) — 统一网关（Anthropic + OpenAI + Gemini） |
 | `duck_codex2cc` | 🦆 | cc | Duck CodeX→CC 映射 key（Claude 名称映射到 gpt-5.3-codex） |
 
@@ -63,7 +64,8 @@ switch-api duck                      # 全部 → DuckCoding
 switch-api quotio                    # 全部 → Quotio
 switch-api antigravity               # 全部 → Antigravity
 switch-api xingyun                   # openclaw+codex+droid → Xingyun GPT
-switch-api flames                    # openclaw+codex → Flames NewAPI
+switch-api flames                    # openclaw+codex+hermes → Flames NewAPI
+switch-api aiwave                    # openclaw+codex+droid+gemini+hermes → AI Wave
 switch-api icodeeasy                 # cc+openclaw+codex+gemini → iCodeEasy
 switch-api openrouter                # openclaw+codex+droid → OpenRouter (free)
 ```
@@ -83,7 +85,10 @@ switch-api openclaw flames --all-agents    # 同步切换所有 OpenClaw agent
 switch-api codex openai                    # OpenAI 官方 OAuth
 switch-api codex openai_V420               # flames_newapi + OPENAI_V420_API_KEY
 switch-api codex flames                    # flames_newapi + FLAMES_API_KEY
+switch-api openclaw aiwave [model]
 switch-api droid quotio [profile]
+switch-api hermes flames
+switch-api hermes aiwave [model]
 switch-api gemini duck
 switch-api gemini icodeeasy
 ```
@@ -145,7 +150,7 @@ switch-api droid quotio_local gpt-5.3-codex-xhigh  # 超高思考
   - `OPENAI_API_KEY`, `OPENAI_GQ80_API_KEY`, `OPENAI_V420_API_KEY`
   - `FLAMES_API_KEY`
   - `OPENROUTER_API_KEY`
-  - `AIWAVE_CODEX_API_KEY`, `AIWAVE_GEMINI_API_KEY`
+  - `AIWAVE_CODEX_API_KEY`, `AIWAVE_GEMINI_GCP_API_KEY`, `AIWAVE_GEMINI_API_KEY`
   - `AIWAVE_CLAUDE_ANTI_API_KEY`, `AIWAVE_CLAUDE_OMG_API_KEY`
   - `AIWAVE_API_KEY` (legacy fallback)
   - `ICODEEASY_API_KEY`
@@ -153,7 +158,7 @@ switch-api droid quotio_local gpt-5.3-codex-xhigh  # 超高思考
 - Keys are loaded from env → credential store (auto-merged on each run)
 - `aiwave` 当前分槽规则：
   - `codex` / `droid` 使用 `AIWAVE_CODEX_API_KEY`
-  - `gemini` 使用 `AIWAVE_GEMINI_API_KEY`
+  - `gemini` / `openclaw` / `hermes` 优先使用 `AIWAVE_GEMINI_GCP_API_KEY`，兼容回退到 `AIWAVE_GEMINI_API_KEY`
   - `AIWAVE_API_KEY` 只作为旧配置兼容兜底
 
 ## Security
