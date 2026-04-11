@@ -726,15 +726,30 @@ def write_text(path: Path, content: str) -> None:
     os.replace(tmp, path)
 
 
-def iter_hermes_config_paths(cfg: "Config") -> List[Path]:
-    paths: List[Path] = []
-    if cfg.hermes_config.exists():
-        paths.append(cfg.hermes_config)
-    if cfg.hermes_profiles_dir.exists():
-        for profile_cfg in sorted(cfg.hermes_profiles_dir.glob("*/config.yaml")):
-            if profile_cfg.exists():
-                paths.append(profile_cfg)
-    return paths
+def resolve_hermes_config_paths(
+    cfg: "Config",
+    *,
+    profile_name: str = "",
+    all_profiles: bool = False,
+) -> List[Path]:
+    if profile_name and all_profiles:
+        raise SwitchError("--profile and --all-profiles cannot be used together")
+
+    if profile_name:
+        candidate = cfg.hermes_profiles_dir / profile_name / "config.yaml"
+        if not candidate.exists():
+            raise SwitchError(f"Unknown Hermes profile: {profile_name}")
+        return [candidate]
+
+    if all_profiles:
+        paths = sorted(cfg.hermes_profiles_dir.glob("*/config.yaml")) if cfg.hermes_profiles_dir.exists() else []
+        if not paths:
+            raise SwitchError(f"No Hermes profiles found under {cfg.hermes_profiles_dir}")
+        return list(paths)
+
+    if not cfg.hermes_config.exists():
+        raise SwitchError(f"Hermes config not found: {cfg.hermes_config}")
+    return [cfg.hermes_config]
 
 
 def normalize_path(home: Path, raw: str) -> Path:
@@ -4224,7 +4239,15 @@ def _ensure_hermes_custom_provider_entry(config: Dict[str, Any], name: str, base
     return entry
 
 
-def switch_hermes(provider: str, cfg: Config, keys: Dict[str, str], model: str = "") -> None:
+def switch_hermes(
+    provider: str,
+    cfg: Config,
+    keys: Dict[str, str],
+    model: str = "",
+    *,
+    profile_name: str = "",
+    all_profiles: bool = False,
+) -> None:
     info(f"Switching Hermes → {provider}")
 
     if provider == "flames":
@@ -4246,9 +4269,11 @@ def switch_hermes(provider: str, cfg: Config, keys: Dict[str, str], model: str =
     else:
         raise SwitchError(f"Hermes provider not supported yet: {provider}")
 
-    config_paths = iter_hermes_config_paths(cfg)
-    if not config_paths:
-        raise SwitchError(f"Hermes config not found under {cfg.hermes_dir}")
+    config_paths = resolve_hermes_config_paths(
+        cfg,
+        profile_name=profile_name,
+        all_profiles=all_profiles,
+    )
 
     for config_path in config_paths:
         backup(config_path)
@@ -4271,7 +4296,8 @@ def switch_hermes(provider: str, cfg: Config, keys: Dict[str, str], model: str =
         save_yaml(config_path, data)
         info(f"Updated {config_path}")
 
-    ok(f"Hermes → {provider} / {target_model}")
+    scope = profile_name or ("all-profiles" if all_profiles else "root")
+    ok(f"Hermes[{scope}] → {provider} / {target_model}")
 
 
 def switch_droid(provider: str, cfg: Config, keys: Dict[str, str], profile: str = "", model: str = "") -> None:
@@ -4467,6 +4493,7 @@ def usage() -> None:
     print("  switch-api all <provider>")
     print("  switch-api <tool> <provider>")
     print("  switch-api [--agent <id> | --all-agents] openclaw <provider>")
+    print("  switch-api [--profile <name> | --all-profiles] hermes <provider>")
     print("  switch-api hermes <provider>")
     print("  switch-api openclaw quotio <profile>")
     print("  switch-api openclaw antigravity <profile>")
@@ -4552,12 +4579,14 @@ def usage() -> None:
     print("  switch-api <tool> <provider> <model>   # 指定模型切换")
 
 
-def parse_global_flags(argv: Iterable[str]) -> Tuple[List[str], bool, str, bool]:
+def parse_global_flags(argv: Iterable[str]) -> Tuple[List[str], bool, str, bool, str, bool]:
     args = list(argv)
     positional: List[str] = []
     force = False
     agent_id = ""
     all_agents = False
+    hermes_profile = ""
+    all_hermes_profiles = False
 
     idx = 0
     while idx < len(args):
@@ -4568,6 +4597,10 @@ def parse_global_flags(argv: Iterable[str]) -> Tuple[List[str], bool, str, bool]
             continue
         if arg == "--all-agents":
             all_agents = True
+            idx += 1
+            continue
+        if arg == "--all-profiles":
+            all_hermes_profiles = True
             idx += 1
             continue
         if arg == "--agent":
@@ -4587,14 +4620,34 @@ def parse_global_flags(argv: Iterable[str]) -> Tuple[List[str], bool, str, bool]
                 raise SystemExit(1)
             idx += 1
             continue
+        if arg == "--profile":
+            if idx + 1 >= len(args):
+                err("Missing value for --profile")
+                raise SystemExit(1)
+            hermes_profile = args[idx + 1].strip()
+            if not hermes_profile:
+                err("--profile requires a non-empty profile name")
+                raise SystemExit(1)
+            idx += 2
+            continue
+        if arg.startswith("--profile="):
+            hermes_profile = arg.split("=", 1)[1].strip()
+            if not hermes_profile:
+                err("--profile requires a non-empty profile name")
+                raise SystemExit(1)
+            idx += 1
+            continue
         positional.append(arg)
         idx += 1
 
     if agent_id and all_agents:
         err("--agent and --all-agents cannot be used together")
         raise SystemExit(1)
+    if hermes_profile and all_hermes_profiles:
+        err("--profile and --all-profiles cannot be used together")
+        raise SystemExit(1)
 
-    return positional, force, agent_id, all_agents
+    return positional, force, agent_id, all_agents, hermes_profile, all_hermes_profiles
 
 
 def switch_path_touches_openclaw(tool: str, provider: str) -> bool:
@@ -4609,6 +4662,14 @@ def switch_path_touches_openclaw(tool: str, provider: str) -> bool:
     if provider in CC_ONLY_PROVIDERS:
         return False
     return True
+
+
+def switch_path_touches_hermes(tool: str, provider: str) -> bool:
+    if tool == "hermes":
+        return True
+    if tool != "all":
+        return False
+    return provider in ("flames", "aiwave")
 
 
 def parse_args(argv: Iterable[str]) -> Tuple[str, str, str]:
@@ -4738,11 +4799,20 @@ def main() -> int:
     save_provider_model_catalog(cfg.provider_models_file)
     keys = get_keys(store)
 
-    argv_clean, force, openclaw_agent_id, openclaw_all_agents = parse_global_flags(sys.argv[1:])
+    (
+        argv_clean,
+        force,
+        openclaw_agent_id,
+        openclaw_all_agents,
+        hermes_profile_name,
+        hermes_all_profiles,
+    ) = parse_global_flags(sys.argv[1:])
     tool, provider, profile = parse_args(argv_clean)
 
     if (openclaw_agent_id or openclaw_all_agents) and not switch_path_touches_openclaw(tool, provider):
         raise SwitchError("--agent/--all-agents 仅适用于会触发 OpenClaw 切换的命令")
+    if (hermes_profile_name or hermes_all_profiles) and not switch_path_touches_hermes(tool, provider):
+        raise SwitchError("--profile/--all-profiles 仅适用于会触发 Hermes 切换的命令")
 
     if tool == "status":
         show_status(cfg)
@@ -4893,7 +4963,14 @@ def main() -> int:
     elif tool == "gemini":
         switch_gemini_cli(provider, cfg, keys, model=model)
     elif tool == "hermes":
-        switch_hermes(provider, cfg, keys, model=model)
+        switch_hermes(
+            provider,
+            cfg,
+            keys,
+            model=model,
+            profile_name=hermes_profile_name,
+            all_profiles=hermes_all_profiles,
+        )
     elif tool == "all":
         if provider == "openrouter":
             warn("OpenRouter is OpenAI-compatible — skipping cc and gemini (not compatible)")
@@ -4912,14 +4989,28 @@ def main() -> int:
             info("Flames supports openclaw/codex/hermes — switching those only")
             switch_openclaw(provider, cfg, keys, "", model=model, agent_id=openclaw_agent_id, all_agents=openclaw_all_agents)
             switch_codex(provider, cfg, keys, model=model)
-            switch_hermes(provider, cfg, keys, model=model)
+            switch_hermes(
+                provider,
+                cfg,
+                keys,
+                model=model,
+                profile_name=hermes_profile_name,
+                all_profiles=hermes_all_profiles,
+            )
         elif provider == "aiwave":
             info("AI Wave supports openclaw/codex/droid/gemini/hermes — switching those only")
             switch_openclaw(provider, cfg, keys, "", model=model, agent_id=openclaw_agent_id, all_agents=openclaw_all_agents)
             switch_codex(provider, cfg, keys, model=model)
             switch_droid(provider, cfg, keys, "", model=model)
             switch_gemini_cli(provider, cfg, keys, model=model)
-            switch_hermes(provider, cfg, keys, model=model)
+            switch_hermes(
+                provider,
+                cfg,
+                keys,
+                model=model,
+                profile_name=hermes_profile_name,
+                all_profiles=hermes_all_profiles,
+            )
         elif provider == "quotio_local":
             info(f"Quotio Local only supports codex/droid — switching those only")
             switch_codex(provider, cfg, keys, model=model)

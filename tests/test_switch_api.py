@@ -97,21 +97,43 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertEqual(cfg.oc_auth_profiles, self.home / ".openclaw/agents/dev/agent/auth-profiles.json")
 
     def test_parse_global_flags_supports_openclaw_agent_options(self):
-        positional, force, agent_id, all_agents = self.mod.parse_global_flags(
+        positional, force, agent_id, all_agents, hermes_profile, all_profiles = self.mod.parse_global_flags(
             ["openclaw", "flames", "--agent", "lingxi"]
         )
         self.assertEqual(positional, ["openclaw", "flames"])
         self.assertFalse(force)
         self.assertEqual(agent_id, "lingxi")
         self.assertFalse(all_agents)
+        self.assertEqual(hermes_profile, "")
+        self.assertFalse(all_profiles)
 
-        positional, force, agent_id, all_agents = self.mod.parse_global_flags(
+        positional, force, agent_id, all_agents, hermes_profile, all_profiles = self.mod.parse_global_flags(
             ["--force", "flames", "--all-agents"]
         )
         self.assertEqual(positional, ["flames"])
         self.assertTrue(force)
         self.assertEqual(agent_id, "")
         self.assertTrue(all_agents)
+        self.assertEqual(hermes_profile, "")
+        self.assertFalse(all_profiles)
+
+    def test_parse_global_flags_supports_hermes_profile_options(self):
+        positional, force, agent_id, all_agents, hermes_profile, all_profiles = self.mod.parse_global_flags(
+            ["hermes", "aiwave", "--profile", "video-maker"]
+        )
+        self.assertEqual(positional, ["hermes", "aiwave"])
+        self.assertFalse(force)
+        self.assertEqual(agent_id, "")
+        self.assertFalse(all_agents)
+        self.assertEqual(hermes_profile, "video-maker")
+        self.assertFalse(all_profiles)
+
+        positional, force, agent_id, all_agents, hermes_profile, all_profiles = self.mod.parse_global_flags(
+            ["--all-profiles", "all", "flames"]
+        )
+        self.assertEqual(positional, ["all", "flames"])
+        self.assertEqual(hermes_profile, "")
+        self.assertTrue(all_profiles)
 
     def test_switch_openclaw_flames_updates_all_agents_by_default(self):
         self.write_json(
@@ -391,7 +413,7 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertEqual(keys["aiwave_gemini"], "gem-gcp-slot")
         self.assertEqual(keys["aiwave"], "legacy-slot")
 
-    def test_switch_hermes_aiwave_updates_root_and_profiles(self):
+    def test_switch_hermes_aiwave_updates_root_only_by_default(self):
         root_cfg = self.home / ".hermes/config.yaml"
         profile_cfg = self.home / ".hermes/profiles/dev/config.yaml"
         for path in (root_cfg, profile_cfg):
@@ -427,21 +449,99 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
             model="",
         )
 
-        for path in (root_cfg, profile_cfg):
-            data = yaml.safe_load(path.read_text(encoding="utf-8"))
-            self.assertEqual(data["model"]["provider"], "custom:aiwave")
-            self.assertEqual(data["model"]["default"], "gemini-3.1-pro-preview")
-            self.assertEqual(data["model"]["base_url"], "https://api.ai-wave.org/v1")
-            self.assertEqual(data["model"]["api_key"], "gem-gcp-key")
-            self.assertEqual(data["model"]["api_mode"], "chat_completions")
+        root_data = yaml.safe_load(root_cfg.read_text(encoding="utf-8"))
+        self.assertEqual(root_data["model"]["provider"], "custom:aiwave")
+        self.assertEqual(root_data["model"]["default"], "gemini-3.1-pro-preview")
+        self.assertEqual(root_data["model"]["base_url"], "https://api.ai-wave.org/v1")
+        self.assertEqual(root_data["model"]["api_key"], "gem-gcp-key")
+        self.assertEqual(root_data["model"]["api_mode"], "chat_completions")
+        root_entries = {entry["name"]: entry for entry in root_data["custom_providers"]}
+        self.assertEqual(root_entries["aiwave"]["model"], "gemini-3.1-pro-preview")
 
-            entries = {entry["name"]: entry for entry in data["custom_providers"]}
-            self.assertEqual(entries["aiwave"]["base_url"], "https://api.ai-wave.org/v1")
-            self.assertEqual(entries["aiwave"]["api_key"], "gem-gcp-key")
-            self.assertEqual(entries["aiwave"]["api_mode"], "chat_completions")
-            self.assertEqual(entries["aiwave"]["model"], "gemini-3.1-pro-preview")
+        profile_data = yaml.safe_load(profile_cfg.read_text(encoding="utf-8"))
+        self.assertEqual(profile_data["model"]["provider"], "custom:flames")
+        self.assertNotIn("aiwave", {entry["name"] for entry in profile_data["custom_providers"]})
 
         self.assertEqual(self.mod.detect_provider("hermes", self.cfg), "aiwave")
+
+    def test_switch_hermes_aiwave_updates_selected_profile_only(self):
+        root_cfg = self.home / ".hermes/config.yaml"
+        dev_cfg = self.home / ".hermes/profiles/dev/config.yaml"
+        video_cfg = self.home / ".hermes/profiles/video-maker/config.yaml"
+        for path in (root_cfg, dev_cfg, video_cfg):
+            self.write(
+                path,
+                yaml.safe_dump(
+                    {
+                        "model": {
+                            "default": "gpt-5.4",
+                            "provider": "custom:flames",
+                            "base_url": "https://www.flamescn.vip/v1",
+                            "api_key": "old",
+                            "api_mode": "codex_responses",
+                        },
+                        "custom_providers": [],
+                    },
+                    sort_keys=False,
+                ),
+            )
+
+        self.mod.switch_hermes(
+            "aiwave",
+            self.cfg,
+            {"aiwave_gemini_gcp": "gem-gcp-key", "aiwave_gemini": "gem-key"},
+            model="gemini-3.1-flash-lite-preview",
+            profile_name="video-maker",
+        )
+
+        root_data = yaml.safe_load(root_cfg.read_text(encoding="utf-8"))
+        dev_data = yaml.safe_load(dev_cfg.read_text(encoding="utf-8"))
+        video_data = yaml.safe_load(video_cfg.read_text(encoding="utf-8"))
+
+        self.assertEqual(root_data["model"]["provider"], "custom:flames")
+        self.assertEqual(dev_data["model"]["provider"], "custom:flames")
+        self.assertEqual(video_data["model"]["provider"], "custom:aiwave")
+        self.assertEqual(video_data["model"]["default"], "gemini-3.1-flash-lite-preview")
+
+    def test_switch_hermes_all_profiles_updates_all_profiles_not_root(self):
+        root_cfg = self.home / ".hermes/config.yaml"
+        dev_cfg = self.home / ".hermes/profiles/dev/config.yaml"
+        video_cfg = self.home / ".hermes/profiles/video-maker/config.yaml"
+        for path in (root_cfg, dev_cfg, video_cfg):
+            self.write(
+                path,
+                yaml.safe_dump(
+                    {
+                        "model": {
+                            "default": "gpt-5.4",
+                            "provider": "custom:flames",
+                            "base_url": "https://www.flamescn.vip/v1",
+                            "api_key": "old",
+                            "api_mode": "codex_responses",
+                        },
+                        "custom_providers": [],
+                    },
+                    sort_keys=False,
+                ),
+            )
+
+        self.mod.switch_hermes(
+            "flames",
+            self.cfg,
+            {"flames": "flames-key"},
+            model="gpt-5.4",
+            all_profiles=True,
+        )
+
+        root_data = yaml.safe_load(root_cfg.read_text(encoding="utf-8"))
+        dev_data = yaml.safe_load(dev_cfg.read_text(encoding="utf-8"))
+        video_data = yaml.safe_load(video_cfg.read_text(encoding="utf-8"))
+
+        self.assertEqual(root_data["model"]["api_key"], "old")
+        self.assertEqual(dev_data["model"]["provider"], "custom:flames")
+        self.assertEqual(video_data["model"]["provider"], "custom:flames")
+        self.assertEqual(dev_data["model"]["api_key"], "flames-key")
+        self.assertEqual(video_data["model"]["api_key"], "flames-key")
 
     def test_resolve_aiwave_gemini_key_prefers_gcp_slot(self):
         keys = {

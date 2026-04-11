@@ -281,6 +281,9 @@ switch-api gemini aiwave gemini-3.1-flash-lite-preview
 switch-api hermes flames                    # Hermes → Flames / gpt-5.4
 switch-api hermes aiwave                    # Hermes → AI Wave / gemini-3.1-pro-preview
 switch-api hermes aiwave gemini-3-pro-image-preview
+switch-api --profile video-maker hermes aiwave
+switch-api --profile image-maker hermes flames
+switch-api --all-profiles hermes aiwave
 switch-api droid quotio gpt-5.3-codex       # Quotio GPT-5.3 Codex (直接指定) ⭐
 switch-api droid antigravity                # Antigravity Gemini
 
@@ -308,6 +311,13 @@ switch-api droid openai_V420                 # Droid → OpenAI[V420]
 > `codex openai` 是官方 ChatGPT OAuth 模式。
 > `codex openai_Gq80` / `codex openai_V420` 是 `flames_newapi` 的 key 槽位切换，不是官方账号切换。
 > 如果要切换多个 ChatGPT 官方账号，请使用 `codex-account use <auth.json_后缀>`，账号快照默认放在 `CODEX_HOME/accounts/`。
+
+### Hermes profile 切换规则
+
+- `switch-api hermes <provider>`：只改根 `~/.hermes/config.yaml`
+- `switch-api --profile <name> hermes <provider>`：只改 `~/.hermes/profiles/<name>/config.yaml`
+- `switch-api --all-profiles hermes <provider>`：批量改所有 profile config
+- `switch-api all aiwave` / `switch-api all flames` 若带 `--profile` 或 `--all-profiles`，Hermes 只按该范围更新；其他工具照常切换
 > `switch-api` 改写 `config.toml` / `auth.json` 前会把原文件备份到 `CODEX_HOME/backups/`。
 
 ---

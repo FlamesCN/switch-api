@@ -89,9 +89,16 @@ switch-api openclaw aiwave [model]
 switch-api droid quotio [profile]
 switch-api hermes flames
 switch-api hermes aiwave [model]
+switch-api --profile video-maker hermes aiwave
+switch-api --all-profiles hermes flames
 switch-api gemini duck
 switch-api gemini icodeeasy
 ```
+
+Hermes profile rules:
+- `switch-api hermes <provider>` 只改根 `~/.hermes/config.yaml`
+- `switch-api --profile <name> hermes <provider>` 只改该 profile
+- `switch-api --all-profiles hermes <provider>` 批量改所有 `~/.hermes/profiles/*/config.yaml`
 
 ### OpenRouter (Free Models)
 ```bash
