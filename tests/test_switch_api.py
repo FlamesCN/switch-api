@@ -321,22 +321,32 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.mod.switch_gemini_cli(
             "aiwave",
             self.cfg,
-            {"aiwave_gemini": "gem-slot", "aiwave_codex": "codex-slot"},
+            {
+                "aiwave_gemini_gcp": "gem-gcp-slot",
+                "aiwave_gemini": "gem-slot",
+                "aiwave_codex": "codex-slot",
+            },
             model="",
         )
 
         gemini_env = self.cfg.gemini_env.read_text(encoding="utf-8")
         self.assertIn("GOOGLE_GEMINI_BASE_URL=https://api.ai-wave.org/gemini", gemini_env)
-        self.assertIn("GEMINI_API_KEY=gem-slot", gemini_env)
+        self.assertIn("GEMINI_API_KEY=gem-gcp-slot", gemini_env)
         self.assertIn("GEMINI_MODEL=gemini-3.1-pro-preview", gemini_env)
 
         bashrc = self.cfg.bashrc.read_text(encoding="utf-8")
-        self.assertIn('export GEMINI_API_KEY="gem-slot"', bashrc)
+        self.assertIn('export GEMINI_API_KEY="gem-gcp-slot"', bashrc)
 
     def test_switch_openclaw_aiwave_writes_gemini_provider(self):
         self.init_openclaw_files()
 
-        self.mod.switch_openclaw("aiwave", self.cfg, {"aiwave_gemini": "dummy"}, profile="", model="")
+        self.mod.switch_openclaw(
+            "aiwave",
+            self.cfg,
+            {"aiwave_gemini_gcp": "gcp-dummy", "aiwave_gemini": "legacy-dummy"},
+            profile="",
+            model="",
+        )
 
         oc = json.loads(self.cfg.oc_config.read_text(encoding="utf-8"))
         self.assertEqual(oc["agents"]["defaults"]["model"]["primary"], "aiwave/gemini-3.1-pro-preview")
@@ -344,7 +354,7 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         models = json.loads(self.cfg.oc_models.read_text(encoding="utf-8"))
         self.assertEqual(models["providers"]["aiwave"]["baseUrl"], "https://api.ai-wave.org/gemini")
         self.assertEqual(models["providers"]["aiwave"]["api"], "google-generative-ai")
-        self.assertEqual(models["providers"]["aiwave"]["apiKey"], "dummy")
+        self.assertEqual(models["providers"]["aiwave"]["apiKey"], "gcp-dummy")
 
         auth_profiles = json.loads(self.cfg.oc_auth_profiles.read_text(encoding="utf-8"))
         self.assertEqual(auth_profiles["lastGood"]["aiwave"], "aiwave:manual")
@@ -354,7 +364,7 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.mod.switch_droid(
             "aiwave",
             self.cfg,
-            {"aiwave_gemini": "gem-slot", "aiwave_codex": "codex-slot"},
+            {"aiwave_gemini_gcp": "gem-gcp-slot", "aiwave_gemini": "gem-slot", "aiwave_codex": "codex-slot"},
             profile="",
             model="",
         )
@@ -377,6 +387,7 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
             keys = self.mod.get_keys({})
 
         self.assertEqual(keys["aiwave_codex"], "codex-slot")
+        self.assertEqual(keys["aiwave_gemini_gcp"], "gem-gcp-slot")
         self.assertEqual(keys["aiwave_gemini"], "gem-gcp-slot")
         self.assertEqual(keys["aiwave"], "legacy-slot")
 
@@ -409,23 +420,43 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
                 ),
             )
 
-        self.mod.switch_hermes("aiwave", self.cfg, {"aiwave_gemini": "gem-key"}, model="")
+        self.mod.switch_hermes(
+            "aiwave",
+            self.cfg,
+            {"aiwave_gemini_gcp": "gem-gcp-key", "aiwave_gemini": "gem-key"},
+            model="",
+        )
 
         for path in (root_cfg, profile_cfg):
             data = yaml.safe_load(path.read_text(encoding="utf-8"))
             self.assertEqual(data["model"]["provider"], "custom:aiwave")
             self.assertEqual(data["model"]["default"], "gemini-3.1-pro-preview")
             self.assertEqual(data["model"]["base_url"], "https://api.ai-wave.org/v1")
-            self.assertEqual(data["model"]["api_key"], "gem-key")
+            self.assertEqual(data["model"]["api_key"], "gem-gcp-key")
             self.assertEqual(data["model"]["api_mode"], "chat_completions")
 
             entries = {entry["name"]: entry for entry in data["custom_providers"]}
             self.assertEqual(entries["aiwave"]["base_url"], "https://api.ai-wave.org/v1")
-            self.assertEqual(entries["aiwave"]["api_key"], "gem-key")
+            self.assertEqual(entries["aiwave"]["api_key"], "gem-gcp-key")
             self.assertEqual(entries["aiwave"]["api_mode"], "chat_completions")
             self.assertEqual(entries["aiwave"]["model"], "gemini-3.1-pro-preview")
 
         self.assertEqual(self.mod.detect_provider("hermes", self.cfg), "aiwave")
+
+    def test_resolve_aiwave_gemini_key_prefers_gcp_slot(self):
+        keys = {
+            "aiwave_gemini_gcp": "gcp-slot",
+            "aiwave_gemini": "legacy-slot",
+            "aiwave": "fallback-slot",
+        }
+        self.assertEqual(self.mod.resolve_aiwave_gemini_key(keys), "gcp-slot")
+
+        keys = {
+            "aiwave_gemini_gcp": "",
+            "aiwave_gemini": "legacy-slot",
+            "aiwave": "fallback-slot",
+        }
+        self.assertEqual(self.mod.resolve_aiwave_gemini_key(keys), "legacy-slot")
 
     def test_model_validation_rejects_openclaw_icodeeasy_gpt_model(self):
         with self.assertRaises(self.mod.SwitchError):

@@ -158,6 +158,7 @@ switch-api droid quotio_local gpt-5.3-codex-xhigh  # 超高思考
 - Keys are loaded from env → credential store (auto-merged on each run)
 - `aiwave` 当前分槽规则：
   - `codex` / `droid` 使用 `AIWAVE_CODEX_API_KEY`
+  - `gemini-gcp` 与 `gemini` 现在是两套独立槽位
   - `gemini` / `openclaw` / `hermes` 优先使用 `AIWAVE_GEMINI_GCP_API_KEY`，兼容回退到 `AIWAVE_GEMINI_API_KEY`
   - `AIWAVE_API_KEY` 只作为旧配置兼容兜底
 
