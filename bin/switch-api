@@ -251,10 +251,11 @@ OPENCLAW_QUOTIO_PROFILE_NAMES = tuple(OPENCLAW_QUOTIO_PROFILE_TO_PRIMARY.keys())
 DUCK_DROID_MODEL = "gemini-3.1-pro-preview"
 DUCK_OPENCLAW_CODEX_MODEL = "gpt-5.4-xhigh-openai-compact"
 
-# Duck OpenClaw profiles: default is Claude (avoids Gemini patternProperties issue)
-DUCK_OPENCLAW_DEFAULT_PRIMARY = "duckcoding/gemini-3.1-pro-preview-customtools"
+# Duck OpenClaw profiles: default to Codex for better OpenClaw tool compatibility.
+# Gemini profiles can still be selected explicitly when needed.
+DUCK_OPENCLAW_DEFAULT_PRIMARY = f"duckcoding-codex/{DUCK_OPENCLAW_CODEX_MODEL}"
 OPENCLAW_DUCK_PROFILE_TO_PRIMARY = {
-    "default": "duckcoding/gemini-3.1-pro-preview-customtools",
+    "default": f"duckcoding-codex/{DUCK_OPENCLAW_CODEX_MODEL}",
     "gemini": "duckcoding/gemini-3.1-pro-preview-customtools",
     "gemini3": "duckcoding/gemini-3.1-pro-preview-customtools",
     "gemini-3": "duckcoding/gemini-3.1-pro-preview-customtools",
@@ -2843,7 +2844,7 @@ def _switch_openclaw_single_agent(provider: str, cfg: Config, keys: Dict[str, st
         warn(
             f"Profile '{profile}' uses a Gemini model as primary. "
             f"OpenClaw tool schema may be incompatible with Gemini (patternProperties). "
-            f"If you get HTTP 400 errors, switch back to default (Claude) profile."
+            f"If you get HTTP 400 errors, switch back to the default (Codex) profile."
         )
 
     backup(cfg.oc_config)
