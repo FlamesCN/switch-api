@@ -38,6 +38,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
 
+import yaml
+
 # ----------------------------- constants -----------------------------
 DUCK_BASE_URL = "https://api.duckcoding.ai"
 DUCK_BASE_URL_V1 = "https://api.duckcoding.ai/v1"
@@ -332,6 +334,22 @@ AIWAVE_BASE_URL_V1 = "https://api.ai-wave.org/v1"
 AIWAVE_GEMINI_BASE_URL = "https://api.ai-wave.org/gemini"
 AIWAVE_DROID_CODEX_MODEL = "gpt-5.3-codex"
 AIWAVE_GEMINI_MODEL = "gemini-3.1-pro-preview"
+AIWAVE_GEMINI_AVAILABLE_MODELS = (
+    "gemini-3.1-pro-preview",
+    "gemini-3.1-flash-lite-preview",
+    "gemini-3-pro-image-preview",
+    "gemini-3.1-flash-image-preview",
+)
+AIWAVE_CODEX_AVAILABLE_MODELS = (
+    "gpt-5.3-codex",
+    "gpt-5.4",
+    "gpt-5.4-mini",
+)
+AIWAVE_CODEX_ENV_KEY = "AIWAVE_CODEX_API_KEY"
+AIWAVE_GEMINI_GCP_ENV_KEY = "AIWAVE_GEMINI_GCP_API_KEY"
+AIWAVE_GEMINI_ENV_KEY = "AIWAVE_GEMINI_API_KEY"
+AIWAVE_CLAUDE_ANTI_ENV_KEY = "AIWAVE_CLAUDE_ANTI_API_KEY"
+AIWAVE_CLAUDE_OMG_ENV_KEY = "AIWAVE_CLAUDE_OMG_API_KEY"
 
 # duck_cc1: Claude Code专用 key on duck — only supports cc (no codex/GPT access)
 
@@ -491,7 +509,7 @@ GEMINI_CLI_KEY_MAP = {
     "quotio": "quotio",
     "antigravity": "antigravity",
     "xingyun": "xingyun",
-    "aiwave": "aiwave",
+    "aiwave": "aiwave_gemini_gcp",
     "icodeeasy": "icodeeasy",
 }
 
@@ -506,8 +524,8 @@ DROID_QUOTIO_PROFILE_TO_MODEL = {
 }
 DROID_QUOTIO_PROFILE_NAMES = tuple(DROID_QUOTIO_PROFILE_TO_MODEL.keys())
 
-TOOLS = ("cc", "openclaw", "codex", "droid", "gemini")
-TOOLS_WITH_ALL = ("cc", "openclaw", "codex", "droid", "gemini", "all")
+TOOLS = ("cc", "openclaw", "codex", "droid", "gemini", "hermes")
+TOOLS_WITH_ALL = ("cc", "openclaw", "codex", "droid", "gemini", "hermes", "all")
 PROVIDERS = ("duck", "quotio", "quotio_local", "antigravity", "xingyun", "flames", "openai", "openai_Gq80", "openai_V420", "openrouter", "aiwave", "duck_cc1", "duck_codex2cc", "icodeeasy")
 
 # CC-only providers: these providers only support Claude Code
@@ -630,6 +648,11 @@ def load_exports_from_shell_rcs(home: Path) -> None:
         "OPENAI_API_KEY",
         "OPENROUTER_API_KEY",
         "AIWAVE_API_KEY",
+        AIWAVE_CODEX_ENV_KEY,
+        AIWAVE_GEMINI_GCP_ENV_KEY,
+        AIWAVE_GEMINI_ENV_KEY,
+        AIWAVE_CLAUDE_ANTI_ENV_KEY,
+        AIWAVE_CLAUDE_OMG_ENV_KEY,
         "DUCK_CC1_API_KEY",
         "DUCK_CODEX2CC_API_KEY",
         "FLAMES_API_KEY",
@@ -673,6 +696,25 @@ def save_json(path: Path, data: Dict[str, Any]) -> None:
     os.replace(tmp, path)
 
 
+def load_yaml(path: Path) -> Dict[str, Any]:
+    if not path.exists():
+        raise SwitchError(f"Config file not found: {path}")
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except Exception as ex:
+        raise SwitchError(f"Failed to parse YAML: {path}: {ex}")
+    return data if isinstance(data, dict) else {}
+
+
+def save_yaml(path: Path, data: Dict[str, Any]) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(
+        yaml.safe_dump(data, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+    os.replace(tmp, path)
+
+
 def read_text(path: Path) -> str:
     if not path.exists():
         raise SwitchError(f"Config file not found: {path}")
@@ -683,6 +725,32 @@ def write_text(path: Path, content: str) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(content, encoding="utf-8")
     os.replace(tmp, path)
+
+
+def resolve_hermes_config_paths(
+    cfg: "Config",
+    *,
+    profile_name: str = "",
+    all_profiles: bool = False,
+) -> List[Path]:
+    if profile_name and all_profiles:
+        raise SwitchError("--profile and --all-profiles cannot be used together")
+
+    if profile_name:
+        candidate = cfg.hermes_profiles_dir / profile_name / "config.yaml"
+        if not candidate.exists():
+            raise SwitchError(f"Unknown Hermes profile: {profile_name}")
+        return [candidate]
+
+    if all_profiles:
+        paths = sorted(cfg.hermes_profiles_dir.glob("*/config.yaml")) if cfg.hermes_profiles_dir.exists() else []
+        if not paths:
+            raise SwitchError(f"No Hermes profiles found under {cfg.hermes_profiles_dir}")
+        return list(paths)
+
+    if not cfg.hermes_config.exists():
+        raise SwitchError(f"Hermes config not found: {cfg.hermes_config}")
+    return [cfg.hermes_config]
 
 
 def normalize_path(home: Path, raw: str) -> Path:
@@ -743,6 +811,92 @@ def resolve_openclaw_default_agent_id(home: Path) -> str:
     return default_agent_id
 
 
+def extract_openclaw_model_primary(model_cfg: Any) -> str:
+    if isinstance(model_cfg, str):
+        return model_cfg.strip()
+    if isinstance(model_cfg, dict):
+        return str(model_cfg.get("primary") or "").strip()
+    return ""
+
+
+def find_openclaw_agent_entry(data: Dict[str, Any], agent_id: str) -> Dict[str, Any] | None:
+    target = agent_id.strip()
+    if not target:
+        return None
+
+    agent_list = ((data.get("agents") or {}).get("list") or [])
+    if not isinstance(agent_list, list):
+        return None
+
+    for item in agent_list:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("id") or "").strip() == target:
+            return item
+    return None
+
+
+def resolve_openclaw_primary_model(data: Dict[str, Any], agent_id: str = "") -> str:
+    if agent_id.strip():
+        agent_entry = find_openclaw_agent_entry(data, agent_id)
+        primary = extract_openclaw_model_primary((agent_entry or {}).get("model"))
+        if primary:
+            return primary
+
+    defaults = ((data.get("agents") or {}).get("defaults") or {})
+    return extract_openclaw_model_primary(defaults.get("model"))
+
+
+def ensure_openclaw_defaults_model_config(data: Dict[str, Any]) -> Dict[str, Any]:
+    agents = data.setdefault("agents", {})
+    defaults = agents.setdefault("defaults", {})
+    model_cfg = defaults.get("model")
+    if isinstance(model_cfg, dict):
+        return model_cfg
+    if isinstance(model_cfg, str):
+        normalized = {"primary": model_cfg.strip()}
+        defaults["model"] = normalized
+        return normalized
+    normalized: Dict[str, Any] = {}
+    defaults["model"] = normalized
+    return normalized
+
+
+def get_or_create_openclaw_agent_entry(data: Dict[str, Any], agent_id: str) -> Dict[str, Any]:
+    existing = find_openclaw_agent_entry(data, agent_id)
+    if existing is not None:
+        return existing
+
+    agents = data.setdefault("agents", {})
+    agent_list = agents.get("list")
+    if not isinstance(agent_list, list):
+        agent_list = []
+        agents["list"] = agent_list
+
+    entry: Dict[str, Any] = {"id": agent_id.strip()}
+    agent_list.append(entry)
+    return entry
+
+
+def set_openclaw_target_primary_model(
+    data: Dict[str, Any],
+    agent_id: str,
+    primary: str,
+    *,
+    use_agent_override: bool,
+) -> None:
+    defaults_model = ensure_openclaw_defaults_model_config(data)
+    if use_agent_override:
+        entry = get_or_create_openclaw_agent_entry(data, agent_id)
+        entry["model"] = primary
+        return
+
+    defaults_model["primary"] = primary
+    entry = find_openclaw_agent_entry(data, agent_id)
+    if entry is not None and "model" in entry:
+        del entry["model"]
+
+
 def ensure_key(name: str, value: str, extra: str = "") -> str:
     if value:
         return value
@@ -793,7 +947,10 @@ def probe_provider(provider: str, keys: Dict[str, str], timeout: int = 8) -> Tup
         "openai_Gq80": ("https://api.openai.com/v1/models", keys.get("openai_Gq80", "")),
         "openai_V420": ("https://api.openai.com/v1/models", keys.get("openai_V420", "")),
         "openrouter": (OPENROUTER_BASE_URL_V1 + "/models", keys.get("openrouter", "")),
-        "aiwave": (AIWAVE_BASE_URL_V1 + "/models", keys.get("aiwave", "")),
+        "aiwave": (
+            AIWAVE_BASE_URL_V1 + "/models",
+            keys.get("aiwave_codex", "") or keys.get("aiwave_gemini", "") or keys.get("aiwave", ""),
+        ),
         "duck_cc1": (DUCK_BASE_URL_V1 + "/models", keys.get("duck_cc1", "")),
         "duck_codex2cc": (DUCK_BASE_URL_V1 + "/models", keys.get("duck_codex2cc", "")),
         "icodeeasy": (ICODEEASY_BASE_URL_V1 + "/models", keys.get("icodeeasy", "")),
@@ -1293,6 +1450,13 @@ def enrich_store_from_env(store: Dict[str, str]) -> Dict[str, str]:
         "flames": os.environ.get("FLAMES_API_KEY", ""),
         "openrouter": os.environ.get("OPENROUTER_API_KEY", ""),
         "aiwave": os.environ.get("AIWAVE_API_KEY", ""),
+        "aiwave_codex": os.environ.get(AIWAVE_CODEX_ENV_KEY, "") or os.environ.get("AIWAVE_API_KEY", ""),
+        "aiwave_gemini_gcp": os.environ.get(AIWAVE_GEMINI_GCP_ENV_KEY, ""),
+        "aiwave_gemini": os.environ.get(AIWAVE_GEMINI_GCP_ENV_KEY, "")
+        or os.environ.get(AIWAVE_GEMINI_ENV_KEY, "")
+        or os.environ.get("AIWAVE_API_KEY", ""),
+        "aiwave_claude_anti": os.environ.get(AIWAVE_CLAUDE_ANTI_ENV_KEY, ""),
+        "aiwave_claude_omg": os.environ.get(AIWAVE_CLAUDE_OMG_ENV_KEY, ""),
         "duck_cc1": os.environ.get("DUCK_CC1_API_KEY", ""),
         "duck_codex2cc": os.environ.get("DUCK_CODEX2CC_API_KEY", ""),
         "openai_Gq80": os.environ.get("OPENAI_GQ80_API_KEY", ""),
@@ -1346,6 +1510,22 @@ def get_keys(store: Dict[str, str]) -> Dict[str, str]:
         or store.get("openrouter", ""),
         "aiwave": os.environ.get("AIWAVE_API_KEY")
         or store.get("aiwave", ""),
+        "aiwave_codex": os.environ.get(AIWAVE_CODEX_ENV_KEY)
+        or store.get("aiwave_codex", "")
+        or store.get("aiwave", "")
+        or os.environ.get("AIWAVE_API_KEY", ""),
+        "aiwave_gemini_gcp": os.environ.get(AIWAVE_GEMINI_GCP_ENV_KEY)
+        or store.get("aiwave_gemini_gcp", ""),
+        "aiwave_gemini": os.environ.get(AIWAVE_GEMINI_GCP_ENV_KEY)
+        or os.environ.get(AIWAVE_GEMINI_ENV_KEY)
+        or store.get("aiwave_gemini", "")
+        or store.get("aiwave_gemini_gcp", "")
+        or store.get("aiwave", "")
+        or os.environ.get("AIWAVE_API_KEY", ""),
+        "aiwave_claude_anti": os.environ.get(AIWAVE_CLAUDE_ANTI_ENV_KEY)
+        or store.get("aiwave_claude_anti", ""),
+        "aiwave_claude_omg": os.environ.get(AIWAVE_CLAUDE_OMG_ENV_KEY)
+        or store.get("aiwave_claude_omg", ""),
         "duck_cc1": os.environ.get("DUCK_CC1_API_KEY")
         or store.get("duck_cc1", ""),
         "duck_codex2cc": os.environ.get("DUCK_CODEX2CC_API_KEY")
@@ -1357,6 +1537,14 @@ def get_keys(store: Dict[str, str]) -> Dict[str, str]:
         "icodeeasy": os.environ.get("ICODEEASY_API_KEY")
         or store.get("icodeeasy", ""),
     }
+
+
+def resolve_aiwave_gemini_key(keys: Dict[str, str]) -> str:
+    return (
+        keys.get("aiwave_gemini_gcp", "")
+        or keys.get("aiwave_gemini", "")
+        or keys.get("aiwave", "")
+    )
 
 
 def provider_model_catalog() -> Dict[str, Any]:
@@ -1425,6 +1613,40 @@ def provider_model_catalog() -> Dict[str, Any]:
                 "codex": {
                     "default_model": FLAMES_DEFAULT_MODEL,
                     "provider_block": "flames_newapi",
+                },
+                "hermes": {
+                    "default_model": FLAMES_DEFAULT_MODEL,
+                    "provider": "custom:flames",
+                    "api_mode": "codex_responses",
+                },
+            },
+            "aiwave": {
+                "available_models": list(AIWAVE_CODEX_AVAILABLE_MODELS + AIWAVE_GEMINI_AVAILABLE_MODELS),
+                "base_url": AIWAVE_BASE_URL_V1,
+                "gemini_base_url": AIWAVE_GEMINI_BASE_URL,
+                "codex": {
+                    "default_model": AIWAVE_DROID_CODEX_MODEL,
+                    "provider_block": "aiwave",
+                    "env_key": AIWAVE_CODEX_ENV_KEY,
+                },
+                "gemini_gcp": {
+                    "default_model": AIWAVE_GEMINI_MODEL,
+                    "env_key": AIWAVE_GEMINI_GCP_ENV_KEY,
+                },
+                "gemini": {
+                    "default_model": AIWAVE_GEMINI_MODEL,
+                    "env_key": AIWAVE_GEMINI_ENV_KEY,
+                },
+                "openclaw": {
+                    "default_model": f"aiwave/{AIWAVE_GEMINI_MODEL}",
+                    "api": "google-generative-ai",
+                    "env_keys": [AIWAVE_GEMINI_GCP_ENV_KEY, AIWAVE_GEMINI_ENV_KEY],
+                },
+                "hermes": {
+                    "default_model": AIWAVE_GEMINI_MODEL,
+                    "provider": "custom:aiwave",
+                    "api_mode": "chat_completions",
+                    "env_keys": [AIWAVE_GEMINI_GCP_ENV_KEY, AIWAVE_GEMINI_ENV_KEY],
                 },
             },
             "icodeeasy": {
@@ -1587,6 +1809,9 @@ class Config:
         self.oc_env = home / ".openclaw/.env"
         self.bashrc = home / ".bashrc"
         self.zshrc = home / ".zshrc"
+        self.hermes_dir = home / ".hermes"
+        self.hermes_config = self.hermes_dir / "config.yaml"
+        self.hermes_profiles_dir = self.hermes_dir / "profiles"
         self.switch_dir = home / ".config/switch-api"
         self.cred_file = self.switch_dir / "credentials.json"
         self.provider_models_file = self.switch_dir / "provider-models.json"
@@ -1627,7 +1852,7 @@ def detect_openclaw_openai_mode(cfg: Config) -> str:
     except Exception:
         return ""
 
-    model = str(((((data.get("agents") or {}).get("defaults") or {}).get("model") or {}).get("primary")) or "")
+    model = resolve_openclaw_primary_model(data, cfg.oc_agent_id)
     oauth_profile_id, _oauth_profile = find_openclaw_oauth_profile(cfg)
 
     if model.startswith("openai-codex/"):
@@ -1673,16 +1898,13 @@ def detect_provider(tool: str, cfg: Config) -> str:
         if not cfg.oc_config.exists():
             return "no-config"
         data = load_json(cfg.oc_config)
-        model = (
-            (((data.get("agents") or {}).get("defaults") or {}).get("model") or {}).get(
-                "primary"
-            )
-            or ""
-        )
+        model = resolve_openclaw_primary_model(data, cfg.oc_agent_id)
         if model.startswith("antigravity/") or model.startswith("antigravity-gemini/"):
             return "antigravity"
         if model.startswith("quotio/") or model.startswith("quotio-gemini/"):
             return "quotio"
+        if model.startswith("aiwave/"):
+            return "aiwave"
         if model.startswith("duckcoding/") or model.startswith("duckcoding-claude/") or model.startswith("duckcoding-codex/"):
             return "duck"
         if model.startswith("icodeeasy/"):
@@ -1751,7 +1973,24 @@ def detect_provider(tool: str, cfg: Config) -> str:
             return "duck"
         if "icodeeasy" in url:
             return "icodeeasy"
+        if "ai-wave.org" in url:
+            return "aiwave"
         return f"unknown({url})" if url else "unknown"
+
+    if tool == "hermes":
+        if not cfg.hermes_config.exists():
+            return "no-config"
+        data = load_yaml(cfg.hermes_config)
+        model_cfg = data.get("model") or {}
+        if not isinstance(model_cfg, dict):
+            return "unknown"
+        provider = str(model_cfg.get("provider") or "").strip()
+        base_url = str(model_cfg.get("base_url") or "").strip()
+        if provider == "custom:flames" or "flamescn.vip" in base_url:
+            return "flames"
+        if provider == "custom:aiwave" or "ai-wave.org" in base_url:
+            return "aiwave"
+        return provider or "unknown"
 
     if tool == "droid":
         # Check customModels first (OpenRouter / aiwave / duck_cc1 use this)
@@ -1855,8 +2094,8 @@ def show_status(cfg: Config) -> None:
 # Model family → compatible tools
 FAMILY_TOOLS = {
     "claude": ("cc", "openclaw"),
-    "gemini": ("openclaw", "droid", "gemini"),
-    "gpt":    ("codex", "droid", "openclaw"),
+    "gemini": ("openclaw", "droid", "gemini", "hermes"),
+    "gpt":    ("codex", "droid", "openclaw", "hermes"),
     "openrouter": ("openclaw", "codex", "droid"),
 }
 
@@ -1907,6 +2146,8 @@ def get_provider_models(provider: str) -> Dict[str, Tuple[str, ...]]:
         models = QUOTIO_AVAILABLE_MODELS
     elif provider == "xingyun":
         models = XINGYUN_AVAILABLE_MODELS
+    elif provider == "aiwave":
+        models = AIWAVE_CODEX_AVAILABLE_MODELS + AIWAVE_GEMINI_AVAILABLE_MODELS
     elif provider == "flames":
         models = FLAMES_AVAILABLE_MODELS
     elif provider == "icodeeasy":
@@ -1933,6 +2174,8 @@ def model_in_provider(model: str, provider: str) -> bool:
         return m in QUOTIO_AVAILABLE_MODELS
     if provider == "xingyun":
         return m in XINGYUN_AVAILABLE_MODELS
+    if provider == "aiwave":
+        return m in AIWAVE_CODEX_AVAILABLE_MODELS or m in AIWAVE_GEMINI_AVAILABLE_MODELS
     if provider == "flames":
         return model_family(m) == "gpt"
     if provider == "icodeeasy":
@@ -1953,7 +2196,7 @@ def tools_for_model(model: str) -> Tuple[str, ...]:
 # ----------------------------- list command ----------------------------
 def cmd_list_models(provider: str = "") -> None:
     """Print available models for one or all providers."""
-    providers = [provider] if provider else ["quotio", "duck", "antigravity", "xingyun", "flames", "icodeeasy", "duck_codex2cc", "openrouter"]
+    providers = [provider] if provider else ["quotio", "duck", "antigravity", "xingyun", "aiwave", "flames", "icodeeasy", "duck_codex2cc", "openrouter"]
 
     for prov in providers:
         catalog = get_provider_models(prov)
@@ -1963,6 +2206,7 @@ def cmd_list_models(provider: str = "") -> None:
             "duck": "DuckCoding",
             "antigravity": "Antigravity",
             "xingyun": "Xingyun",
+            "aiwave": "AI Wave",
             "flames": "Flames NewAPI",
             "icodeeasy": "iCodeEasy (统一网关)",
             "duck_codex2cc": "Duck CodeX→CC (CC-only)",
@@ -1972,8 +2216,8 @@ def cmd_list_models(provider: str = "") -> None:
 
         sections = [
             ("Claude", "claude", "cc, openclaw"),
-            ("Gemini", "gemini", "openclaw, droid, gemini"),
-            ("OpenAI/GPT", "gpt", "codex, droid"),
+            ("Gemini", "gemini", "openclaw, droid, gemini, hermes"),
+            ("OpenAI/GPT", "gpt", "codex, droid, hermes"),
             ("OpenRouter (Free)", "openrouter", "openclaw, codex, droid"),
             ("其他", "other", "—"),
         ]
@@ -2015,9 +2259,7 @@ def detect_current_model(tool: str, cfg: Config) -> str:
         if not cfg.oc_config.exists():
             return "?"
         data = load_json(cfg.oc_config)
-        return str(
-            (((data.get("agents") or {}).get("defaults") or {}).get("model") or {}).get("primary", "?")
-        )
+        return resolve_openclaw_primary_model(data, cfg.oc_agent_id) or "?"
 
     if tool == "codex":
         if not cfg.cx_config.exists():
@@ -2042,6 +2284,15 @@ def detect_current_model(tool: str, cfg: Config) -> str:
         text = read_text(gemini_env)
         m = re.search(r"^GOOGLE_GEMINI_MODEL=(.*)$", text, re.M)
         return m.group(1).strip() if m else "?"
+
+    if tool == "hermes":
+        if not cfg.hermes_config.exists():
+            return "?"
+        data = load_yaml(cfg.hermes_config)
+        model_cfg = data.get("model") or {}
+        if isinstance(model_cfg, dict):
+            return str(model_cfg.get("default") or "?")
+        return str(model_cfg or "?")
 
     return "?"
 
@@ -2181,7 +2432,7 @@ def cmd_check(cfg: Config, keys: Dict[str, str], online: bool = False) -> None:
     for tool in TOOLS:
         prov = detect_provider(tool, cfg)
         model = detect_current_model(tool, cfg)
-        icon = {"duck": "🦆", "quotio": "🔗", "antigravity": "🚀", "xingyun": "☁️", "flames": "🔥", "openai": "🔑", "openrouter": "🌐", "icodeeasy": "🧊"}.get(prov, "🔑" if prov.startswith("openai_") else "❓")
+        icon = {"duck": "🦆", "quotio": "🔗", "antigravity": "🚀", "xingyun": "☁️", "aiwave": "🌊", "flames": "🔥", "openai": "🔑", "openrouter": "🌐", "icodeeasy": "🧊"}.get(prov, "🔑" if prov.startswith("openai_") else "❓")
 
         # Truncate model for display
         model_display = model if len(model) <= 32 else model[:29] + "..."
@@ -2191,7 +2442,7 @@ def cmd_check(cfg: Config, keys: Dict[str, str], online: bool = False) -> None:
             bare_model = model[len("openrouter/"):]
         else:
             bare_model = model.split("/")[-1]
-        if prov in ("quotio", "antigravity", "duck", "openrouter", "icodeeasy", "flames"):
+        if prov in ("quotio", "antigravity", "duck", "openrouter", "icodeeasy", "flames", "aiwave"):
             in_catalog = model_in_provider(bare_model, prov)
             status = "✅" if in_catalog else "⚠️"
         else:
@@ -2234,6 +2485,14 @@ def validate_model_for_tool(tool: str, model: str, provider: str, force: bool = 
             "Provider 'icodeeasy' 当前在 OpenClaw 中仍走 anthropic-messages 链路，"
             "只支持 claude-* 模型。"
         )
+
+    if provider == "aiwave" and tool in ("openclaw", "gemini", "hermes") and fam != "gemini":
+        raise SwitchError(
+            f"Provider 'aiwave' 在 {tool} 当前只支持 gemini-* 模型。"
+        )
+
+    if provider == "flames" and tool == "hermes" and fam != "gpt":
+        raise SwitchError("Provider 'flames' 在 Hermes 当前只支持 gpt-* 模型。")
 
     if not force and provider not in ("openai", "openrouter", "quotio_local") and provider not in OPENAI_NAMED_PROVIDERS:
         bare = model.split("/")[-1]
@@ -2640,6 +2899,42 @@ def antigravity_gemini_models_payload_for_models_json() -> Dict[str, Any]:
     p["models"] = models
     return p
 
+
+def _build_aiwave_gemini_model_entry(model_id: str) -> Dict[str, Any]:
+    supports_image = "image" in model_id
+    return {
+        "id": model_id,
+        "name": f"{model_id} (AI Wave)",
+        "reasoning": True,
+        "input": ["text", "image"] if supports_image else ["text"],
+        "contextWindow": 1048576,
+        "maxTokens": 65536,
+    }
+
+
+def aiwave_gemini_models_payload(target_model: str = AIWAVE_GEMINI_MODEL) -> Dict[str, Any]:
+    model_ids = list(AIWAVE_GEMINI_AVAILABLE_MODELS)
+    if target_model not in model_ids:
+        model_ids.append(target_model)
+    return {
+        "baseUrl": AIWAVE_GEMINI_BASE_URL,
+        "api": "google-generative-ai",
+        "apiKey": "",
+        "models": [_build_aiwave_gemini_model_entry(model_id) for model_id in model_ids],
+    }
+
+
+def aiwave_gemini_models_payload_for_models_json(target_model: str = AIWAVE_GEMINI_MODEL) -> Dict[str, Any]:
+    p = aiwave_gemini_models_payload(target_model)
+    models = []
+    for item in p["models"]:
+        it = dict(item)
+        it["cost"] = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}
+        it["api"] = "google-generative-ai"
+        models.append(it)
+    p["models"] = models
+    return p
+
 def xingyun_openai_models_payload() -> Dict[str, Any]:
     return {
         "baseUrl": XINGYUN_BASE_URL_V1,
@@ -2856,8 +3151,10 @@ def _switch_openclaw_single_agent(provider: str, cfg: Config, keys: Dict[str, st
     models_json = load_json(cfg.oc_models)
 
     oc_providers = (oc.setdefault("models", {})).setdefault("providers", {})
-    oc_agents = (oc.setdefault("agents", {})).setdefault("defaults", {}).setdefault("model", {})
+    ensure_openclaw_defaults_model_config(oc)
     model_providers = models_json.setdefault("providers", {})
+    use_agent_override = len(cfg.oc_agent_ids) > 1 and cfg.oc_agent_id == getattr(cfg, "requested_oc_agent_id", "")
+    selected_primary = resolve_openclaw_primary_model(oc, cfg.oc_agent_id)
 
     if provider == "duck":
         duck_anthropic_key = ensure_key(
@@ -2874,7 +3171,10 @@ def _switch_openclaw_single_agent(provider: str, cfg: Config, keys: Dict[str, st
             target_primary, reason = resolve_openclaw_duck_profile(profile)
             if reason:
                 info(reason)
-        oc_agents["primary"] = target_primary
+        set_openclaw_target_primary_model(
+            oc, cfg.oc_agent_id, target_primary, use_agent_override=use_agent_override
+        )
+        selected_primary = target_primary
         info("Duck OpenClaw models: claude-opus-4-6, claude-sonnet-4-6, gemini-3.1-pro-preview, gpt-5.4-xhigh-openai-compact")
 
         # Claude provider (duckcoding-claude)
@@ -2916,11 +3216,18 @@ def _switch_openclaw_single_agent(provider: str, cfg: Config, keys: Dict[str, st
 
         if model and model_family(model) == "gpt":
             # GPT model (e.g. gpt-5.3-codex) → set as quotio primary directly
-            oc_agents["primary"] = f"quotio/{model}"
+            target_primary = f"quotio/{model}"
+            set_openclaw_target_primary_model(
+                oc, cfg.oc_agent_id, target_primary, use_agent_override=use_agent_override
+            )
+            selected_primary = target_primary
             info(f"OpenClaw → quotio/{model} (GPT via OpenAI-completions)")
         else:
             target_primary, reason = resolve_openclaw_quotio_profile(profile)
-            oc_agents["primary"] = target_primary
+            set_openclaw_target_primary_model(
+                oc, cfg.oc_agent_id, target_primary, use_agent_override=use_agent_override
+            )
+            selected_primary = target_primary
             if reason:
                 info(reason)
             info("Quotio OpenClaw primary allowlist: quotio/claude-opus-4-6-thinking, quotio/claude-sonnet-4-6")
@@ -2967,7 +3274,10 @@ def _switch_openclaw_single_agent(provider: str, cfg: Config, keys: Dict[str, st
     elif provider == "antigravity":
         a_key = ensure_key("ANTIGRAVITY_API_KEY", keys["antigravity"], "required for OpenClaw antigravity")
         target_primary, reason = resolve_openclaw_antigravity_profile(profile)
-        oc_agents["primary"] = target_primary
+        set_openclaw_target_primary_model(
+            oc, cfg.oc_agent_id, target_primary, use_agent_override=use_agent_override
+        )
+        selected_primary = target_primary
         if reason:
             info(reason)
         info("Antigravity OpenClaw models: claude-opus-4-6-thinking, claude-sonnet-4-6, gemini-3.1-pro-high, ...")
@@ -2991,7 +3301,11 @@ def _switch_openclaw_single_agent(provider: str, cfg: Config, keys: Dict[str, st
     elif provider == "icodeeasy":
         i_key = ensure_key("ICODEEASY_API_KEY", keys["icodeeasy"], "required for OpenClaw icodeeasy")
         target_model = model or ICODEEASY_OPENCLAW_MODEL
-        oc_agents["primary"] = f"icodeeasy/{target_model}"
+        target_primary = f"icodeeasy/{target_model}"
+        set_openclaw_target_primary_model(
+            oc, cfg.oc_agent_id, target_primary, use_agent_override=use_agent_override
+        )
+        selected_primary = target_primary
         info("iCodeEasy OpenClaw 仍走 Claude 路由: claude-sonnet-4-6, claude-opus-4-6, claude-haiku-4-5-20251001, ...")
 
         ic = icodeeasy_models_payload()
@@ -3012,7 +3326,11 @@ def _switch_openclaw_single_agent(provider: str, cfg: Config, keys: Dict[str, st
     elif provider == "xingyun":
         x_key = ensure_key("XINGYUN_API_KEY", keys["xingyun"], "required for OpenClaw xingyun")
         target_model = model or "gpt-5.4"
-        oc_agents["primary"] = f"xingyun/{target_model}"
+        target_primary = f"xingyun/{target_model}"
+        set_openclaw_target_primary_model(
+            oc, cfg.oc_agent_id, target_primary, use_agent_override=use_agent_override
+        )
+        selected_primary = target_primary
         info(f"Xingyun OpenClaw models: gpt-5.4, gpt-5.3-codex, ...")
 
         xo = xingyun_openai_models_payload()
@@ -3044,10 +3362,39 @@ def _switch_openclaw_single_agent(provider: str, cfg: Config, keys: Dict[str, st
         xom["apiKey"] = x_key
         model_providers["xingyun"] = xom
 
+    elif provider == "aiwave":
+        aw_key = ensure_key(
+            f"{AIWAVE_GEMINI_GCP_ENV_KEY}/{AIWAVE_GEMINI_ENV_KEY}",
+            resolve_aiwave_gemini_key(keys),
+            "required for OpenClaw aiwave Gemini",
+        )
+        target_model = model or AIWAVE_GEMINI_MODEL
+        target_primary = f"aiwave/{target_model}"
+        set_openclaw_target_primary_model(
+            oc, cfg.oc_agent_id, target_primary, use_agent_override=use_agent_override
+        )
+        selected_primary = target_primary
+        info(
+            "AI Wave OpenClaw Gemini models: "
+            + ", ".join(AIWAVE_GEMINI_AVAILABLE_MODELS)
+        )
+
+        ag = aiwave_gemini_models_payload(target_model)
+        ag["apiKey"] = aw_key
+        oc_providers["aiwave"] = ag
+
+        agm = aiwave_gemini_models_payload_for_models_json(target_model)
+        agm["apiKey"] = aw_key
+        model_providers["aiwave"] = agm
+
     elif provider == "flames":
         flames_key = ensure_key("FLAMES_API_KEY", keys["flames"], "required for OpenClaw flames")
         target_model = model or FLAMES_DEFAULT_MODEL
-        oc_agents["primary"] = f"flames/{target_model}"
+        target_primary = f"flames/{target_model}"
+        set_openclaw_target_primary_model(
+            oc, cfg.oc_agent_id, target_primary, use_agent_override=use_agent_override
+        )
+        selected_primary = target_primary
         info(f"Flames OpenClaw default model: {FLAMES_DEFAULT_MODEL}")
 
         fp = flames_models_payload(target_model)
@@ -3061,7 +3408,10 @@ def _switch_openclaw_single_agent(provider: str, cfg: Config, keys: Dict[str, st
     elif provider == "openrouter":
         or_key = ensure_key("OPENROUTER_API_KEY", keys["openrouter"], "required for OpenClaw openrouter")
         target_primary, reason = resolve_openclaw_openrouter_profile(profile)
-        oc_agents["primary"] = target_primary
+        set_openclaw_target_primary_model(
+            oc, cfg.oc_agent_id, target_primary, use_agent_override=use_agent_override
+        )
+        selected_primary = target_primary
         if reason:
             info(reason)
         info(f"OpenRouter default: {OPENROUTER_DEFAULT_MODEL} (all free models available)")
@@ -3104,7 +3454,11 @@ def _switch_openclaw_single_agent(provider: str, cfg: Config, keys: Dict[str, st
             existing_order = [str(pid) for pid in (auth_order_cfg.get("openai-codex") or []) if str(pid) != oauth_profile_id]
             auth_order_cfg["openai-codex"] = [oauth_profile_id, *existing_order]
 
-            oc_agents["primary"] = f"openai-codex/{gpt_model}"
+            target_primary = f"openai-codex/{gpt_model}"
+            set_openclaw_target_primary_model(
+                oc, cfg.oc_agent_id, target_primary, use_agent_override=use_agent_override
+            )
+            selected_primary = target_primary
             info(f"OpenClaw → openai-codex/{gpt_model} (OAuth via {oauth_profile_id})")
 
             # openai-codex is a built-in OpenClaw OAuth provider. Do not shadow it
@@ -3115,7 +3469,11 @@ def _switch_openclaw_single_agent(provider: str, cfg: Config, keys: Dict[str, st
         else:
             oa_key = ensure_key(f"{display}_API_KEY", keys[key_slot], f"required for OpenClaw {provider}")
 
-            oc_agents["primary"] = f"openai-direct/{gpt_model}"
+            target_primary = f"openai-direct/{gpt_model}"
+            set_openclaw_target_primary_model(
+                oc, cfg.oc_agent_id, target_primary, use_agent_override=use_agent_override
+            )
+            selected_primary = target_primary
             info(f"OpenClaw → openai-direct/{gpt_model} (via Xray proxy, key)")
 
             # Register openai-direct provider (OpenAI API through local proxy)
@@ -3174,7 +3532,7 @@ def _switch_openclaw_single_agent(provider: str, cfg: Config, keys: Dict[str, st
         duck_gemini_key = ensure_key(
             "DUCK_GEMINI_API_KEY/GEMINI_API_KEY", keys["duck_gemini"], "required for OpenClaw duck Gemini"
         )
-        current_primary_provider = str(oc_agents.get("primary", "") or "").split("/", 1)[0]
+        current_primary_provider = str(selected_primary or "").split("/", 1)[0]
         # Claude auth
         auth["duckcoding-claude"] = {"type": "api_key", "key": duck_anthropic_key}
         profiles["duckcoding-claude:manual"] = {
@@ -3224,7 +3582,7 @@ def _switch_openclaw_single_agent(provider: str, cfg: Config, keys: Dict[str, st
         last_good["quotio"] = "quotio:manual"
         last_good["quotio-gemini"] = "quotio-gemini:manual"
 
-        primary_provider = str(oc_agents.get("primary", "quotio") or "quotio").split("/", 1)[0]
+        primary_provider = str(selected_primary or "quotio").split("/", 1)[0]
         if primary_provider in ("quotio", "quotio-gemini"):
             last_good[primary_provider] = f"{primary_provider}:manual"
 
@@ -3251,7 +3609,7 @@ def _switch_openclaw_single_agent(provider: str, cfg: Config, keys: Dict[str, st
         last_good["antigravity"] = "antigravity:manual"
         last_good["antigravity-gemini"] = "antigravity-gemini:manual"
 
-        primary_provider = str(oc_agents.get("primary", "antigravity") or "antigravity").split("/", 1)[0]
+        primary_provider = str(selected_primary or "antigravity").split("/", 1)[0]
         if primary_provider in ("antigravity", "antigravity-gemini"):
             last_good[primary_provider] = f"{primary_provider}:manual"
 
@@ -3270,11 +3628,34 @@ def _switch_openclaw_single_agent(provider: str, cfg: Config, keys: Dict[str, st
 
         last_good["xingyun"] = "xingyun:manual"
 
-        primary_provider = str(oc_agents.get("primary", "xingyun") or "xingyun").split("/", 1)[0]
+        primary_provider = str(selected_primary or "xingyun").split("/", 1)[0]
         if primary_provider == "xingyun":
             last_good[primary_provider] = f"{primary_provider}:manual"
 
         info("Updated OpenClaw auth store for xingyun")
+
+    elif provider == "aiwave":
+        aw_key = ensure_key(
+            f"{AIWAVE_GEMINI_GCP_ENV_KEY}/{AIWAVE_GEMINI_ENV_KEY}",
+            resolve_aiwave_gemini_key(keys),
+            "required for OpenClaw aiwave Gemini",
+        )
+
+        auth["aiwave"] = {"type": "api_key", "key": aw_key}
+
+        profiles["aiwave:manual"] = {
+            "type": "token",
+            "provider": "aiwave",
+            "token": aw_key,
+        }
+
+        last_good["aiwave"] = "aiwave:manual"
+
+        primary_provider = str(selected_primary or "aiwave").split("/", 1)[0]
+        if primary_provider == "aiwave":
+            last_good[primary_provider] = "aiwave:manual"
+
+        info("Updated OpenClaw auth store for aiwave")
 
     elif provider == "flames":
         flames_key = ensure_key("FLAMES_API_KEY", keys["flames"], "required for OpenClaw flames")
@@ -3289,7 +3670,7 @@ def _switch_openclaw_single_agent(provider: str, cfg: Config, keys: Dict[str, st
 
         last_good["flames"] = "flames:manual"
 
-        primary_provider = str(oc_agents.get("primary", "flames") or "flames").split("/", 1)[0]
+        primary_provider = str(selected_primary or "flames").split("/", 1)[0]
         if primary_provider == "flames":
             last_good[primary_provider] = "flames:manual"
 
@@ -3323,7 +3704,7 @@ def _switch_openclaw_single_agent(provider: str, cfg: Config, keys: Dict[str, st
 
         last_good["icodeeasy"] = "icodeeasy:manual"
 
-        primary_provider = str(oc_agents.get("primary", "icodeeasy") or "icodeeasy").split("/", 1)[0]
+        primary_provider = str(selected_primary or "icodeeasy").split("/", 1)[0]
         if primary_provider == "icodeeasy":
             last_good[primary_provider] = "icodeeasy:manual"
 
@@ -3408,7 +3789,7 @@ def switch_openclaw(
     for target_agent_id in target_agent_ids:
         agent_cfg = Config(cfg.home)
         configure_openclaw_agent_paths(agent_cfg, target_agent_id)
-        agent_cfg.oc_agent_ids = list(target_agent_ids)
+        agent_cfg.requested_oc_agent_id = agent_id.strip()
         _switch_openclaw_single_agent(provider, agent_cfg, keys, profile, model=model)
 
 
@@ -3679,11 +4060,14 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
                 'name = "aiwave"\n'
                 f'base_url = "{AIWAVE_BASE_URL_V1}"\n'
                 'wire_api = "responses"\n'
-                'env_key = "AIWAVE_API_KEY"\n'
+                f'env_key = "{AIWAVE_CODEX_ENV_KEY}"\n'
             )
             text += block
             info("Added aiwave provider to codex config")
-        info(f"Codex → AI Wave (OpenAI: {AIWAVE_BASE_URL_V1}, Gemini: {AIWAVE_GEMINI_BASE_URL})")
+        info(
+            f"Codex → AI Wave (OpenAI: {AIWAVE_BASE_URL_V1}, Gemini: {AIWAVE_GEMINI_BASE_URL}, "
+            f"env={AIWAVE_CODEX_ENV_KEY})"
+        )
 
     write_text(cfg.cx_config, text)
     ok(f"Codex → {provider}")
@@ -3794,7 +4178,7 @@ def update_gemini_cli_env(provider: str, cfg: Config, keys: Dict[str, str], mode
     key_slot = GEMINI_CLI_KEY_MAP.get(provider)
     if not key_slot:
         return
-    api_key = keys.get(key_slot, "")
+    api_key = resolve_aiwave_gemini_key(keys) if provider == "aiwave" else keys.get(key_slot, "")
     if not api_key:
         warn(f"No API key for Gemini CLI ({provider}), skipping .gemini/.env update")
         return
@@ -3818,7 +4202,14 @@ def switch_gemini_cli(provider: str, cfg: Config, keys: Dict[str, str], model: s
     key_slot = GEMINI_CLI_KEY_MAP.get(provider)
     if not key_slot:
         raise SwitchError(f"No Gemini CLI key mapping for provider: {provider}")
-    api_key = ensure_key(f"API key ({key_slot})", keys.get(key_slot, ""), f"required for Gemini CLI {provider}")
+    if provider == "aiwave":
+        api_key = ensure_key(
+            f"{AIWAVE_GEMINI_GCP_ENV_KEY}/{AIWAVE_GEMINI_ENV_KEY}",
+            resolve_aiwave_gemini_key(keys),
+            f"required for Gemini CLI {provider}",
+        )
+    else:
+        api_key = ensure_key(f"API key ({key_slot})", keys.get(key_slot, ""), f"required for Gemini CLI {provider}")
 
     update_gemini_cli_env(provider, cfg, keys, model=model)
 
@@ -3827,6 +4218,87 @@ def switch_gemini_cli(provider: str, cfg: Config, keys: Dict[str, str], model: s
     os.environ["GEMINI_API_KEY"] = api_key
     warn("GEMINI_API_KEY in .bashrc updated — this also affects Droid")
     ok(f"Gemini CLI → {provider} (run 'source ~/.bashrc' to apply)")
+
+
+def _ensure_hermes_custom_provider_entry(config: Dict[str, Any], name: str, base_url: str) -> Dict[str, Any]:
+    providers = config.get("custom_providers")
+    if not isinstance(providers, list):
+        providers = []
+        config["custom_providers"] = providers
+
+    lowered = name.strip().lower()
+    for entry in providers:
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("name") or "").strip().lower() == lowered:
+            entry["name"] = name
+            entry["base_url"] = base_url
+            return entry
+
+    entry = {"name": name, "base_url": base_url}
+    providers.append(entry)
+    return entry
+
+
+def switch_hermes(
+    provider: str,
+    cfg: Config,
+    keys: Dict[str, str],
+    model: str = "",
+    *,
+    profile_name: str = "",
+    all_profiles: bool = False,
+) -> None:
+    info(f"Switching Hermes → {provider}")
+
+    if provider == "flames":
+        provider_name = "flames"
+        base_url = FLAMES_NEWAPI_BASE_URL_V1
+        api_key = ensure_key("FLAMES_API_KEY", keys["flames"], "required for Hermes flames")
+        target_model = model or FLAMES_DEFAULT_MODEL
+        api_mode = "codex_responses"
+    elif provider == "aiwave":
+        provider_name = "aiwave"
+        base_url = AIWAVE_BASE_URL_V1
+        api_key = ensure_key(
+            f"{AIWAVE_GEMINI_GCP_ENV_KEY}/{AIWAVE_GEMINI_ENV_KEY}",
+            resolve_aiwave_gemini_key(keys),
+            "required for Hermes aiwave Gemini",
+        )
+        target_model = model or AIWAVE_GEMINI_MODEL
+        api_mode = "chat_completions"
+    else:
+        raise SwitchError(f"Hermes provider not supported yet: {provider}")
+
+    config_paths = resolve_hermes_config_paths(
+        cfg,
+        profile_name=profile_name,
+        all_profiles=all_profiles,
+    )
+
+    for config_path in config_paths:
+        backup(config_path)
+        data = load_yaml(config_path)
+        model_cfg = data.get("model")
+        if not isinstance(model_cfg, dict):
+            model_cfg = {"default": str(model_cfg or "").strip()} if model_cfg else {}
+            data["model"] = model_cfg
+        model_cfg["default"] = target_model
+        model_cfg["provider"] = f"custom:{provider_name}"
+        model_cfg["base_url"] = base_url
+        model_cfg["api_key"] = api_key
+        model_cfg["api_mode"] = api_mode
+
+        custom_entry = _ensure_hermes_custom_provider_entry(data, provider_name, base_url)
+        custom_entry["api_key"] = api_key
+        custom_entry["api_mode"] = api_mode
+        custom_entry["model"] = target_model
+
+        save_yaml(config_path, data)
+        info(f"Updated {config_path}")
+
+    scope = profile_name or ("all-profiles" if all_profiles else "root")
+    ok(f"Hermes[{scope}] → {provider} / {target_model}")
 
 
 def switch_droid(provider: str, cfg: Config, keys: Dict[str, str], profile: str = "", model: str = "") -> None:
@@ -3970,7 +4442,11 @@ def switch_droid(provider: str, cfg: Config, keys: Dict[str, str], profile: str 
         info(f"  In Droid: /model → select \"Quotio-Local {droid_model}\" under Custom Models")
 
     elif provider == "aiwave":
-        aw_key = ensure_key("AIWAVE_API_KEY", keys["aiwave"], "required for Droid aiwave")
+        aw_key = ensure_key(
+            f"{AIWAVE_CODEX_ENV_KEY}/AIWAVE_API_KEY",
+            keys["aiwave_codex"],
+            "required for Droid aiwave",
+        )
         droid_model = model or AIWAVE_DROID_CODEX_MODEL
         _write_factory_custom_models(cfg.factory_settings, [
             {
@@ -4018,6 +4494,8 @@ def usage() -> None:
     print("  switch-api all <provider>")
     print("  switch-api <tool> <provider>")
     print("  switch-api [--agent <id> | --all-agents] openclaw <provider>")
+    print("  switch-api [--profile <name> | --all-profiles] hermes <provider>")
+    print("  switch-api hermes <provider>")
     print("  switch-api openclaw quotio <profile>")
     print("  switch-api openclaw antigravity <profile>")
     print("")
@@ -4083,12 +4561,17 @@ def usage() -> None:
     print()
     print("  7) iCodeEasy (统一网关: CC + OpenClaw + Codex + Gemini):")
     print("       switch-api icodeeasy             # cc+openclaw+codex+gemini → iCodeEasy")
+    print("       switch-api aiwave               # openclaw+codex+droid+gemini+hermes → AI Wave")
     print("       switch-api cc icodeeasy          # Claude Code → iCodeEasy")
     print("       switch-api openclaw icodeeasy    # OpenClaw → Claude Sonnet 4.6 (Claude-only)")
     print("       switch-api codex icodeeasy       # Codex → iCodeEasy / gpt-5.4")
     print("       switch-api gemini icodeeasy      # Gemini CLI → iCodeEasy / gemini-2.5-flash")
     print()
-    print("  8) Duck CodeX→CC (GPT codex 模型通过 CC 使用):")
+    print("  8) Hermes:")
+    print("       switch-api hermes flames         # Hermes → Flames / gpt-5.4")
+    print("       switch-api hermes aiwave         # Hermes → AI Wave / gemini-3.1-pro-preview")
+    print()
+    print("  9) Duck CodeX→CC (GPT codex 模型通过 CC 使用):")
     print("       switch-api cc duck_codex2cc      # CC → Duck CodeX (opus→xhigh, sonnet→high)")
     print()
     print("  switch-api list [provider]             # 列出可用模型")
@@ -4097,12 +4580,14 @@ def usage() -> None:
     print("  switch-api <tool> <provider> <model>   # 指定模型切换")
 
 
-def parse_global_flags(argv: Iterable[str]) -> Tuple[List[str], bool, str, bool]:
+def parse_global_flags(argv: Iterable[str]) -> Tuple[List[str], bool, str, bool, str, bool]:
     args = list(argv)
     positional: List[str] = []
     force = False
     agent_id = ""
     all_agents = False
+    hermes_profile = ""
+    all_hermes_profiles = False
 
     idx = 0
     while idx < len(args):
@@ -4113,6 +4598,10 @@ def parse_global_flags(argv: Iterable[str]) -> Tuple[List[str], bool, str, bool]
             continue
         if arg == "--all-agents":
             all_agents = True
+            idx += 1
+            continue
+        if arg == "--all-profiles":
+            all_hermes_profiles = True
             idx += 1
             continue
         if arg == "--agent":
@@ -4132,14 +4621,34 @@ def parse_global_flags(argv: Iterable[str]) -> Tuple[List[str], bool, str, bool]
                 raise SystemExit(1)
             idx += 1
             continue
+        if arg == "--profile":
+            if idx + 1 >= len(args):
+                err("Missing value for --profile")
+                raise SystemExit(1)
+            hermes_profile = args[idx + 1].strip()
+            if not hermes_profile:
+                err("--profile requires a non-empty profile name")
+                raise SystemExit(1)
+            idx += 2
+            continue
+        if arg.startswith("--profile="):
+            hermes_profile = arg.split("=", 1)[1].strip()
+            if not hermes_profile:
+                err("--profile requires a non-empty profile name")
+                raise SystemExit(1)
+            idx += 1
+            continue
         positional.append(arg)
         idx += 1
 
     if agent_id and all_agents:
         err("--agent and --all-agents cannot be used together")
         raise SystemExit(1)
+    if hermes_profile and all_hermes_profiles:
+        err("--profile and --all-profiles cannot be used together")
+        raise SystemExit(1)
 
-    return positional, force, agent_id, all_agents
+    return positional, force, agent_id, all_agents, hermes_profile, all_hermes_profiles
 
 
 def switch_path_touches_openclaw(tool: str, provider: str) -> bool:
@@ -4154,6 +4663,14 @@ def switch_path_touches_openclaw(tool: str, provider: str) -> bool:
     if provider in CC_ONLY_PROVIDERS:
         return False
     return True
+
+
+def switch_path_touches_hermes(tool: str, provider: str) -> bool:
+    if tool == "hermes":
+        return True
+    if tool != "all":
+        return False
+    return provider in ("flames", "aiwave")
 
 
 def parse_args(argv: Iterable[str]) -> Tuple[str, str, str]:
@@ -4283,11 +4800,20 @@ def main() -> int:
     save_provider_model_catalog(cfg.provider_models_file)
     keys = get_keys(store)
 
-    argv_clean, force, openclaw_agent_id, openclaw_all_agents = parse_global_flags(sys.argv[1:])
+    (
+        argv_clean,
+        force,
+        openclaw_agent_id,
+        openclaw_all_agents,
+        hermes_profile_name,
+        hermes_all_profiles,
+    ) = parse_global_flags(sys.argv[1:])
     tool, provider, profile = parse_args(argv_clean)
 
     if (openclaw_agent_id or openclaw_all_agents) and not switch_path_touches_openclaw(tool, provider):
         raise SwitchError("--agent/--all-agents 仅适用于会触发 OpenClaw 切换的命令")
+    if (hermes_profile_name or hermes_all_profiles) and not switch_path_touches_hermes(tool, provider):
+        raise SwitchError("--profile/--all-profiles 仅适用于会触发 Hermes 切换的命令")
 
     if tool == "status":
         show_status(cfg)
@@ -4353,14 +4879,29 @@ def main() -> int:
     if provider == "quotio_local" and not keys["quotio"]:
         raise SwitchError("QUOTIO_API_KEY is not set! Edit ~/.env and run: source ~/.zshrc")
 
-    if provider == "aiwave" and tool not in ("codex", "droid", "gemini"):
-        raise SwitchError(f"Provider 'aiwave' is supported for codex/droid/gemini, not {tool}")
+    if provider == "aiwave" and tool not in ("codex", "droid", "gemini", "openclaw", "hermes", "all"):
+        raise SwitchError(f"Provider 'aiwave' is supported for codex/droid/gemini/openclaw/hermes, not {tool}")
 
-    if provider == "aiwave" and not keys["aiwave"]:
-        raise SwitchError("AIWAVE_API_KEY is not set! Edit ~/.env and run: source ~/.zshrc")
+    if provider == "aiwave":
+        if tool in ("gemini", "openclaw", "hermes") and not resolve_aiwave_gemini_key(keys):
+            raise SwitchError(
+                f"{AIWAVE_GEMINI_GCP_ENV_KEY}/{AIWAVE_GEMINI_ENV_KEY} is not set! Edit ~/.env and run: source ~/.zshrc"
+            )
+        if tool in ("codex", "droid") and not keys["aiwave_codex"]:
+            raise SwitchError(f"{AIWAVE_CODEX_ENV_KEY} is not set! Edit ~/.env and run: source ~/.zshrc")
+        if tool == "all":
+            missing = []
+            if not keys["aiwave_codex"]:
+                missing.append(AIWAVE_CODEX_ENV_KEY)
+            if not resolve_aiwave_gemini_key(keys):
+                missing.append(f"{AIWAVE_GEMINI_GCP_ENV_KEY}/{AIWAVE_GEMINI_ENV_KEY}")
+            if missing:
+                raise SwitchError(
+                    f"{', '.join(missing)} is not set! Edit ~/.env and run: source ~/.zshrc"
+                )
 
-    if provider == "flames" and tool not in ("codex", "openclaw", "all"):
-        raise SwitchError(f"Provider 'flames' is supported for codex/openclaw, not {tool}")
+    if provider == "flames" and tool not in ("codex", "openclaw", "hermes", "all"):
+        raise SwitchError(f"Provider 'flames' is supported for codex/openclaw/hermes, not {tool}")
 
     if provider == "flames" and not keys["flames"]:
         raise SwitchError("FLAMES_API_KEY is not set! Edit ~/.env and run: source ~/.zshrc")
@@ -4391,6 +4932,8 @@ def main() -> int:
             info("Pre-flight skipped for Codex OpenAI 官方模式（auth.json / ChatGPT OAuth 决定可用性）")
         elif is_codex_openai_named:
             info("Pre-flight skipped for Codex flames_newapi key route（本地 config.toml 的 env_key 决定槽位）")
+        elif provider == "aiwave":
+            info("Pre-flight skipped for AI Wave（不同工具走不同 key/protocol 路径）")
         else:
             reachable, reason = probe_provider(provider, keys)
             if not reachable:
@@ -4420,6 +4963,15 @@ def main() -> int:
         switch_droid(provider, cfg, keys, profile, model=model)
     elif tool == "gemini":
         switch_gemini_cli(provider, cfg, keys, model=model)
+    elif tool == "hermes":
+        switch_hermes(
+            provider,
+            cfg,
+            keys,
+            model=model,
+            profile_name=hermes_profile_name,
+            all_profiles=hermes_all_profiles,
+        )
     elif tool == "all":
         if provider == "openrouter":
             warn("OpenRouter is OpenAI-compatible — skipping cc and gemini (not compatible)")
@@ -4435,9 +4987,31 @@ def main() -> int:
             switch_codex(provider, cfg, keys, model=model)
             switch_droid(provider, cfg, keys, "", model=model)
         elif provider == "flames":
-            info("Flames only supports openclaw/codex — switching those only")
+            info("Flames supports openclaw/codex/hermes — switching those only")
             switch_openclaw(provider, cfg, keys, "", model=model, agent_id=openclaw_agent_id, all_agents=openclaw_all_agents)
             switch_codex(provider, cfg, keys, model=model)
+            switch_hermes(
+                provider,
+                cfg,
+                keys,
+                model=model,
+                profile_name=hermes_profile_name,
+                all_profiles=hermes_all_profiles,
+            )
+        elif provider == "aiwave":
+            info("AI Wave supports openclaw/codex/droid/gemini/hermes — switching those only")
+            switch_openclaw(provider, cfg, keys, "", model=model, agent_id=openclaw_agent_id, all_agents=openclaw_all_agents)
+            switch_codex(provider, cfg, keys, model=model)
+            switch_droid(provider, cfg, keys, "", model=model)
+            switch_gemini_cli(provider, cfg, keys, model=model)
+            switch_hermes(
+                provider,
+                cfg,
+                keys,
+                model=model,
+                profile_name=hermes_profile_name,
+                all_profiles=hermes_all_profiles,
+            )
         elif provider == "quotio_local":
             info(f"Quotio Local only supports codex/droid — switching those only")
             switch_codex(provider, cfg, keys, model=model)

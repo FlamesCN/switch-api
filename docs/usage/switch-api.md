@@ -223,8 +223,9 @@ CODEX_HOME="$HOME/.codex-profiles/alt" codex login --device-auth
 switch-api duck                # 全部 → DuckCoding
 switch-api quotio              # 全部 → Quotio
 switch-api antigravity         # 全部 → Antigravity-tools
+switch-api aiwave             # openclaw+codex+droid+gemini+hermes → AI Wave
 switch-api icodeeasy           # cc+openclaw+codex+gemini → iCodeEasy
-switch-api flames              # openclaw+codex → Flames NewAPI
+switch-api flames              # openclaw+codex+hermes → Flames NewAPI
 switch-api all duck            # 同上（完整写法）
 switch-api all quotio
 switch-api all antigravity
@@ -247,6 +248,8 @@ switch-api openclaw antigravity             # 默认 Opus 4.6 Thinking
 switch-api openclaw antigravity gemini3     # Antigravity Gemini 3 ⚠️
 switch-api openclaw icodeeasy               # 默认 Claude Sonnet 4.6
 switch-api openclaw icodeeasy claude-opus-4-6
+switch-api openclaw aiwave                  # AI Wave → gemini-3.1-pro-preview
+switch-api openclaw aiwave gemini-3.1-flash-lite-preview
 switch-api openclaw flames                  # Flames → gpt-5.4
 switch-api openclaw flames gpt-5.3-codex
 switch-api openclaw flames --agent lingxi   # 仅切换 lingxi agent
@@ -268,6 +271,19 @@ switch-api codex openai_V420                # flames_newapi + OPENAI_V420_API_KE
 switch-api droid duck                       # Duck Gemini
 switch-api droid quotio                     # Quotio Gemini (默认)
 switch-api droid quotio codex               # Quotio GPT-5.3 Codex (profile)
+switch-api droid aiwave                     # AI Wave GPT-5.3 Codex
+
+# ─── 只切 Gemini CLI ───────────────────────────
+switch-api gemini aiwave                    # AI Wave Gemini 3.1 Pro Preview
+switch-api gemini aiwave gemini-3.1-flash-lite-preview
+
+# ─── 只切 Hermes ───────────────────────────────
+switch-api hermes flames                    # Hermes → Flames / gpt-5.4
+switch-api hermes aiwave                    # Hermes → AI Wave / gemini-3.1-pro-preview
+switch-api hermes aiwave gemini-3-pro-image-preview
+switch-api --profile video-maker hermes aiwave
+switch-api --profile image-maker hermes flames
+switch-api --all-profiles hermes aiwave
 switch-api droid quotio gpt-5.3-codex       # Quotio GPT-5.3 Codex (直接指定) ⭐
 switch-api droid antigravity                # Antigravity Gemini
 
@@ -295,6 +311,13 @@ switch-api droid openai_V420                 # Droid → OpenAI[V420]
 > `codex openai` 是官方 ChatGPT OAuth 模式。
 > `codex openai_Gq80` / `codex openai_V420` 是 `flames_newapi` 的 key 槽位切换，不是官方账号切换。
 > 如果要切换多个 ChatGPT 官方账号，请使用 `codex-account use <auth.json_后缀>`，账号快照默认放在 `CODEX_HOME/accounts/`。
+
+### Hermes profile 切换规则
+
+- `switch-api hermes <provider>`：只改根 `~/.hermes/config.yaml`
+- `switch-api --profile <name> hermes <provider>`：只改 `~/.hermes/profiles/<name>/config.yaml`
+- `switch-api --all-profiles hermes <provider>`：批量改所有 profile config
+- `switch-api all aiwave` / `switch-api all flames` 若带 `--profile` 或 `--all-profiles`，Hermes 只按该范围更新；其他工具照常切换
 > `switch-api` 改写 `config.toml` / `auth.json` 前会把原文件备份到 `CODEX_HOME/backups/`。
 
 ---
@@ -534,21 +557,25 @@ OpenClaw 走 OpenAI 时会额外显示认证模式后缀，避免把 OAuth 和 A
 
 不同工具需要不同的 API 协议，不是所有 provider 都支持所有工具：
 
-| Provider | API 协议 | cc | openclaw | codex | droid | gemini |
-|----------|----------|:--:|:--------:|:-----:|:-----:|:------:|
-| duck | OpenAI + Anthropic | ✅ | ✅ | ✅ | ✅ | ✅ |
-| quotio | OpenAI + Anthropic + Gemini | ✅ | ✅ | ✅ | ✅ | ✅ |
-| antigravity | OpenAI + Anthropic + Gemini | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **icodeeasy** | **Anthropic + OpenAI + Gemini** | ✅ | ✅* | ✅ | ❌ | ✅ |
-| **duck_codex2cc** | **Anthropic 原生 (映射)** | ✅ | ❌ | ❌ | ❌ | ❌ |
-| openai | OpenAI | ❌ | ✅* | ✅ | ✅ | ❌ |
-| openrouter | OpenAI | ❌ | ✅ | ✅ | ✅ | ❌ |
-| aiwave | OpenAI + Gemini | ❌ | ❌ | ✅ | ✅ | ✅ |
-| duck_cc1 | Anthropic 原生 only | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Provider | API 协议 | cc | openclaw | codex | droid | gemini | hermes |
+|----------|----------|:--:|:--------:|:-----:|:-----:|:------:|:------:|
+| duck | OpenAI + Anthropic | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| quotio | OpenAI + Anthropic + Gemini | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| antigravity | OpenAI + Anthropic + Gemini | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| **icodeeasy** | **Anthropic + OpenAI + Gemini** | ✅ | ✅* | ✅ | ❌ | ✅ | ❌ |
+| **duck_codex2cc** | **Anthropic 原生 (映射)** | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| openai | OpenAI | ❌ | ✅* | ✅ | ✅ | ❌ | ❌ |
+| openrouter | OpenAI | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| aiwave | OpenAI + Gemini | ❌ | ✅ (Gemini) | ✅ | ✅ | ✅ | ✅ (Gemini) |
+| flames | OpenAI Responses | ❌ | ✅ | ✅ | ❌ | ❌ | ✅ |
+| duck_cc1 | Anthropic 原生 only | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
 > **关键限制**：
 > `icodeeasy` 现在可用于 `cc` / `openclaw` / `codex` / `gemini`，但 `openclaw` 当前仍走 Anthropic `messages` 链路，所以只支持 Claude 模型。
 > `duck_cc1` 和 `duck_codex2cc` 仍然只能用于 Claude Code。
+> `aiwave` 现按 key 槽拆分：`codex` / `droid` 使用 `AIWAVE_CODEX_API_KEY`。
+> `gemini-gcp` 与 `gemini` 已分成两套逻辑槽位；`gemini` / `openclaw` / `hermes` 优先使用 `AIWAVE_GEMINI_GCP_API_KEY`，兼容回退到 `AIWAVE_GEMINI_API_KEY`。
+> `AIWAVE_API_KEY` 仅作为旧配置兼容兜底。
 >
 > `openai` 对 OpenClaw 支持两种模式：
 > `switch-api openclaw openai key` 与 `switch-api openclaw openai oauth`。
