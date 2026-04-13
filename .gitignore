@@ -19,6 +19,10 @@ logs/
 # switch-api local credential snapshot (never commit real keys)
 credentials.json
 .config/
+.omx/
+findings.md
+progress.md
+task_plan.md
 
 # IDE
 .vscode/
