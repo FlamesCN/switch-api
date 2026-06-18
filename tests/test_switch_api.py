@@ -76,6 +76,26 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.write_json(self.cfg.oc_auth, {})
         self.write_json(self.cfg.oc_auth_profiles, {})
 
+    def init_cc_settings(self, model: str = "claude-sonnet-4-6", env: dict | None = None) -> None:
+        self.write_json(
+            self.cfg.cc_settings,
+            {
+                "env": env or {},
+                "model": model,
+            },
+        )
+
+    def init_gemini_balance_env(self, extra: str = "") -> None:
+        self.write(
+            self.cfg.gemini_balance_env,
+            (
+                "BASE_URL=https://generativelanguage.googleapis.com/v1beta\n"
+                "API_KEYS=[\"old-key\"]\n"
+                "TEST_MODEL=gemini-2.5-flash-lite\n"
+                + extra
+            ),
+        )
+
     def test_config_uses_default_openclaw_agent_paths(self):
         self.write_json(
             self.home / ".openclaw/openclaw.json",
@@ -263,6 +283,70 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertIn('env_key = "FLAMES_API_KEY"', text)
         self.assertEqual(self.mod.detect_provider("codex", self.cfg), "flames")
 
+    def test_switch_cc_flames_writes_custom_model_env_and_detects_flames(self):
+        self.init_cc_settings(
+            model="claude-sonnet-4-6",
+            env={
+                "ANTHROPIC_CUSTOM_MODEL_OPTION": "stale",
+                "ANTHROPIC_CUSTOM_MODEL_OPTION_NAME": "stale",
+                "ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION": "stale",
+            },
+        )
+
+        self.mod.switch_cc("flames", self.cfg, {"flames": "dummy"}, model="deepseek-v4-pro")
+
+        data = json.loads(self.cfg.cc_settings.read_text(encoding="utf-8"))
+        env = data["env"]
+        self.assertEqual(data["model"], "deepseek-v4-pro")
+        self.assertEqual(env["ANTHROPIC_BASE_URL"], "https://www.flamescn.vip")
+        self.assertEqual(env["ANTHROPIC_AUTH_TOKEN"], "dummy")
+        self.assertEqual(env["ANTHROPIC_CUSTOM_MODEL_OPTION"], "deepseek-v4-pro")
+        self.assertEqual(env["ANTHROPIC_CUSTOM_MODEL_OPTION_NAME"], "DeepSeek V4 Pro")
+        self.assertEqual(
+            env["ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION"],
+            "Flames NewAPI custom model relay",
+        )
+        self.assertEqual(env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"], "1")
+        self.assertEqual(env["CLAUDE_CODE_ATTRIBUTION_HEADER"], "0")
+        self.assertEqual(self.mod.detect_provider("cc", self.cfg), "flames")
+
+    def test_switch_cc_quotio_clears_stale_custom_model_env(self):
+        self.init_cc_settings(
+            model="gpt-5.4",
+            env={
+                "ANTHROPIC_CUSTOM_MODEL_OPTION": "deepseek-v4-pro",
+                "ANTHROPIC_CUSTOM_MODEL_OPTION_NAME": "DeepSeek V4 Pro",
+                "ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION": "Flames NewAPI custom model relay",
+            },
+        )
+
+        self.mod.switch_cc("quotio", self.cfg, {"quotio": "dummy"}, model="")
+
+        data = json.loads(self.cfg.cc_settings.read_text(encoding="utf-8"))
+        env = data["env"]
+        self.assertEqual(data["model"], "claude-opus-4-6-thinking")
+        self.assertNotIn("ANTHROPIC_CUSTOM_MODEL_OPTION", env)
+        self.assertNotIn("ANTHROPIC_CUSTOM_MODEL_OPTION_NAME", env)
+        self.assertNotIn("ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION", env)
+
+    def test_switch_cc_deepseek_writes_direct_provider_config(self):
+        self.init_cc_settings(model="claude-sonnet-4-6")
+
+        self.mod.switch_cc("deepseek", self.cfg, {"deepseek": "dummy"}, model="deepseek-v4-pro")
+
+        data = json.loads(self.cfg.cc_settings.read_text(encoding="utf-8"))
+        env = data["env"]
+        self.assertEqual(data["model"], "deepseek-v4-pro")
+        self.assertEqual(env["ANTHROPIC_BASE_URL"], "https://api.deepseek.com/anthropic")
+        self.assertEqual(env["ANTHROPIC_AUTH_TOKEN"], "dummy")
+        self.assertEqual(env["ANTHROPIC_CUSTOM_MODEL_OPTION"], "deepseek-v4-pro")
+        self.assertEqual(env["ANTHROPIC_CUSTOM_MODEL_OPTION_NAME"], "DeepSeek V4 Pro")
+        self.assertEqual(
+            env["ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION"],
+            "DeepSeek official Anthropic-compatible API",
+        )
+        self.assertEqual(self.mod.detect_provider("cc", self.cfg), "deepseek")
+
     def test_switch_codex_icodeeasy_writes_provider_block_and_detects_icodeeasy(self):
         self.mod.switch_codex("icodeeasy", self.cfg, {"icodeeasy": "dummy"}, model="")
 
@@ -358,6 +442,39 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
 
         bashrc = self.cfg.bashrc.read_text(encoding="utf-8")
         self.assertIn('export GEMINI_API_KEY="gem-gcp-slot"', bashrc)
+
+    def test_switch_gemini_cli_flames_updates_env_and_detects_flames(self):
+        self.mod.switch_gemini_cli("flames", self.cfg, {"flames": "dummy"}, model="")
+
+        gemini_env = self.cfg.gemini_env.read_text(encoding="utf-8")
+        self.assertIn("GOOGLE_GEMINI_BASE_URL=https://www.flamescn.vip", gemini_env)
+        self.assertIn("GEMINI_API_KEY=dummy", gemini_env)
+        self.assertIn("GEMINI_MODEL=gemini-2.5-flash", gemini_env)
+        self.assertEqual(self.mod.detect_provider("gemini", self.cfg), "flames")
+
+        bashrc = self.cfg.bashrc.read_text(encoding="utf-8")
+        self.assertIn('export GEMINI_API_KEY="dummy"', bashrc)
+
+    def test_switch_gemini_provider_gemini_balance_updates_balance_env(self):
+        self.init_gemini_balance_env()
+
+        self.mod.switch_gemini_cli(
+            "gemini-balance",
+            self.cfg,
+            {
+                "gemini_balance_token": "sk-123456",
+            },
+            model="",
+        )
+
+        env_text = self.cfg.gemini_balance_env.read_text(encoding="utf-8")
+        self.assertIn("BASE_URL=https://generativelanguage.googleapis.com/v1beta", env_text)
+        self.assertIn('API_KEYS=["old-key"]', env_text)
+        self.assertIn("TEST_MODEL=gemini-2.5-flash-lite", env_text)
+        gemini_env = self.cfg.gemini_env.read_text(encoding="utf-8")
+        self.assertIn("GOOGLE_GEMINI_BASE_URL=http://localhost:8000/gemini", gemini_env)
+        self.assertIn("GEMINI_API_KEY=sk-123456", gemini_env)
+        self.assertIn("GEMINI_MODEL=gemini-2.5-flash-lite", gemini_env)
 
     def test_switch_openclaw_aiwave_writes_gemini_provider(self):
         self.init_openclaw_files()
@@ -562,9 +679,22 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         with self.assertRaises(self.mod.SwitchError):
             self.mod.validate_model_for_tool("openclaw", "gpt-5.4", "icodeeasy")
 
+    def test_model_validation_allows_cc_flames_custom_models(self):
+        self.mod.validate_model_for_tool("cc", "gpt-5.4", "flames")
+        self.mod.validate_model_for_tool("cc", "deepseek-v4-pro", "flames")
+
+    def test_model_validation_allows_cc_deepseek_models(self):
+        self.mod.validate_model_for_tool("cc", "deepseek-v4-pro", "deepseek")
+
     def test_model_in_provider_accepts_icodeeasy_gpt_and_gemini(self):
         self.assertTrue(self.mod.model_in_provider("gpt-5.4", "icodeeasy"))
         self.assertTrue(self.mod.model_in_provider("gemini-2.5-flash", "icodeeasy"))
+
+    def test_model_in_provider_accepts_flames_deepseek(self):
+        self.assertTrue(self.mod.model_in_provider("deepseek-v4-pro", "flames"))
+
+    def test_model_in_provider_accepts_deepseek_provider_models(self):
+        self.assertTrue(self.mod.model_in_provider("deepseek-v4-pro", "deepseek"))
 
     def test_codex_account_use_reads_auth_snapshot_from_accounts_dir(self):
         self.write_json(

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/Users/flames/opt/miniconda3/bin/python
 """
 switch-api — Unified API provider switcher (DuckCoding ↔ Quotio)
 
@@ -439,12 +439,32 @@ OPENROUTER_DROID_MODEL = "stepfun/step-3.5-flash:free"
 
 XRAY_PROXY = "http://127.0.0.1:1081"
 OPENAI_BASE_URL_V1 = "https://api.openai.com/v1"
-FLAMES_NEWAPI_BASE_URL_V1 = "https://www.flamescn.vip/v1"
+FLAMES_NEWAPI_BASE_URL = "https://www.flamescn.vip"
+FLAMES_NEWAPI_BASE_URL_V1 = FLAMES_NEWAPI_BASE_URL + "/v1"
 FLAMES_DEFAULT_MODEL = "gpt-5.4"
-FLAMES_AVAILABLE_MODELS = (
+FLAMES_CC_ALLOWED_MODELS = (
     "gpt-5.4",
     "gpt-5.3-codex",
+    "deepseek-v4-flash",
+    "deepseek-v4-pro",
 )
+FLAMES_AVAILABLE_MODELS = FLAMES_CC_ALLOWED_MODELS
+FLAMES_CC_MODEL_NAMES = {
+    "gpt-5.4": "Codex GPT-5.4",
+    "gpt-5.3-codex": "Codex GPT-5.3 Codex",
+    "deepseek-v4-flash": "DeepSeek V4 Flash",
+    "deepseek-v4-pro": "DeepSeek V4 Pro",
+}
+DEEPSEEK_BASE_URL = "https://api.deepseek.com/anthropic"
+DEEPSEEK_CC_DEFAULT_MODEL = "deepseek-v4-pro"
+DEEPSEEK_AVAILABLE_MODELS = (
+    "deepseek-v4-flash",
+    "deepseek-v4-pro",
+)
+DEEPSEEK_CC_MODEL_NAMES = {
+    "deepseek-v4-flash": "DeepSeek V4 Flash",
+    "deepseek-v4-pro": "DeepSeek V4 Pro",
+}
 
 # OpenAI named accounts: same base URL, different keys (tag = first 4 chars of key after sk-proj-)
 OPENAI_NAMED_PROVIDERS = ("openai_Gq80", "openai_V420")
@@ -493,24 +513,30 @@ GEMINI_CLI_BASE_URLS = {
     "quotio": QUOTIO_BASE_URL,
     "antigravity": ANTIGRAVITY_BASE_URL,
     "xingyun": XINGYUN_BASE_URL,
+    "flames": FLAMES_NEWAPI_BASE_URL,
     "aiwave": AIWAVE_GEMINI_BASE_URL,
     "icodeeasy": ICODEEASY_BASE_URL,
+    "gemini-balance": "http://localhost:8000/gemini",
 }
 GEMINI_CLI_MODELS = {
     "duck": "gemini-3.1-pro-preview",
     "quotio": "gemini-3.1-pro-high",
     "antigravity": "gemini-3.1-pro-high",
     "xingyun": "gpt-5.4",
+    "flames": "gemini-2.5-flash",
     "aiwave": AIWAVE_GEMINI_MODEL,
     "icodeeasy": ICODEEASY_GEMINI_MODEL,
+    "gemini-balance": "gemini-2.5-flash-lite",
 }
 GEMINI_CLI_KEY_MAP = {
     "duck": "duck_gemini",
     "quotio": "quotio",
     "antigravity": "antigravity",
     "xingyun": "xingyun",
+    "flames": "flames",
     "aiwave": "aiwave_gemini_gcp",
     "icodeeasy": "icodeeasy",
+    "gemini-balance": "gemini_balance_token",
 }
 
 QUOTIO_DROID_MODEL = "gemini-3.1-pro-high"
@@ -526,7 +552,7 @@ DROID_QUOTIO_PROFILE_NAMES = tuple(DROID_QUOTIO_PROFILE_TO_MODEL.keys())
 
 TOOLS = ("cc", "openclaw", "codex", "droid", "gemini", "hermes")
 TOOLS_WITH_ALL = ("cc", "openclaw", "codex", "droid", "gemini", "hermes", "all")
-PROVIDERS = ("duck", "quotio", "quotio_local", "antigravity", "xingyun", "flames", "openai", "openai_Gq80", "openai_V420", "openrouter", "aiwave", "duck_cc1", "duck_codex2cc", "icodeeasy")
+PROVIDERS = ("duck", "quotio", "quotio_local", "antigravity", "xingyun", "flames", "deepseek", "openai", "openai_Gq80", "openai_V420", "openrouter", "aiwave", "duck_cc1", "duck_codex2cc", "icodeeasy", "gemini-balance")
 
 # CC-only providers: these providers only support Claude Code
 CC_ONLY_PROVIDERS = ("duck_cc1", "duck_codex2cc")
@@ -1448,6 +1474,7 @@ def enrich_store_from_env(store: Dict[str, str]) -> Dict[str, str]:
         "antigravity": os.environ.get("ANTIGRAVITY_API_KEY", ""),
         "xingyun": os.environ.get("XINGYUN_API_KEY", ""),
         "flames": os.environ.get("FLAMES_API_KEY", ""),
+        "deepseek": os.environ.get("DEEPSEEK_API_KEY", ""),
         "openrouter": os.environ.get("OPENROUTER_API_KEY", ""),
         "aiwave": os.environ.get("AIWAVE_API_KEY", ""),
         "aiwave_codex": os.environ.get(AIWAVE_CODEX_ENV_KEY, "") or os.environ.get("AIWAVE_API_KEY", ""),
@@ -1504,6 +1531,10 @@ def get_keys(store: Dict[str, str]) -> Dict[str, str]:
         or store.get("xingyun", ""),
         "flames": os.environ.get("FLAMES_API_KEY")
         or store.get("flames", ""),
+        "deepseek": os.environ.get("DEEPSEEK_API_KEY")
+        or store.get("deepseek", ""),
+        "gemini_balance_token": os.environ.get("GEMINI_BALANCE_AUTH_TOKEN")
+        or store.get("gemini_balance_token", ""),
         "openai": os.environ.get("OPENAI_API_KEY")
         or store.get("openai", ""),
         "openrouter": os.environ.get("OPENROUTER_API_KEY")
@@ -1606,6 +1637,11 @@ def provider_model_catalog() -> Dict[str, Any]:
             "flames": {
                 "available_models": list(FLAMES_AVAILABLE_MODELS),
                 "base_url": FLAMES_NEWAPI_BASE_URL_V1,
+                "claude_code": {
+                    "allowed": list(FLAMES_CC_ALLOWED_MODELS),
+                    "default_model": FLAMES_DEFAULT_MODEL,
+                    "note": "Claude Code 走 Anthropic 兼容链路，通过 custom model env 支持 GPT/DeepSeek",
+                },
                 "openclaw": {
                     "default_model": f"flames/{FLAMES_DEFAULT_MODEL}",
                     "note": "OpenAI-compatible relay backed by FLAMES_API_KEY",
@@ -1618,6 +1654,15 @@ def provider_model_catalog() -> Dict[str, Any]:
                     "default_model": FLAMES_DEFAULT_MODEL,
                     "provider": "custom:flames",
                     "api_mode": "codex_responses",
+                },
+            },
+            "deepseek": {
+                "available_models": list(DEEPSEEK_AVAILABLE_MODELS),
+                "base_url": DEEPSEEK_BASE_URL,
+                "claude_code": {
+                    "allowed": list(DEEPSEEK_AVAILABLE_MODELS),
+                    "default_model": DEEPSEEK_CC_DEFAULT_MODEL,
+                    "note": "Claude Code 直连 DeepSeek 官方 Anthropic 兼容接口",
                 },
             },
             "aiwave": {
@@ -1702,6 +1747,45 @@ def resolve_cc_model_for_quotio(current_model: str) -> Tuple[str, str]:
         return "claude-opus-4-6-thinking", f"Claude model {m} mapped to claude-opus-4-6-thinking (opus4.5 fallback policy)"
 
     return QUOTIO_CC_DEFAULT_MODEL, f"Claude model {m} is not in quotio allowlist; fallback to {QUOTIO_CC_DEFAULT_MODEL}"
+
+
+def clear_cc_custom_model_env(env: Dict[str, str]) -> None:
+    for key in (
+        "ANTHROPIC_CUSTOM_MODEL_OPTION",
+        "ANTHROPIC_CUSTOM_MODEL_OPTION_NAME",
+        "ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION",
+    ):
+        env.pop(key, None)
+
+
+def resolve_cc_model_for_flames(current_model: str, requested_model: str) -> Tuple[str, str]:
+    requested = (requested_model or "").strip()
+    if requested:
+        return requested, ""
+
+    current = (current_model or "").strip()
+    if current in FLAMES_CC_ALLOWED_MODELS:
+        return current, ""
+
+    return FLAMES_DEFAULT_MODEL, (
+        f"Claude Code model {current or '?'} is not in flames allowlist; "
+        f"fallback to {FLAMES_DEFAULT_MODEL}"
+    )
+
+
+def resolve_cc_model_for_deepseek(current_model: str, requested_model: str) -> Tuple[str, str]:
+    requested = (requested_model or "").strip()
+    if requested:
+        return requested, ""
+
+    current = (current_model or "").strip()
+    if current in DEEPSEEK_AVAILABLE_MODELS:
+        return current, ""
+
+    return DEEPSEEK_CC_DEFAULT_MODEL, (
+        f"Claude Code model {current or '?'} is not in deepseek allowlist; "
+        f"fallback to {DEEPSEEK_CC_DEFAULT_MODEL}"
+    )
 
 
 def resolve_openclaw_primary_for_quotio(current_primary: str) -> Tuple[str, str]:
@@ -1806,6 +1890,7 @@ class Config:
         self.cx_config = self.codex_home / "config.toml"
         self.factory_settings = home / ".factory/settings.json"
         self.gemini_env = home / ".gemini/.env"
+        self.gemini_balance_env = home / "tools/gemini-balance/.env"
         self.oc_env = home / ".openclaw/.env"
         self.bashrc = home / ".bashrc"
         self.zshrc = home / ".zshrc"
@@ -1872,6 +1957,10 @@ def detect_provider(tool: str, cfg: Config) -> str:
             return "no-config"
         data = load_json(cfg.cc_settings)
         url = ((data.get("env") or {}).get("ANTHROPIC_BASE_URL") or "").strip()
+        if "api.deepseek.com" in url:
+            return "deepseek"
+        if "flamescn.vip" in url:
+            return "flames"
         if "tools.ancientechoes" in url:
             return "antigravity"
         if "ancientechoes" in url:
@@ -1965,6 +2054,8 @@ def detect_provider(tool: str, cfg: Config) -> str:
         text = read_text(gemini_env)
         m = re.search(r"^GOOGLE_GEMINI_BASE_URL=(.*)$", text, re.M)
         url = m.group(1).strip() if m else ""
+        if "localhost:8000/gemini" in url or "127.0.0.1:8000/gemini" in url:
+            return "gemini-balance"
         if "tools.ancientechoes" in url:
             return "antigravity"
         if "ancientechoes" in url:
@@ -1975,6 +2066,8 @@ def detect_provider(tool: str, cfg: Config) -> str:
             return "icodeeasy"
         if "ai-wave.org" in url:
             return "aiwave"
+        if "flamescn.vip" in url:
+            return "flames"
         return f"unknown({url})" if url else "unknown"
 
     if tool == "hermes":
@@ -2055,6 +2148,8 @@ def show_status(cfg: Config) -> None:
             icon = "☁️"
         elif p == "flames":
             icon = "🔥"
+        elif p == "deepseek":
+            icon = "🧠"
         elif p == "openai" or p.startswith("openai_"):
             icon = "🔑"
             if tool == "openclaw":
@@ -2083,6 +2178,7 @@ def show_status(cfg: Config) -> None:
     print("  🚀 = Antigravity-tools (tools.ancientechoes.ai)")
     print("  🔑 = OpenAI 官方 (api.openai.com via proxy) — Gq80/V420 = 账号标识")
     print("  🔥 = Flames NewAPI (www.flamescn.vip)")
+    print("  🧠 = DeepSeek (api.deepseek.com/anthropic)")
     print("  🌐 = OpenRouter (openrouter.ai)")
     print("  🌊 = AI Wave (api.ai-wave.org)")
     print("  🧊 = iCodeEasy (api.icodeeasy.cc)")
@@ -2096,6 +2192,7 @@ FAMILY_TOOLS = {
     "claude": ("cc", "openclaw"),
     "gemini": ("openclaw", "droid", "gemini", "hermes"),
     "gpt":    ("codex", "droid", "openclaw", "hermes"),
+    "deepseek": ("cc",),
     "openrouter": ("openclaw", "codex", "droid"),
 }
 
@@ -2109,7 +2206,7 @@ ALL_KNOWN_PROFILES = frozenset(
 
 
 def model_family(model: str) -> str:
-    """Return 'claude', 'gemini', 'gpt', or 'other'."""
+    """Return 'claude', 'gemini', 'gpt', 'deepseek', or 'other'."""
     m = model.split("/")[-1]  # strip provider prefix like quotio/
     if m.startswith("claude-") or m.startswith("claude_"):
         return "claude"
@@ -2117,6 +2214,8 @@ def model_family(model: str) -> str:
         return "gemini"
     if m.startswith("gpt-") or m.startswith("gpt_") or m.startswith("o1") or m.startswith("o3") or m.startswith("o4"):
         return "gpt"
+    if m.startswith("deepseek-") or m.startswith("deepseek_"):
+        return "deepseek"
     # OpenRouter model IDs contain "/" (e.g. stepfun/step-3.5-flash:free)
     if "/" in model and (model in OPENROUTER_FREE_MODELS or model.rstrip(":free") + ":free" in OPENROUTER_FREE_MODELS):
         return "openrouter"
@@ -2150,6 +2249,8 @@ def get_provider_models(provider: str) -> Dict[str, Tuple[str, ...]]:
         models = AIWAVE_CODEX_AVAILABLE_MODELS + AIWAVE_GEMINI_AVAILABLE_MODELS
     elif provider == "flames":
         models = FLAMES_AVAILABLE_MODELS
+    elif provider == "deepseek":
+        models = DEEPSEEK_AVAILABLE_MODELS
     elif provider == "icodeeasy":
         models = ICODEEASY_AVAILABLE_MODELS
     elif provider == "duck_codex2cc":
@@ -2158,7 +2259,14 @@ def get_provider_models(provider: str) -> Dict[str, Tuple[str, ...]]:
         models = OPENROUTER_FREE_MODELS
     else:
         return {}
-    result: Dict[str, list] = {"claude": [], "gemini": [], "gpt": [], "openrouter": [], "other": []}
+    result: Dict[str, list] = {
+        "claude": [],
+        "gemini": [],
+        "gpt": [],
+        "deepseek": [],
+        "openrouter": [],
+        "other": [],
+    }
     for m in models:
         result[model_family(m)].append(m)
     return {k: tuple(v) for k, v in result.items()}
@@ -2177,7 +2285,9 @@ def model_in_provider(model: str, provider: str) -> bool:
     if provider == "aiwave":
         return m in AIWAVE_CODEX_AVAILABLE_MODELS or m in AIWAVE_GEMINI_AVAILABLE_MODELS
     if provider == "flames":
-        return model_family(m) == "gpt"
+        return m in FLAMES_AVAILABLE_MODELS
+    if provider == "deepseek":
+        return m in DEEPSEEK_AVAILABLE_MODELS
     if provider == "icodeeasy":
         return model_family(m) in ("claude", "gemini", "gpt")
     if provider == "duck_codex2cc":
@@ -2196,7 +2306,7 @@ def tools_for_model(model: str) -> Tuple[str, ...]:
 # ----------------------------- list command ----------------------------
 def cmd_list_models(provider: str = "") -> None:
     """Print available models for one or all providers."""
-    providers = [provider] if provider else ["quotio", "duck", "antigravity", "xingyun", "aiwave", "flames", "icodeeasy", "duck_codex2cc", "openrouter"]
+    providers = [provider] if provider else ["quotio", "duck", "antigravity", "xingyun", "aiwave", "flames", "deepseek", "icodeeasy", "duck_codex2cc", "openrouter"]
 
     for prov in providers:
         catalog = get_provider_models(prov)
@@ -2208,6 +2318,7 @@ def cmd_list_models(provider: str = "") -> None:
             "xingyun": "Xingyun",
             "aiwave": "AI Wave",
             "flames": "Flames NewAPI",
+            "deepseek": "DeepSeek (Anthropic)",
             "icodeeasy": "iCodeEasy (统一网关)",
             "duck_codex2cc": "Duck CodeX→CC (CC-only)",
             "openrouter": "OpenRouter (Free)",
@@ -2218,6 +2329,7 @@ def cmd_list_models(provider: str = "") -> None:
             ("Claude", "claude", "cc, openclaw"),
             ("Gemini", "gemini", "openclaw, droid, gemini, hermes"),
             ("OpenAI/GPT", "gpt", "codex, droid, hermes"),
+            ("DeepSeek", "deepseek", "cc"),
             ("OpenRouter (Free)", "openrouter", "openclaw, codex, droid"),
             ("其他", "other", "—"),
         ]
@@ -2282,7 +2394,7 @@ def detect_current_model(tool: str, cfg: Config) -> str:
         if not gemini_env.exists():
             return "?"
         text = read_text(gemini_env)
-        m = re.search(r"^GOOGLE_GEMINI_MODEL=(.*)$", text, re.M)
+        m = re.search(r"^GEMINI_MODEL=(.*)$", text, re.M)
         return m.group(1).strip() if m else "?"
 
     if tool == "hermes":
@@ -2305,6 +2417,7 @@ def probe_model_curl(provider: str, model: str, keys: Dict[str, str]) -> Tuple[b
         "antigravity": (ANTIGRAVITY_BASE_URL_V1 + "/chat/completions", None),
         "xingyun": (XINGYUN_BASE_URL_V1 + "/chat/completions", None),
         "flames": (FLAMES_NEWAPI_BASE_URL_V1 + "/chat/completions", None),
+        "deepseek": (DEEPSEEK_BASE_URL + "/v1/messages", None),
         "openai": (OPENAI_BASE_URL_V1 + "/chat/completions", XRAY_PROXY),
         "openrouter": (OPENROUTER_BASE_URL_V1 + "/chat/completions", None),
     }
@@ -2343,6 +2456,8 @@ def probe_model_curl(provider: str, model: str, keys: Dict[str, str]) -> Tuple[b
         key = keys.get("xingyun", "")
     elif provider == "flames":
         key = keys.get("flames", "")
+    elif provider == "deepseek":
+        key = keys.get("deepseek", "")
     elif provider == "openai":
         key = keys.get("openai", "")
     elif provider == "openrouter":
@@ -2389,6 +2504,18 @@ def probe_model_curl(provider: str, model: str, keys: Dict[str, str]) -> Tuple[b
                    "-H", "Content-Type: application/json",
                    "-d", payload,
                    "--max-time", "10"]
+    elif provider == "deepseek":
+        payload = json.dumps({
+            "model": bare_model,
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 1,
+        })
+        cmd = ["curl", "-s", "-w", "\n%{http_code}", "-X", "POST", url,
+               "-H", f"x-api-key: {key}",
+               "-H", "anthropic-version: 2023-06-01",
+               "-H", "Content-Type: application/json",
+               "-d", payload,
+               "--max-time", "10"]
     else:
         payload = json.dumps({
             "model": bare_model,
@@ -2432,7 +2559,7 @@ def cmd_check(cfg: Config, keys: Dict[str, str], online: bool = False) -> None:
     for tool in TOOLS:
         prov = detect_provider(tool, cfg)
         model = detect_current_model(tool, cfg)
-        icon = {"duck": "🦆", "quotio": "🔗", "antigravity": "🚀", "xingyun": "☁️", "aiwave": "🌊", "flames": "🔥", "openai": "🔑", "openrouter": "🌐", "icodeeasy": "🧊"}.get(prov, "🔑" if prov.startswith("openai_") else "❓")
+        icon = {"duck": "🦆", "quotio": "🔗", "antigravity": "🚀", "xingyun": "☁️", "aiwave": "🌊", "flames": "🔥", "deepseek": "🧠", "openai": "🔑", "openrouter": "🌐", "icodeeasy": "🧊"}.get(prov, "🔑" if prov.startswith("openai_") else "❓")
 
         # Truncate model for display
         model_display = model if len(model) <= 32 else model[:29] + "..."
@@ -2448,7 +2575,7 @@ def cmd_check(cfg: Config, keys: Dict[str, str], online: bool = False) -> None:
         else:
             status = "—"
 
-        if online and prov in ("quotio", "antigravity", "duck", "flames", "openai", "icodeeasy"):
+        if online and prov in ("quotio", "antigravity", "duck", "flames", "deepseek", "openai", "icodeeasy"):
             ok, reason = probe_model_curl(prov, bare_model, keys)
             if ok:
                 status = "✅ online"
@@ -2473,6 +2600,8 @@ def validate_model_for_tool(tool: str, model: str, provider: str, force: bool = 
     """Validate model compatibility. Raises SwitchError on failure."""
     fam = model_family(model)
     compatible = FAMILY_TOOLS.get(fam, ())
+    if provider == "flames" and tool == "cc" and fam == "gpt":
+        compatible = tuple(dict.fromkeys((*compatible, "cc")))
 
     if tool not in compatible:
         raise SwitchError(
@@ -2511,6 +2640,7 @@ def switch_cc(provider: str, cfg: Config, keys: Dict[str, str], model: str = "")
     data = load_json(cfg.cc_settings)
     env = data.setdefault("env", {})
     current_model = str(data.get("model", "") or "").strip()
+    clear_cc_custom_model_env(env)
 
     if provider == "duck":
         env["ANTHROPIC_BASE_URL"] = DUCK_BASE_URL
@@ -2557,6 +2687,40 @@ def switch_cc(provider: str, cfg: Config, keys: Dict[str, str], model: str = "")
         if reason:
             warn(reason)
         info("Antigravity Claude allowlist: claude-opus-4-6-thinking, claude-sonnet-4-6")
+
+    elif provider == "flames":
+        env["ANTHROPIC_BASE_URL"] = FLAMES_NEWAPI_BASE_URL
+        env["ANTHROPIC_AUTH_TOKEN"] = ensure_key("FLAMES_API_KEY", keys["flames"])
+        env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
+        env["CLAUDE_CODE_ATTRIBUTION_HEADER"] = "0"
+
+        target_model, reason = resolve_cc_model_for_flames(current_model, model)
+        data["model"] = target_model
+        env["ANTHROPIC_CUSTOM_MODEL_OPTION"] = target_model
+        env["ANTHROPIC_CUSTOM_MODEL_OPTION_NAME"] = FLAMES_CC_MODEL_NAMES.get(
+            target_model, target_model
+        )
+        env["ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION"] = "Flames NewAPI custom model relay"
+        if reason:
+            warn(reason)
+        info("Flames Claude Code custom models: " + ", ".join(FLAMES_CC_ALLOWED_MODELS))
+
+    elif provider == "deepseek":
+        env["ANTHROPIC_BASE_URL"] = DEEPSEEK_BASE_URL
+        env["ANTHROPIC_AUTH_TOKEN"] = ensure_key("DEEPSEEK_API_KEY", keys["deepseek"])
+        env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
+        env["CLAUDE_CODE_ATTRIBUTION_HEADER"] = "0"
+
+        target_model, reason = resolve_cc_model_for_deepseek(current_model, model)
+        data["model"] = target_model
+        env["ANTHROPIC_CUSTOM_MODEL_OPTION"] = target_model
+        env["ANTHROPIC_CUSTOM_MODEL_OPTION_NAME"] = DEEPSEEK_CC_MODEL_NAMES.get(
+            target_model, target_model
+        )
+        env["ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION"] = "DeepSeek official Anthropic-compatible API"
+        if reason:
+            warn(reason)
+        info("DeepSeek Claude Code models: " + ", ".join(DEEPSEEK_AVAILABLE_MODELS))
 
     elif provider == "icodeeasy":
         env["ANTHROPIC_BASE_URL"] = ICODEEASY_BASE_URL
@@ -4195,6 +4359,17 @@ def update_gemini_cli_env(provider: str, cfg: Config, keys: Dict[str, str], mode
     info(f"Synced ~/.gemini/.env → {provider} (GOOGLE_GEMINI_BASE_URL={base_url}, model={target_model})")
 
 
+def update_gemini_balance_env(provider: str, cfg: Config, keys: Dict[str, str], model: str = "") -> None:
+    env_path = cfg.gemini_balance_env
+    if not env_path.exists():
+        raise SwitchError(f"gemini-balance env not found: {env_path}")
+
+    if provider != "gemini-balance":
+        return
+
+    info("tools/gemini-balance/.env kept in local service mode")
+
+
 def switch_gemini_cli(provider: str, cfg: Config, keys: Dict[str, str], model: str = "") -> None:
     """Switch Gemini CLI to a different provider.
     Also updates .bashrc GEMINI_API_KEY (shared with Droid)."""
@@ -4208,10 +4383,18 @@ def switch_gemini_cli(provider: str, cfg: Config, keys: Dict[str, str], model: s
             resolve_aiwave_gemini_key(keys),
             f"required for Gemini CLI {provider}",
         )
+    elif provider == "gemini-balance":
+        api_key = ensure_key(
+            "GEMINI_BALANCE_AUTH_TOKEN",
+            keys.get("gemini_balance_token", ""),
+            f"required for Gemini CLI {provider}",
+        )
     else:
         api_key = ensure_key(f"API key ({key_slot})", keys.get(key_slot, ""), f"required for Gemini CLI {provider}")
 
     update_gemini_cli_env(provider, cfg, keys, model=model)
+    if provider == "gemini-balance":
+        update_gemini_balance_env(provider, cfg, keys, model=model)
 
     # Also update .bashrc GEMINI_API_KEY since it takes precedence over .env
     update_bashrc_exports(cfg.bashrc, {"GEMINI_API_KEY": api_key})
@@ -4529,6 +4712,7 @@ def usage() -> None:
     print("       switch-api openclaw openai key     # OpenClaw 切到 OpenAI API Key")
     print("       switch-api droid quotio")
     print("       switch-api droid quotio codex")
+    print("       switch-api gemini gemini-balance")
     print("")
     print(f"  tool:     {' | '.join(TOOLS_WITH_ALL)}")
     print(f"  provider: {' | '.join(PROVIDERS)}")
@@ -4554,7 +4738,7 @@ def usage() -> None:
     print("       switch-api openai_Gq80          # codex+droid 切到 key 槽位 Gq80")
     print()
     print("  6.5) Flames NewAPI (OpenAI-compatible relay):")
-    print("       switch-api flames              # openclaw+codex → Flames")
+    print("       switch-api flames              # cc+openclaw+codex+gemini+hermes → Flames")
     print("       switch-api flames --all-agents # OpenClaw 多 agent 全量同步")
     print("       switch-api codex flames        # Codex → flames_newapi + FLAMES_API_KEY")
     print("       switch-api openclaw flames     # OpenClaw → flames/gpt-5.4")
@@ -4566,6 +4750,7 @@ def usage() -> None:
     print("       switch-api openclaw icodeeasy    # OpenClaw → Claude Sonnet 4.6 (Claude-only)")
     print("       switch-api codex icodeeasy       # Codex → iCodeEasy / gpt-5.4")
     print("       switch-api gemini icodeeasy      # Gemini CLI → iCodeEasy / gemini-2.5-flash")
+    print("       switch-api gemini gemini-balance # Gemini CLI + gemini-balance → AI Wave / gemini-3.1-pro-preview")
     print()
     print("  8) Hermes:")
     print("       switch-api hermes flames         # Hermes → Flames / gpt-5.4")
@@ -4900,11 +5085,17 @@ def main() -> int:
                     f"{', '.join(missing)} is not set! Edit ~/.env and run: source ~/.zshrc"
                 )
 
-    if provider == "flames" and tool not in ("codex", "openclaw", "hermes", "all"):
-        raise SwitchError(f"Provider 'flames' is supported for codex/openclaw/hermes, not {tool}")
+    if provider == "flames" and tool not in ("cc", "codex", "openclaw", "gemini", "hermes", "all"):
+        raise SwitchError(f"Provider 'flames' is supported for cc/codex/openclaw/gemini/hermes, not {tool}")
 
     if provider == "flames" and not keys["flames"]:
         raise SwitchError("FLAMES_API_KEY is not set! Edit ~/.env and run: source ~/.zshrc")
+
+    if provider == "deepseek" and tool not in ("cc",):
+        raise SwitchError(f"Provider 'deepseek' is CC-only, not {tool}")
+
+    if provider == "deepseek" and not keys["deepseek"]:
+        raise SwitchError("DEEPSEEK_API_KEY is not set! Edit ~/.env and run: source ~/.zshrc")
 
     if provider == "duck_cc1" and tool not in ("cc",):
         raise SwitchError(f"Provider 'duck_cc1' is CC-only (Claude Code专用 key, 无 codex/GPT 权限), not {tool}")
@@ -4921,6 +5112,11 @@ def main() -> int:
     if provider == "icodeeasy" and tool not in ("cc", "openclaw", "codex", "gemini", "all"):
         raise SwitchError(f"Provider 'icodeeasy' supports cc/openclaw/codex/gemini, not {tool}")
 
+    if provider == "gemini-balance" and tool != "gemini":
+        raise SwitchError("Provider 'gemini-balance' is only supported with tool 'gemini'")
+    if provider == "gemini-balance" and not keys["gemini_balance_token"]:
+        raise SwitchError("GEMINI_BALANCE_AUTH_TOKEN is not set! Edit ~/.env and run: source ~/.zshrc")
+
     if provider == "icodeeasy" and not keys["icodeeasy"]:
         raise SwitchError("ICODEEASY_API_KEY is not set! Edit ~/.env and run: source ~/.zshrc")
 
@@ -4934,6 +5130,8 @@ def main() -> int:
             info("Pre-flight skipped for Codex flames_newapi key route（本地 config.toml 的 env_key 决定槽位）")
         elif provider == "aiwave":
             info("Pre-flight skipped for AI Wave（不同工具走不同 key/protocol 路径）")
+        elif provider == "deepseek":
+            info("Pre-flight skipped for DeepSeek（Anthropic 兼容 messages 链路）")
         else:
             reachable, reason = probe_provider(provider, keys)
             if not reachable:
@@ -4987,9 +5185,11 @@ def main() -> int:
             switch_codex(provider, cfg, keys, model=model)
             switch_droid(provider, cfg, keys, "", model=model)
         elif provider == "flames":
-            info("Flames supports openclaw/codex/hermes — switching those only")
+            info("Flames supports cc/openclaw/codex/gemini/hermes — switching those")
+            switch_cc(provider, cfg, keys, model=model)
             switch_openclaw(provider, cfg, keys, "", model=model, agent_id=openclaw_agent_id, all_agents=openclaw_all_agents)
             switch_codex(provider, cfg, keys, model=model)
+            switch_gemini_cli(provider, cfg, keys, model=model)
             switch_hermes(
                 provider,
                 cfg,
@@ -4998,6 +5198,9 @@ def main() -> int:
                 profile_name=hermes_profile_name,
                 all_profiles=hermes_all_profiles,
             )
+        elif provider == "deepseek":
+            info("DeepSeek is CC-only — switching Claude Code only")
+            switch_cc(provider, cfg, keys, model=model)
         elif provider == "aiwave":
             info("AI Wave supports openclaw/codex/droid/gemini/hermes — switching those only")
             switch_openclaw(provider, cfg, keys, "", model=model, agent_id=openclaw_agent_id, all_agents=openclaw_all_agents)

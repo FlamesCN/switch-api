@@ -15,7 +15,8 @@ Unified API provider switcher across:
 | `quotio` | 🔗 | all | Quotio Tunnel (api.ancientechoes.ai) |
 | `antigravity` | 🚀 | all | Antigravity-tools (tools.ancientechoes.ai) |
 | `xingyun` | ☁️ | openclaw, codex, droid | Xingyun GPT (ai.xingyungept.cn) |
-| `flames` | 🔥 | openclaw, codex, hermes | Flames NewAPI (www.flamescn.vip) |
+| `flames` | 🔥 | cc, openclaw, codex, hermes | Flames NewAPI (www.flamescn.vip) |
+| `deepseek` | 🧠 | cc | DeepSeek Official Anthropic API (api.deepseek.com/anthropic) |
 | `quotio_local` | 🔗 | codex, droid | Quotio Local (本地 app, 127.0.0.1:8317) |
 | `openrouter` | 🌐 | openclaw, codex, droid | OpenRouter (openrouter.ai) — free models |
 | `openai` | 🔑 | openclaw, codex, droid | OpenAI 官方 (api.openai.com via proxy) |
@@ -64,7 +65,8 @@ switch-api duck                      # 全部 → DuckCoding
 switch-api quotio                    # 全部 → Quotio
 switch-api antigravity               # 全部 → Antigravity
 switch-api xingyun                   # openclaw+codex+droid → Xingyun GPT
-switch-api flames                    # openclaw+codex+hermes → Flames NewAPI
+switch-api flames                    # cc+openclaw+codex+hermes → Flames NewAPI
+switch-api deepseek                  # cc → DeepSeek Official
 switch-api aiwave                    # openclaw+codex+droid+gemini+hermes → AI Wave
 switch-api icodeeasy                 # cc+openclaw+codex+gemini → iCodeEasy
 switch-api openrouter                # openclaw+codex+droid → OpenRouter (free)
@@ -74,6 +76,9 @@ switch-api openrouter                # openclaw+codex+droid → OpenRouter (free
 ```bash
 switch-api cc duck
 switch-api cc icodeeasy
+switch-api cc deepseek [model]
+switch-api cc deepseek deepseek-v4-pro
+switch-api cc flames [model]
 switch-api openclaw quotio [profile]
 switch-api openclaw icodeeasy [model]
 switch-api codex icodeeasy [model]
@@ -156,6 +161,7 @@ switch-api droid quotio_local gpt-5.3-codex-xhigh  # 超高思考
   - `XINGYUN_API_KEY`
   - `OPENAI_API_KEY`, `OPENAI_GQ80_API_KEY`, `OPENAI_V420_API_KEY`
   - `FLAMES_API_KEY`
+  - `DEEPSEEK_API_KEY`
   - `OPENROUTER_API_KEY`
   - `AIWAVE_CODEX_API_KEY`, `AIWAVE_GEMINI_GCP_API_KEY`, `AIWAVE_GEMINI_API_KEY`
   - `AIWAVE_CLAUDE_ANTI_API_KEY`, `AIWAVE_CLAUDE_OMG_API_KEY`

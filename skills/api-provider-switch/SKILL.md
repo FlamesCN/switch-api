@@ -20,17 +20,27 @@ metadata: { "openclaw": { "emoji": "🔀", "requires": { "anyBins": ["switch-api
 | antigravity | Antigravity-tools | tools.ancientechoes.ai | 🚀 |
 | openai | OpenAI 官方 | api.openai.com (via xray proxy) | 🔑 |
 | openrouter | OpenRouter | openrouter.ai (free models) | 🌐 |
+| flames | Flames NewAPI | www.flamescn.vip | 🔥 |
+| deepseek | DeepSeek 官方 Anthropic API | api.deepseek.com/anthropic | 🧠 |
 | icodeeasy | iCodeEasy | api.icodeeasy.cc | 🧊 |
 
 ## 工具 × 模型兼容矩阵
 
 **必须遵守，违反会报错：**
 
-- **cc** (Claude Code): 仅 `claude-*` — GPT/Gemini 切换时 **跳过 cc**
+- **cc** (Claude Code): 默认 `claude-*`；当 provider 为 `flames` 时，也支持 `gpt-*` 和 `deepseek-v4-*`
 - **openclaw**: `claude-*` + `gemini-*`
 - **codex**: 仅 `gpt-*` — Claude/Gemini 切换时 **跳过 codex**
 - **droid**: `gemini-*` + `gpt-*`
 - **gemini**: 仅 `gemini-*`
+
+### DeepSeek 速查
+
+```bash
+switch-api cc deepseek
+switch-api cc deepseek deepseek-v4-pro
+switch-api cc deepseek deepseek-v4-flash
+```
 
 ## 命令速查
 
