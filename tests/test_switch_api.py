@@ -355,6 +355,11 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
             env["ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION"],
             "DeepSeek official Anthropic-compatible API",
         )
+        self.assertEqual(env["ANTHROPIC_MODEL"], "deepseek-v4-pro")
+        self.assertEqual(env["ANTHROPIC_DEFAULT_OPUS_MODEL"], "deepseek-v4-pro")
+        self.assertEqual(env["ANTHROPIC_DEFAULT_SONNET_MODEL"], "deepseek-v4-pro")
+        self.assertEqual(env["ANTHROPIC_DEFAULT_HAIKU_MODEL"], "deepseek-v4-flash")
+        self.assertEqual(env["CLAUDE_CODE_SUBAGENT_MODEL"], "deepseek-v4-flash")
         self.assertEqual(self.mod.detect_provider("cc", self.cfg), "deepseek")
 
     def test_switch_cc_deepseek_defaults_to_v4_pro(self):
@@ -366,6 +371,33 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         env = data["env"]
         self.assertEqual(data["model"], "deepseek-v4-pro")
         self.assertEqual(env["ANTHROPIC_CUSTOM_MODEL_OPTION"], "deepseek-v4-pro")
+        self.assertEqual(env["ANTHROPIC_DEFAULT_HAIKU_MODEL"], "deepseek-v4-flash")
+
+    def test_switch_cc_non_deepseek_clears_stale_model_alias_env(self):
+        self.init_cc_settings(
+            model="deepseek-v4-pro",
+            env={
+                "ANTHROPIC_MODEL": "deepseek-v4-pro",
+                "ANTHROPIC_DEFAULT_OPUS_MODEL": "deepseek-v4-pro",
+                "ANTHROPIC_DEFAULT_SONNET_MODEL": "deepseek-v4-pro",
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL": "deepseek-v4-flash",
+                "CLAUDE_CODE_SUBAGENT_MODEL": "deepseek-v4-flash",
+                "ANTHROPIC_CUSTOM_MODEL_OPTION": "deepseek-v4-pro",
+                "ANTHROPIC_CUSTOM_MODEL_OPTION_NAME": "DeepSeek V4 Pro",
+                "ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION": "DeepSeek official Anthropic-compatible API",
+            },
+        )
+
+        self.mod.switch_cc("quotio", self.cfg, {"quotio": "dummy"}, model="")
+
+        data = json.loads(self.cfg.cc_settings.read_text(encoding="utf-8"))
+        env = data["env"]
+        self.assertNotIn("ANTHROPIC_MODEL", env)
+        self.assertNotIn("ANTHROPIC_DEFAULT_OPUS_MODEL", env)
+        self.assertNotIn("ANTHROPIC_DEFAULT_SONNET_MODEL", env)
+        self.assertNotIn("ANTHROPIC_DEFAULT_HAIKU_MODEL", env)
+        self.assertNotIn("CLAUDE_CODE_SUBAGENT_MODEL", env)
+        self.assertNotIn("ANTHROPIC_CUSTOM_MODEL_OPTION", env)
 
     def test_switch_codex_icodeeasy_writes_provider_block_and_detects_icodeeasy(self):
         self.mod.switch_codex("icodeeasy", self.cfg, {"icodeeasy": "dummy"}, model="")

@@ -465,6 +465,12 @@ DEEPSEEK_CC_MODEL_NAMES = {
     "deepseek-v4-flash": "DeepSeek V4 Flash",
     "deepseek-v4-pro": "DeepSeek V4 Pro",
 }
+DEEPSEEK_CC_MODEL_ALIASES = {
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "deepseek-v4-pro",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "deepseek-v4-pro",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "deepseek-v4-flash",
+    "CLAUDE_CODE_SUBAGENT_MODEL": "deepseek-v4-flash",
+}
 
 # OpenAI named accounts: same base URL, different keys (tag = first 4 chars of key after sk-proj-)
 OPENAI_NAMED_PROVIDERS = ("openai_Gq80", "openai_V420")
@@ -1761,6 +1767,17 @@ def clear_cc_custom_model_env(env: Dict[str, str]) -> None:
         env.pop(key, None)
 
 
+def clear_cc_model_alias_env(env: Dict[str, str]) -> None:
+    for key in (
+        "ANTHROPIC_MODEL",
+        "ANTHROPIC_DEFAULT_OPUS_MODEL",
+        "ANTHROPIC_DEFAULT_SONNET_MODEL",
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+        "CLAUDE_CODE_SUBAGENT_MODEL",
+    ):
+        env.pop(key, None)
+
+
 def resolve_cc_model_for_flames(current_model: str, requested_model: str) -> Tuple[str, str]:
     requested = (requested_model or "").strip()
     if requested:
@@ -2644,6 +2661,7 @@ def switch_cc(provider: str, cfg: Config, keys: Dict[str, str], model: str = "")
     env = data.setdefault("env", {})
     current_model = str(data.get("model", "") or "").strip()
     clear_cc_custom_model_env(env)
+    clear_cc_model_alias_env(env)
 
     if provider == "duck":
         env["ANTHROPIC_BASE_URL"] = DUCK_BASE_URL
@@ -2721,6 +2739,9 @@ def switch_cc(provider: str, cfg: Config, keys: Dict[str, str], model: str = "")
             target_model, target_model
         )
         env["ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION"] = "DeepSeek official Anthropic-compatible API"
+        env["ANTHROPIC_MODEL"] = target_model
+        for alias_key, alias_model in DEEPSEEK_CC_MODEL_ALIASES.items():
+            env[alias_key] = alias_model
         if reason:
             warn(reason)
         info("DeepSeek Claude Code models: " + ", ".join(DEEPSEEK_AVAILABLE_MODELS))
