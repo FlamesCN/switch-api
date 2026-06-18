@@ -552,6 +552,9 @@ DROID_QUOTIO_PROFILE_NAMES = tuple(DROID_QUOTIO_PROFILE_TO_MODEL.keys())
 
 TOOLS = ("cc", "openclaw", "codex", "droid", "gemini", "hermes")
 TOOLS_WITH_ALL = ("cc", "openclaw", "codex", "droid", "gemini", "hermes", "all")
+TOOL_ALIASES = {
+    "claude": "cc",
+}
 PROVIDERS = ("duck", "quotio", "quotio_local", "antigravity", "xingyun", "flames", "deepseek", "openai", "openai_Gq80", "openai_V420", "openrouter", "aiwave", "duck_cc1", "duck_codex2cc", "icodeeasy", "gemini-balance")
 
 # CC-only providers: these providers only support Claude Code
@@ -562,7 +565,7 @@ CC_ONLY_PROVIDERS = ("duck_cc1", "duck_codex2cc")
 OPENCLAW_CLAUDE_PROVIDERS = ("duck", "quotio", "antigravity", "icodeeasy")
 OPENCLAW_GEMINI_PROFILES = frozenset(("gemini", "gemini3", "gemini-3", "gemini3-pro-high"))
 
-APP_VERSION = "2.0.4"
+APP_VERSION = "2.0.5"
 
 RED = "\033[0;31m"
 GREEN = "\033[0;32m"
@@ -4698,6 +4701,7 @@ def usage() -> None:
     print("       switch-api codex-account use alt")
     print("  3) single tool switch:")
     print("       switch-api cc duck")
+    print("       switch-api claude deepseek       # claude 是 cc 的别名")
     print("       switch-api openclaw quotio")
     print("       switch-api openclaw quotio gemini3")
     print("       switch-api openclaw antigravity")
@@ -4715,6 +4719,7 @@ def usage() -> None:
     print("       switch-api gemini gemini-balance")
     print("")
     print(f"  tool:     {' | '.join(TOOLS_WITH_ALL)}")
+    print(f"  alias:    {', '.join(f'{alias}→{target}' for alias, target in TOOL_ALIASES.items())}")
     print(f"  provider: {' | '.join(PROVIDERS)}")
     print()
     print("  4) OpenRouter (free models):")
@@ -4858,6 +4863,10 @@ def switch_path_touches_hermes(tool: str, provider: str) -> bool:
     return provider in ("flames", "aiwave")
 
 
+def normalize_tool_name(tool: str) -> str:
+    return TOOL_ALIASES.get(tool, tool)
+
+
 def parse_args(argv: Iterable[str]) -> Tuple[str, str, str]:
     """Returns (action, provider, profile_or_model).
     action can be: status, check, check-online, list, list-<provider>,
@@ -4905,6 +4914,7 @@ def parse_args(argv: Iterable[str]) -> Tuple[str, str, str]:
 
     if len(args) == 2:
         a0, a1 = args
+        a0 = normalize_tool_name(a0)
         # list <provider>
         if a0 == "list":
             if a1 in PROVIDERS or a1 in ("duck", "quotio", "antigravity"):
@@ -4928,6 +4938,7 @@ def parse_args(argv: Iterable[str]) -> Tuple[str, str, str]:
 
     if len(args) == 3:
         tool, provider, arg3 = args
+        tool = normalize_tool_name(tool)
         if tool not in TOOLS_WITH_ALL:
             err(f"Unknown tool: {tool}")
             usage()

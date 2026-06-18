@@ -155,6 +155,16 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertEqual(hermes_profile, "")
         self.assertTrue(all_profiles)
 
+    def test_parse_args_normalizes_claude_alias_to_cc(self):
+        self.assertEqual(
+            self.mod.parse_args(["claude", "deepseek"]),
+            ("cc", "deepseek", ""),
+        )
+        self.assertEqual(
+            self.mod.parse_args(["claude", "deepseek", "deepseek-v4-pro"]),
+            ("cc", "deepseek", "@model:deepseek-v4-pro"),
+        )
+
     def test_switch_openclaw_flames_updates_all_agents_by_default(self):
         self.write_json(
             self.home / ".openclaw/openclaw.json",
@@ -346,6 +356,16 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
             "DeepSeek official Anthropic-compatible API",
         )
         self.assertEqual(self.mod.detect_provider("cc", self.cfg), "deepseek")
+
+    def test_switch_cc_deepseek_defaults_to_v4_pro(self):
+        self.init_cc_settings(model="claude-sonnet-4-6")
+
+        self.mod.switch_cc("deepseek", self.cfg, {"deepseek": "dummy"}, model="")
+
+        data = json.loads(self.cfg.cc_settings.read_text(encoding="utf-8"))
+        env = data["env"]
+        self.assertEqual(data["model"], "deepseek-v4-pro")
+        self.assertEqual(env["ANTHROPIC_CUSTOM_MODEL_OPTION"], "deepseek-v4-pro")
 
     def test_switch_codex_icodeeasy_writes_provider_block_and_detects_icodeeasy(self):
         self.mod.switch_codex("icodeeasy", self.cfg, {"icodeeasy": "dummy"}, model="")

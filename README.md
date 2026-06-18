@@ -1,6 +1,6 @@
 # switch-api
 Unified API provider switcher across:
-- Claude Code (`cc`)
+- Claude Code (`cc`, alias: `claude`)
 - OpenClaw (`openclaw`)
 - Codex (`codex`)
 - Droid (`droid`)
@@ -75,6 +75,7 @@ switch-api openrouter                # openclaw+codex+droid → OpenRouter (free
 ### Single Tool Switch
 ```bash
 switch-api cc duck
+switch-api claude deepseek              # `claude` 是 `cc` 的别名
 switch-api cc icodeeasy
 switch-api cc deepseek [model]
 switch-api cc deepseek deepseek-v4-pro

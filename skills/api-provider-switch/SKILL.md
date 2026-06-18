@@ -38,6 +38,7 @@ metadata: { "openclaw": { "emoji": "🔀", "requires": { "anyBins": ["switch-api
 
 ```bash
 switch-api cc deepseek
+switch-api claude deepseek
 switch-api cc deepseek deepseek-v4-pro
 switch-api cc deepseek deepseek-v4-flash
 ```

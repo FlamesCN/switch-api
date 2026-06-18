@@ -147,7 +147,7 @@
 
 ## 命令行用法
 
-脚本位置：`~/bin/switch-api`（Python 脚本，v2.0.4）
+脚本位置：`~/bin/switch-api`（Python 脚本，v2.0.5）
 
 ### 语法
 
@@ -159,7 +159,7 @@ switch-api [--force] [--agent <id> | --all-agents] <参数1> [参数2] [参数3]
 ```bash
 switch-api <tool> <provider>
 ```
-- `<tool>` = `cc` | `openclaw` | `codex` | `droid` | `all`
+- `<tool>` = `cc` | `claude`(=`cc`) | `openclaw` | `codex` | `droid` | `all`
 - `<provider>` = `duck` | `quotio` | `antigravity` | `xingyun` | `flames` | `openai` | `openrouter` | `icodeeasy` | ...
 
 **方式二：单参数（快捷全切）**
@@ -238,6 +238,7 @@ switch-api all antigravity
 
 # ─── 只切 Claude Code ──────────────────────────
 switch-api cc duck
+switch-api claude deepseek            # `claude` 是 `cc` 的别名
 switch-api cc quotio
 switch-api cc antigravity
 switch-api cc icodeeasy              # Claude Code → iCodeEasy
