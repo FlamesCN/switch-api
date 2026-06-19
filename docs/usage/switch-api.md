@@ -41,7 +41,7 @@
   - `gemini` 走 Gemini `v1beta` 兼容入口
   - 实际可用模型以服务端鉴权结果为准；`switch-api` 当前默认模型：`claude-sonnet-4-6` / `gpt-5.4` / `gemini-2.5-flash`
 - **flames** — Flames NewAPI `https://www.flamescn.vip/v1`，支持 **Claude Code + Codex + OpenClaw + Hermes**
-  - `cc` 走 Anthropic 兼容入口，默认沿用 `gpt-5.4`，也支持 `deepseek-v4-flash` / `deepseek-v4-pro`
+  - `cc` 走 Anthropic 兼容入口，默认 `claude-sonnet-4-6`，也支持 `claude-opus-4-6` / `claude-opus-4-7` / `claude-opus-4-8` / `gpt-5.4` / `gpt-5.3-codex` / `deepseek-v4-flash` / `deepseek-v4-pro`
   - `codex` 复用内部 provider block：`model_provider = "flames_newapi"`
   - `env_key` 固定切回 `FLAMES_API_KEY`
   - `openclaw` 通过自定义 provider `flames/...` 接入，默认模型 `gpt-5.4`

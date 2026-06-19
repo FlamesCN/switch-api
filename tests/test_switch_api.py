@@ -320,6 +320,31 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertEqual(env["CLAUDE_CODE_ATTRIBUTION_HEADER"], "0")
         self.assertEqual(self.mod.detect_provider("cc", self.cfg), "flames")
 
+    def test_switch_cc_flames_defaults_to_claude_sonnet(self):
+        self.init_cc_settings(
+            model="claude-haiku-4-5-20251001",
+            env={
+                "ANTHROPIC_MODEL": "deepseek-v4-pro",
+                "ANTHROPIC_DEFAULT_OPUS_MODEL": "deepseek-v4-pro",
+                "ANTHROPIC_DEFAULT_SONNET_MODEL": "deepseek-v4-pro",
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL": "deepseek-v4-flash",
+                "CLAUDE_CODE_SUBAGENT_MODEL": "deepseek-v4-flash",
+            },
+        )
+
+        self.mod.switch_cc("flames", self.cfg, {"flames": "dummy"}, model="")
+
+        data = json.loads(self.cfg.cc_settings.read_text(encoding="utf-8"))
+        env = data["env"]
+        self.assertEqual(data["model"], "claude-sonnet-4-6")
+        self.assertEqual(env["ANTHROPIC_CUSTOM_MODEL_OPTION"], "claude-sonnet-4-6")
+        self.assertEqual(env["ANTHROPIC_CUSTOM_MODEL_OPTION_NAME"], "Claude Sonnet 4.6")
+        self.assertNotIn("ANTHROPIC_MODEL", env)
+        self.assertNotIn("ANTHROPIC_DEFAULT_OPUS_MODEL", env)
+        self.assertNotIn("ANTHROPIC_DEFAULT_SONNET_MODEL", env)
+        self.assertNotIn("ANTHROPIC_DEFAULT_HAIKU_MODEL", env)
+        self.assertNotIn("CLAUDE_CODE_SUBAGENT_MODEL", env)
+
     def test_switch_cc_quotio_clears_stale_custom_model_env(self):
         self.init_cc_settings(
             model="gpt-5.4",
@@ -732,6 +757,8 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
             self.mod.validate_model_for_tool("openclaw", "gpt-5.4", "icodeeasy")
 
     def test_model_validation_allows_cc_flames_custom_models(self):
+        self.mod.validate_model_for_tool("cc", "claude-sonnet-4-6", "flames")
+        self.mod.validate_model_for_tool("cc", "claude-opus-4-8", "flames")
         self.mod.validate_model_for_tool("cc", "gpt-5.4", "flames")
         self.mod.validate_model_for_tool("cc", "deepseek-v4-pro", "flames")
 
@@ -743,6 +770,8 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertTrue(self.mod.model_in_provider("gemini-2.5-flash", "icodeeasy"))
 
     def test_model_in_provider_accepts_flames_deepseek(self):
+        self.assertTrue(self.mod.model_in_provider("claude-sonnet-4-6", "flames"))
+        self.assertTrue(self.mod.model_in_provider("claude-opus-4-8", "flames"))
         self.assertTrue(self.mod.model_in_provider("deepseek-v4-pro", "flames"))
 
     def test_model_in_provider_accepts_deepseek_provider_models(self):

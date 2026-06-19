@@ -442,7 +442,12 @@ OPENAI_BASE_URL_V1 = "https://api.openai.com/v1"
 FLAMES_NEWAPI_BASE_URL = "https://www.flamescn.vip"
 FLAMES_NEWAPI_BASE_URL_V1 = FLAMES_NEWAPI_BASE_URL + "/v1"
 FLAMES_DEFAULT_MODEL = "gpt-5.4"
+FLAMES_CC_DEFAULT_MODEL = "claude-sonnet-4-6"
 FLAMES_CC_ALLOWED_MODELS = (
+    "claude-sonnet-4-6",
+    "claude-opus-4-6",
+    "claude-opus-4-7",
+    "claude-opus-4-8",
     "gpt-5.4",
     "gpt-5.3-codex",
     "deepseek-v4-flash",
@@ -450,6 +455,10 @@ FLAMES_CC_ALLOWED_MODELS = (
 )
 FLAMES_AVAILABLE_MODELS = FLAMES_CC_ALLOWED_MODELS
 FLAMES_CC_MODEL_NAMES = {
+    "claude-sonnet-4-6": "Claude Sonnet 4.6",
+    "claude-opus-4-6": "Claude Opus 4.6",
+    "claude-opus-4-7": "Claude Opus 4.7",
+    "claude-opus-4-8": "Claude Opus 4.8",
     "gpt-5.4": "Codex GPT-5.4",
     "gpt-5.3-codex": "Codex GPT-5.3 Codex",
     "deepseek-v4-flash": "DeepSeek V4 Flash",
@@ -1787,9 +1796,9 @@ def resolve_cc_model_for_flames(current_model: str, requested_model: str) -> Tup
     if current in FLAMES_CC_ALLOWED_MODELS:
         return current, ""
 
-    return FLAMES_DEFAULT_MODEL, (
+    return FLAMES_CC_DEFAULT_MODEL, (
         f"Claude Code model {current or '?'} is not in flames allowlist; "
-        f"fallback to {FLAMES_DEFAULT_MODEL}"
+        f"fallback to {FLAMES_CC_DEFAULT_MODEL}"
     )
 
 
