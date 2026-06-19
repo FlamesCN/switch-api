@@ -444,6 +444,8 @@ FLAMES_NEWAPI_BASE_URL_V1 = FLAMES_NEWAPI_BASE_URL + "/v1"
 FLAMES_DEFAULT_MODEL = "gpt-5.4"
 FLAMES_CC_DEFAULT_MODEL = "claude-sonnet-4-6"
 FLAMES_CC_ALLOWED_MODELS = (
+    "claude-fable-5",
+    "claude-haiku-4-5-20251001",
     "claude-sonnet-4-6",
     "claude-opus-4-6",
     "claude-opus-4-7",
@@ -455,6 +457,8 @@ FLAMES_CC_ALLOWED_MODELS = (
 )
 FLAMES_AVAILABLE_MODELS = FLAMES_CC_ALLOWED_MODELS
 FLAMES_CC_MODEL_NAMES = {
+    "claude-fable-5": "Claude Fable 5",
+    "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
     "claude-sonnet-4-6": "Claude Sonnet 4.6",
     "claude-opus-4-6": "Claude Opus 4.6",
     "claude-opus-4-7": "Claude Opus 4.7",

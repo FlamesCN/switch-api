@@ -757,6 +757,8 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
             self.mod.validate_model_for_tool("openclaw", "gpt-5.4", "icodeeasy")
 
     def test_model_validation_allows_cc_flames_custom_models(self):
+        self.mod.validate_model_for_tool("cc", "claude-fable-5", "flames")
+        self.mod.validate_model_for_tool("cc", "claude-haiku-4-5-20251001", "flames")
         self.mod.validate_model_for_tool("cc", "claude-sonnet-4-6", "flames")
         self.mod.validate_model_for_tool("cc", "claude-opus-4-8", "flames")
         self.mod.validate_model_for_tool("cc", "gpt-5.4", "flames")
@@ -770,6 +772,8 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertTrue(self.mod.model_in_provider("gemini-2.5-flash", "icodeeasy"))
 
     def test_model_in_provider_accepts_flames_deepseek(self):
+        self.assertTrue(self.mod.model_in_provider("claude-fable-5", "flames"))
+        self.assertTrue(self.mod.model_in_provider("claude-haiku-4-5-20251001", "flames"))
         self.assertTrue(self.mod.model_in_provider("claude-sonnet-4-6", "flames"))
         self.assertTrue(self.mod.model_in_provider("claude-opus-4-8", "flames"))
         self.assertTrue(self.mod.model_in_provider("deepseek-v4-pro", "flames"))
