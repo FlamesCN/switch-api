@@ -39,9 +39,9 @@
   - `openclaw` 当前通过自定义 provider `api: anthropic-messages` 接入，仍以 Claude 模型为主
   - `codex` 走 OpenAI Responses 兼容入口（`model_provider = "icodeeasy"`）
   - `gemini` 走 Gemini `v1beta` 兼容入口
-  - 实际可用模型以服务端鉴权结果为准；`switch-api` 当前默认模型：`claude-sonnet-4-6` / `gpt-5.4` / `gemini-2.5-flash`
+  - 实际可用模型以服务端鉴权结果为准；`switch-api` 当前默认模型：`claude-opus-4-8` / `gpt-5.4` / `gemini-3.5-flash`
 - **flames** — Flames NewAPI `https://www.flamescn.vip/v1`，支持 **Claude Code + Codex + OpenClaw + Hermes**
-  - `cc` 走 Anthropic 兼容入口，默认 `claude-sonnet-4-6`，也支持 `claude-fable-5` / `claude-haiku-4-5-20251001` / `claude-opus-4-6` / `claude-opus-4-7` / `claude-opus-4-8` / `gpt-5.4` / `gpt-5.3-codex` / `deepseek-v4-flash` / `deepseek-v4-pro`
+  - `cc` 走 Anthropic 兼容入口，默认 `claude-opus-4-8`，也支持 `claude-fable-5` / `claude-haiku-4-5-20251001` / `claude-sonnet-5` / `claude-opus-4-6` / `claude-opus-4-7` / `gpt-5.4` / `gpt-5.3-codex` / `deepseek-v4-flash` / `deepseek-v4-pro`
   - `codex` 复用内部 provider block：`model_provider = "flames_newapi"`
   - `env_key` 固定切回 `FLAMES_API_KEY`
   - `openclaw` 通过自定义 provider `flames/...` 接入，默认模型 `gpt-5.4`
@@ -244,7 +244,7 @@ switch-api cc antigravity
 switch-api cc icodeeasy              # Claude Code → iCodeEasy
 switch-api cc deepseek               # Claude Code → DeepSeek / deepseek-v4-pro
 switch-api cc deepseek deepseek-v4-flash
-switch-api cc flames                 # Claude Code → Flames / gpt-5.4
+switch-api cc flames                 # Claude Code → Flames / claude-opus-4-8
 switch-api cc duck_codex2cc          # Duck CodeX→CC (GPT codex via CC)
 
 # ─── 只切 OpenClaw ─────────────────────────────

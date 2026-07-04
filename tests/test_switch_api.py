@@ -320,7 +320,18 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertEqual(env["CLAUDE_CODE_ATTRIBUTION_HEADER"], "0")
         self.assertEqual(self.mod.detect_provider("cc", self.cfg), "flames")
 
-    def test_switch_cc_flames_defaults_to_claude_sonnet(self):
+    def test_switch_cc_flames_accepts_claude_sonnet_5(self):
+        self.init_cc_settings(model="claude-sonnet-4-6")
+
+        self.mod.switch_cc("flames", self.cfg, {"flames": "dummy"}, model="claude-sonnet-5")
+
+        data = json.loads(self.cfg.cc_settings.read_text(encoding="utf-8"))
+        env = data["env"]
+        self.assertEqual(data["model"], "claude-sonnet-5")
+        self.assertEqual(env["ANTHROPIC_CUSTOM_MODEL_OPTION"], "claude-sonnet-5")
+        self.assertEqual(env["ANTHROPIC_CUSTOM_MODEL_OPTION_NAME"], "Claude Sonnet 5")
+
+    def test_switch_cc_flames_defaults_to_claude_opus_48(self):
         self.init_cc_settings(
             model="claude-haiku-4-5-20251001",
             env={
@@ -336,9 +347,9 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
 
         data = json.loads(self.cfg.cc_settings.read_text(encoding="utf-8"))
         env = data["env"]
-        self.assertEqual(data["model"], "claude-sonnet-4-6")
-        self.assertEqual(env["ANTHROPIC_CUSTOM_MODEL_OPTION"], "claude-sonnet-4-6")
-        self.assertEqual(env["ANTHROPIC_CUSTOM_MODEL_OPTION_NAME"], "Claude Sonnet 4.6")
+        self.assertEqual(data["model"], "claude-opus-4-8")
+        self.assertEqual(env["ANTHROPIC_CUSTOM_MODEL_OPTION"], "claude-opus-4-8")
+        self.assertEqual(env["ANTHROPIC_CUSTOM_MODEL_OPTION_NAME"], "Claude Opus 4.8")
         self.assertNotIn("ANTHROPIC_MODEL", env)
         self.assertNotIn("ANTHROPIC_DEFAULT_OPUS_MODEL", env)
         self.assertNotIn("ANTHROPIC_DEFAULT_SONNET_MODEL", env)
@@ -526,11 +537,19 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         gemini_env = self.cfg.gemini_env.read_text(encoding="utf-8")
         self.assertIn("GOOGLE_GEMINI_BASE_URL=https://www.flamescn.vip", gemini_env)
         self.assertIn("GEMINI_API_KEY=dummy", gemini_env)
-        self.assertIn("GEMINI_MODEL=gemini-2.5-flash", gemini_env)
+        self.assertIn("GEMINI_MODEL=gemini-3.5-flash", gemini_env)
         self.assertEqual(self.mod.detect_provider("gemini", self.cfg), "flames")
 
         bashrc = self.cfg.bashrc.read_text(encoding="utf-8")
+        zshrc = self.cfg.zshrc.read_text(encoding="utf-8")
         self.assertIn('export GEMINI_API_KEY="dummy"', bashrc)
+        self.assertIn('export GEMINI_API_KEY="dummy"', zshrc)
+
+        settings = json.loads((self.home / ".gemini/settings.json").read_text(encoding="utf-8"))
+        self.assertEqual(settings["security"]["auth"]["selectedType"], "gemini-api-key")
+        self.assertEqual(settings["model"]["name"], "gemini-3.5-flash")
+        self.assertTrue(settings["experimental"]["dynamicModelConfiguration"])
+        self.assertIn("gemini-3.5-flash", settings["modelConfigs"]["modelDefinitions"])
 
     def test_switch_gemini_provider_gemini_balance_updates_balance_env(self):
         self.init_gemini_balance_env()
@@ -759,6 +778,7 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
     def test_model_validation_allows_cc_flames_custom_models(self):
         self.mod.validate_model_for_tool("cc", "claude-fable-5", "flames")
         self.mod.validate_model_for_tool("cc", "claude-haiku-4-5-20251001", "flames")
+        self.mod.validate_model_for_tool("cc", "claude-sonnet-5", "flames")
         self.mod.validate_model_for_tool("cc", "claude-sonnet-4-6", "flames")
         self.mod.validate_model_for_tool("cc", "claude-opus-4-8", "flames")
         self.mod.validate_model_for_tool("cc", "gpt-5.4", "flames")
@@ -774,6 +794,7 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
     def test_model_in_provider_accepts_flames_deepseek(self):
         self.assertTrue(self.mod.model_in_provider("claude-fable-5", "flames"))
         self.assertTrue(self.mod.model_in_provider("claude-haiku-4-5-20251001", "flames"))
+        self.assertTrue(self.mod.model_in_provider("claude-sonnet-5", "flames"))
         self.assertTrue(self.mod.model_in_provider("claude-sonnet-4-6", "flames"))
         self.assertTrue(self.mod.model_in_provider("claude-opus-4-8", "flames"))
         self.assertTrue(self.mod.model_in_provider("deepseek-v4-pro", "flames"))

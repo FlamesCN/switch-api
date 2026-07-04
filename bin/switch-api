@@ -442,10 +442,11 @@ OPENAI_BASE_URL_V1 = "https://api.openai.com/v1"
 FLAMES_NEWAPI_BASE_URL = "https://www.flamescn.vip"
 FLAMES_NEWAPI_BASE_URL_V1 = FLAMES_NEWAPI_BASE_URL + "/v1"
 FLAMES_DEFAULT_MODEL = "gpt-5.4"
-FLAMES_CC_DEFAULT_MODEL = "claude-sonnet-4-6"
+FLAMES_CC_DEFAULT_MODEL = "claude-opus-4-8"
 FLAMES_CC_ALLOWED_MODELS = (
     "claude-fable-5",
     "claude-haiku-4-5-20251001",
+    "claude-sonnet-5",
     "claude-sonnet-4-6",
     "claude-opus-4-6",
     "claude-opus-4-7",
@@ -459,6 +460,7 @@ FLAMES_AVAILABLE_MODELS = FLAMES_CC_ALLOWED_MODELS
 FLAMES_CC_MODEL_NAMES = {
     "claude-fable-5": "Claude Fable 5",
     "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
+    "claude-sonnet-5": "Claude Sonnet 5",
     "claude-sonnet-4-6": "Claude Sonnet 4.6",
     "claude-opus-4-6": "Claude Opus 4.6",
     "claude-opus-4-7": "Claude Opus 4.7",
@@ -542,7 +544,7 @@ GEMINI_CLI_MODELS = {
     "quotio": "gemini-3.1-pro-high",
     "antigravity": "gemini-3.1-pro-high",
     "xingyun": "gpt-5.4",
-    "flames": "gemini-2.5-flash",
+    "flames": "gemini-3.5-flash",
     "aiwave": AIWAVE_GEMINI_MODEL,
     "icodeeasy": ICODEEASY_GEMINI_MODEL,
     "gemini-balance": "gemini-2.5-flash-lite",
@@ -1797,12 +1799,12 @@ def resolve_cc_model_for_flames(current_model: str, requested_model: str) -> Tup
         return requested, ""
 
     current = (current_model or "").strip()
-    if current in FLAMES_CC_ALLOWED_MODELS:
+    if current == FLAMES_CC_DEFAULT_MODEL:
         return current, ""
 
     return FLAMES_CC_DEFAULT_MODEL, (
-        f"Claude Code model {current or '?'} is not in flames allowlist; "
-        f"fallback to {FLAMES_CC_DEFAULT_MODEL}"
+        f"Claude Code model {current or '?'} replaced by flames default "
+        f"{FLAMES_CC_DEFAULT_MODEL}"
     )
 
 
@@ -4329,6 +4331,89 @@ def update_dotenv_file(env_path: Path, updates: Dict[str, str]) -> None:
     write_text(env_path, "".join(lines))
 
 
+def update_json_file(path: Path, mutator) -> None:
+    data: Dict[str, Any] = {}
+    if path.exists():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            data = {}
+    updated = mutator(data)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_text(path, json.dumps(updated, indent=2) + "\n")
+
+
+def _gemini_gateway_model_definitions(provider: str) -> Dict[str, Dict[str, Any]]:
+    provider_label = provider.replace("_", "-")
+    return {
+        "gemini-3.5-flash": {
+            "tier": "standard",
+            "family": "gemini-3.5",
+            "displayName": f"Gemini 3.5 Flash ({provider_label})",
+            "dialogDescription": "Fast Gemini 3.5 gateway model",
+            "isVisible": True,
+        },
+        "gemini-3.1-pro-preview": {
+            "tier": "standard",
+            "family": "gemini-3.1",
+            "displayName": f"Gemini 3.1 Pro ({provider_label})",
+            "dialogDescription": "Gemini 3.1 Pro gateway model",
+            "isVisible": True,
+        },
+        "gemini-3.1-pro-preview-customtools": {
+            "tier": "standard",
+            "family": "gemini-3.1",
+            "displayName": f"Gemini 3.1 Pro Tools ({provider_label})",
+            "dialogDescription": "Gemini 3.1 Pro gateway model with custom tools",
+            "isVisible": True,
+        },
+        "gemini-3.1-flash-lite": {
+            "tier": "standard",
+            "family": "gemini-3.1",
+            "displayName": f"Gemini 3.1 Flash Lite ({provider_label})",
+            "dialogDescription": "Lightweight Gemini 3.1 gateway model",
+            "isVisible": True,
+        },
+        "gemini-2.5-flash": {
+            "tier": "standard",
+            "family": "gemini-2.5",
+            "displayName": f"Gemini 2.5 Flash ({provider_label})",
+            "dialogDescription": "Compatible Gemini 2.5 gateway model",
+            "isVisible": True,
+        },
+    }
+
+
+def update_gemini_cli_settings(provider: str, cfg: Config, model: str = "") -> None:
+    target_model = model or GEMINI_CLI_MODELS.get(provider, "gemini-3.1-pro-preview")
+    # Gemini CLI currently honors GOOGLE_GEMINI_BASE_URL at request time, but its
+    # auth validation/UI path does not fully support selectedType="gateway".
+    # Keep auth on gemini-api-key so startup validation passes while requests still
+    # route through the custom Google-compatible gateway from ~/.gemini/.env.
+    selected_type = "gemini-api-key"
+
+    def mutate(data: Dict[str, Any]) -> Dict[str, Any]:
+        security = data.setdefault("security", {})
+        auth = security.setdefault("auth", {})
+        auth["selectedType"] = selected_type
+
+        model_cfg = data.setdefault("model", {})
+        model_cfg["name"] = target_model
+
+        # Enable dynamic model config so gateway-backed Gemini models show up explicitly.
+        experimental = data.setdefault("experimental", {})
+        experimental["dynamicModelConfiguration"] = True
+
+        model_configs = data.setdefault("modelConfigs", {})
+        model_definitions = model_configs.setdefault("modelDefinitions", {})
+        model_definitions.update(_gemini_gateway_model_definitions(provider))
+        return data
+
+    backup(cfg.home / ".gemini" / "settings.json")
+    update_json_file(cfg.home / ".gemini" / "settings.json", mutate)
+    info(f"Synced ~/.gemini/settings.json → auth={selected_type}, model={target_model}")
+
+
 def _write_factory_custom_models(settings_path: Path, models: list) -> None:
     """Write customModels to ~/.factory/settings.json, preserving other keys.
     Also updates sessionDefaultSettings.model to auto-select the first custom model."""
@@ -4430,14 +4515,16 @@ def switch_gemini_cli(provider: str, cfg: Config, keys: Dict[str, str], model: s
         api_key = ensure_key(f"API key ({key_slot})", keys.get(key_slot, ""), f"required for Gemini CLI {provider}")
 
     update_gemini_cli_env(provider, cfg, keys, model=model)
+    update_gemini_cli_settings(provider, cfg, model=model)
     if provider == "gemini-balance":
         update_gemini_balance_env(provider, cfg, keys, model=model)
 
-    # Also update .bashrc GEMINI_API_KEY since it takes precedence over .env
+    # Keep both rc files in sync so new bash/zsh sessions use the same key.
     update_bashrc_exports(cfg.bashrc, {"GEMINI_API_KEY": api_key})
+    update_bashrc_exports(cfg.zshrc, {"GEMINI_API_KEY": api_key})
     os.environ["GEMINI_API_KEY"] = api_key
-    warn("GEMINI_API_KEY in .bashrc updated — this also affects Droid")
-    ok(f"Gemini CLI → {provider} (run 'source ~/.bashrc' to apply)")
+    warn("GEMINI_API_KEY in .bashrc/.zshrc updated — this also affects Droid")
+    ok(f"Gemini CLI → {provider} (run 'source ~/.zshrc' in zsh if needed)")
 
 
 def _ensure_hermes_custom_provider_entry(config: Dict[str, Any], name: str, base_url: str) -> Dict[str, Any]:

@@ -80,6 +80,7 @@ switch-api cc icodeeasy
 switch-api cc deepseek [model]
 switch-api cc deepseek deepseek-v4-pro
 switch-api cc flames [model]
+switch-api cc flames claude-opus-4-8
 switch-api openclaw quotio [profile]
 switch-api openclaw icodeeasy [model]
 switch-api codex icodeeasy [model]
