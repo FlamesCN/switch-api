@@ -191,6 +191,23 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertEqual(spec["env_key"], "MY_RELAY_API_KEY")
         self.assertFalse(spec["codex_features"]["image_generation"])
 
+        action, provider, spec = self.mod.parse_args(
+            [
+                "provider",
+                "add-anthropic",
+                "myrelay",
+                "https://relay.example.com/anthropic",
+                "MY_RELAY_CC_API_KEY",
+                "claude-sonnet-4-6",
+                "--env",
+                "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
+            ]
+        )
+        self.assertEqual(action, "provider-add-anthropic")
+        self.assertEqual(provider, "myrelay")
+        self.assertEqual(spec["anthropic"]["env_key"], "MY_RELAY_CC_API_KEY")
+        self.assertEqual(spec["anthropic"]["extra_env"]["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"], "1")
+
     def test_switch_openclaw_flames_updates_all_agents_by_default(self):
         self.write_json(
             self.home / ".openclaw/openclaw.json",
@@ -546,11 +563,34 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
             },
         )
         self.mod.cmd_provider_add_openai(self.cfg, spec)
+        anthropic_spec = self.mod.parse_provider_add_anthropic_args(
+            [
+                "myrelay",
+                "https://relay.example.com/anthropic",
+                "MY_RELAY_CC_API_KEY",
+                "claude-sonnet-4-6",
+                "--env",
+                "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
+            ]
+        )
+        self.mod.cmd_provider_add_anthropic(self.cfg, anthropic_spec)
 
         saved = self.mod.load_custom_provider_store(self.cfg.custom_providers_file)
         self.assertEqual(saved["providers"]["myrelay"]["env_key"], "MY_RELAY_API_KEY")
+        self.assertEqual(saved["providers"]["myrelay"]["anthropic"]["env_key"], "MY_RELAY_CC_API_KEY")
+        self.assertIn("cc", saved["providers"]["myrelay"]["tools"])
 
         self.mod.cmd_key_set(self.cfg, {}, "MY_RELAY_API_KEY", "dummy")
+        self.mod.cmd_key_set(self.cfg, {}, "MY_RELAY_CC_API_KEY", "dummy-cc")
+
+        self.init_cc_settings(model="claude-opus-4-6")
+        self.mod.switch_custom_cc_provider(saved["providers"]["myrelay"], self.cfg, {"MY_RELAY_CC_API_KEY": "dummy-cc"}, model="")
+        cc = json.loads(self.cfg.cc_settings.read_text(encoding="utf-8"))
+        self.assertEqual(cc["model"], "claude-sonnet-4-6")
+        self.assertEqual(cc["env"]["ANTHROPIC_BASE_URL"], "https://relay.example.com/anthropic")
+        self.assertEqual(cc["env"]["ANTHROPIC_AUTH_TOKEN"], "dummy-cc")
+        self.assertEqual(cc["env"]["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"], "1")
+        self.assertEqual(self.mod.detect_provider("cc", self.cfg), "myrelay")
 
         self.mod.switch_custom_codex_provider(spec, self.cfg, {"MY_RELAY_API_KEY": "dummy"}, model="")
         text = self.cfg.cx_config.read_text(encoding="utf-8")
@@ -597,6 +637,9 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertEqual(hermes["model"]["base_url"], "https://relay.example.com/v1")
         self.assertEqual(hermes["model"]["api_key"], "dummy")
         self.assertEqual(self.mod.detect_provider("hermes", self.cfg), "myrelay")
+
+        catalog = self.mod.provider_model_catalog(saved)
+        self.assertEqual(catalog["providers"]["myrelay"]["claude_code"]["default_model"], "claude-sonnet-4-6")
 
     def test_switch_openclaw_flames_writes_provider_and_auth_store(self):
         self.init_openclaw_files()

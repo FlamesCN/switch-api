@@ -147,7 +147,7 @@
 
 ## 命令行用法
 
-脚本位置：`~/bin/switch-api`（Python 脚本，v2.0.5）
+脚本位置：`~/bin/switch-api`（Python 脚本，v2.0.6）
 
 ### 语法
 
@@ -637,11 +637,12 @@ switch-api openclaw openai key
 
 模型级切换时，必须指定工具。不兼容的组合会报错。
 
-- **cc** (Claude Code): 仅 `claude-*` 模型 — 切 GPT/Gemini 时 cc 保持不动
-- **openclaw**: `claude-*` + `gemini-*`
+- **cc** (Claude Code): 默认 `claude-*`；`flames` 下也支持 `gpt-*` / `deepseek-v4-*`；自定义 Anthropic-compatible provider 不做内置 family 限制
+- **openclaw**: `claude-*` + `gemini-*` + 部分 `gpt-*`（取决于 provider）
 - **codex**: 仅 `gpt-*` 模型 — 切 Claude/Gemini 时 codex 保持不动
 - **droid**: `gemini-*`（默认）+ `gpt-*`（codex profile）
 - **gemini**: 仅 `gemini-*`
+- **hermes**: `gpt-*` / `gemini-*`（取决于 provider）
 
 ### 模型级切换验证流程
 
@@ -668,19 +669,27 @@ switch-api openclaw openai key
   - 写入 `~/.config/switch-api/credentials.json`
   - 写入 `~/.env`
   - 检查 `~/.zshrc` / `~/.bashrc` 是否已加载 `~/.env`；若没有则自动补一条
-- 自定义 OpenAI-compatible provider 注册表：`~/.config/switch-api/custom-providers.json`
+- 自定义 provider 注册表：`~/.config/switch-api/custom-providers.json`
 - 当前自定义 provider 命令：
   - `switch-api provider add-openai <name> <base_url> <env_key> <default_model> [--disable-image-generation]`
+  - `switch-api provider add-anthropic <name> <base_url> <env_key> <default_model> [--env KEY=VALUE ...]`
   - `switch-api provider list`
   - `switch-api provider rm <name>`
+- 同一个 provider 名称可以同时挂：
+  - OpenAI-compatible 配置（`codex/openclaw/droid/hermes`）
+  - Anthropic-compatible 配置（`cc`）
+- 例如：
+  - 先执行 `switch-api provider add-openai myrelay ...`
+  - 再执行 `switch-api provider add-anthropic myrelay ...`
+  - 之后 `switch-api myrelay` 会切换该 provider 已启用的全部工具
 
 ---
 
 ## 文件清单
 
 ```
-~/bin/switch-api                              部署脚本 (v2.0.1)
-~/code/switch-api/bin/switch-api             源码仓库脚本 (v2.0.1)
+~/bin/switch-api                              部署脚本 (v2.0.6)
+~/code/switch-api/bin/switch-api             源码仓库脚本 (v2.0.6)
 ~/.bashrc                                     shell 启动文件（会自动补齐 source ~/.env）
 ~/.zshrc                                      shell 启动文件（会自动补齐 source ~/.env）
 ~/.env                                        共享 shell 环境变量
@@ -696,7 +705,7 @@ switch-api openclaw openai key
 ~/.codex/backups/                             switch-api 改写前的 Codex 备份目录
 ~/.factory/settings.json                      Droid customModels（codex profile）
 ~/.config/switch-api/credentials.json         Provider 密钥快照
-~/.config/switch-api/custom-providers.json    自定义 OpenAI-compatible provider 注册表
+~/.config/switch-api/custom-providers.json    自定义 provider 注册表（OpenAI-compatible + Anthropic-compatible）
 ~/.config/switch-api/provider-models.json     Provider 模型目录
 ~/logs/openclaw.log                           OpenClaw 启动日志
 ```

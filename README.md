@@ -49,16 +49,20 @@ switch-api codex-account add alt             # 创建 ~/.codex-profiles/alt 并�
 switch-api codex-account use alt             # 持久化切换到 alt（写入 CODEX_HOME）
 ```
 
-### Keys & Custom OpenAI-compatible Providers
+### Keys & Custom Providers
 ```bash
 switch-api key set MY_RELAY_API_KEY sk-xxx
+switch-api key set MY_RELAY_CC_API_KEY sk-ant-xxx
 switch-api key list
 
 switch-api provider add-openai myrelay https://relay.example.com/v1 MY_RELAY_API_KEY gpt-5.4
 switch-api provider add-openai myrelay https://relay.example.com/v1 MY_RELAY_API_KEY gpt-5.4 --disable-image-generation
+switch-api provider add-anthropic myrelay https://relay.example.com/anthropic MY_RELAY_CC_API_KEY claude-sonnet-4-6
+switch-api provider add-anthropic myrelay https://relay.example.com/anthropic MY_RELAY_CC_API_KEY claude-sonnet-4-6 --env CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 switch-api provider list
 switch-api provider rm myrelay
 
+switch-api cc myrelay
 switch-api codex myrelay
 switch-api openclaw myrelay
 switch-api droid myrelay
@@ -66,11 +70,32 @@ switch-api hermes myrelay
 switch-api myrelay                   # 切换该 custom provider 启用的全部工具
 ```
 
-当前 `provider add-openai` 面向 **OpenAI-compatible** 网关，支持工具：
-- `codex`
-- `openclaw`
-- `droid`
-- `hermes`
+当前自定义 provider 分两层：
+- `provider add-openai` 面向 **OpenAI-compatible** 网关，支持工具：
+  - `codex`
+  - `openclaw`
+  - `droid`
+  - `hermes`
+- `provider add-anthropic` 面向 **Anthropic-compatible** 网关，支持工具：
+  - `cc`
+
+同一个 provider 名称可以同时挂这两套配置；例如先执行：
+- `switch-api provider add-openai myrelay ...`
+- `switch-api provider add-anthropic myrelay ...`
+
+之后：
+- `switch-api cc myrelay` 只切 Claude Code
+- `switch-api myrelay` 会切换该 provider 已启用的全部工具
+
+`switch-api key set ...` 会同时写入：
+- `~/.config/switch-api/credentials.json`
+- `~/.env`
+
+并自动确保：
+- `~/.zshrc`
+- `~/.bashrc`
+
+里有 `source ~/.env` 的加载逻辑。
 
 `codex-account` 与 provider 是两套机制：
 - `provider` 切换的是 API endpoint / API key
@@ -220,8 +245,11 @@ switch-api droid quotio_local gpt-5.3-codex-xhigh  # 超高思考
 ## Project Layout
 ```
 bin/switch-api                       # executable Python CLI
+VERSION                             # current CLI version
 docs/usage/switch-api.md             # usage guide
 docs/plans/                          # design notes
 examples/credentials.example.json   # redacted example
-skills/                              # OpenClaw skill
+skills/                              # repo-local Codex skills
+skills/api-provider-switch/          # 切换 skill
+skills/api-provider-admin/           # key/provider 注册与维护 skill
 ```

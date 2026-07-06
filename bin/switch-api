@@ -599,7 +599,7 @@ CC_ONLY_PROVIDERS = ("duck_cc1", "duck_codex2cc")
 OPENCLAW_CLAUDE_PROVIDERS = ("duck", "quotio", "antigravity", "icodeeasy")
 OPENCLAW_GEMINI_PROFILES = frozenset(("gemini", "gemini3", "gemini-3", "gemini3-pro-high"))
 
-APP_VERSION = "2.0.5"
+APP_VERSION = "2.0.6"
 
 RED = "\033[0;31m"
 GREEN = "\033[0;32m"
@@ -1123,7 +1123,29 @@ def normalize_base_url(url: str) -> str:
     return value
 
 
-def normalize_custom_openai_provider_spec(name: str, spec: Dict[str, Any]) -> Dict[str, Any]:
+def custom_provider_enabled_tools(spec: Dict[str, Any]) -> List[str]:
+    tools = spec.get("tools") or []
+    if not isinstance(tools, list):
+        return []
+    ordered = [tool for tool in TOOLS if tool in tools]
+    extras = [str(tool).strip() for tool in tools if str(tool).strip() and str(tool).strip() not in ordered]
+    return ordered + extras
+
+
+def normalize_custom_env_map(provider_name: str, extra_env: Any) -> Dict[str, str]:
+    if not extra_env:
+        return {}
+    if not isinstance(extra_env, dict):
+        raise SwitchError(f"Custom provider {provider_name} extra_env must be an object")
+
+    normalized: Dict[str, str] = {}
+    for key, value in extra_env.items():
+        env_key = validate_env_key_name(str(key))
+        normalized[env_key] = str(value)
+    return normalized
+
+
+def normalize_custom_openai_provider_section(name: str, spec: Dict[str, Any]) -> Dict[str, Any]:
     provider_name = validate_custom_provider_name(name or str(spec.get("name") or ""))
     tools = spec.get("tools") or list(CUSTOM_OPENAI_COMPATIBLE_TOOLS)
     if not isinstance(tools, list):
@@ -1164,8 +1186,6 @@ def normalize_custom_openai_provider_spec(name: str, spec: Dict[str, Any]) -> Di
             normalized_features[str(key)] = value
 
     return {
-        "kind": "openai-compatible",
-        "name": provider_name,
         "base_url": normalize_base_url(str(spec.get("base_url") or "")),
         "env_key": validate_env_key_name(str(spec.get("env_key") or "")),
         "default_model": str(spec.get("default_model") or "").strip(),
@@ -1175,6 +1195,96 @@ def normalize_custom_openai_provider_spec(name: str, spec: Dict[str, Any]) -> Di
         "codex_wire_api": codex_wire_api,
         "codex_features": normalized_features,
     }
+
+
+def normalize_custom_anthropic_provider_section(name: str, spec: Dict[str, Any]) -> Dict[str, Any]:
+    provider_name = validate_custom_provider_name(name or str(spec.get("name") or ""))
+    default_model = str(spec.get("default_model") or "").strip()
+    if not default_model:
+        raise SwitchError(f"Custom provider {provider_name} default_model must not be empty")
+
+    extra_env = normalize_custom_env_map(provider_name, spec.get("extra_env") or {})
+    return {
+        "base_url": normalize_base_url(str(spec.get("base_url") or "")),
+        "env_key": validate_env_key_name(str(spec.get("env_key") or "")),
+        "default_model": default_model,
+        "extra_env": extra_env,
+    }
+
+
+def normalize_custom_provider_spec(name: str, spec: Dict[str, Any]) -> Dict[str, Any]:
+    provider_name = validate_custom_provider_name(name or str(spec.get("name") or ""))
+
+    openai_raw: Dict[str, Any] | None = None
+    anthropic_raw: Dict[str, Any] | None = None
+
+    raw_openai = spec.get("openai")
+    if isinstance(raw_openai, dict):
+        openai_raw = raw_openai
+
+    raw_anthropic = spec.get("anthropic")
+    if isinstance(raw_anthropic, dict):
+        anthropic_raw = raw_anthropic
+
+    if openai_raw is None and (
+        spec.get("kind") == "openai-compatible"
+        or any(key in spec for key in ("openclaw_api", "hermes_api_mode", "codex_wire_api", "codex_features"))
+        or any(tool in CUSTOM_OPENAI_COMPATIBLE_TOOLS for tool in (spec.get("tools") or []))
+    ):
+        openai_raw = spec
+
+    if anthropic_raw is None and spec.get("kind") == "anthropic-compatible":
+        anthropic_raw = spec
+
+    openai = normalize_custom_openai_provider_section(provider_name, openai_raw) if openai_raw else None
+    anthropic = normalize_custom_anthropic_provider_section(provider_name, anthropic_raw) if anthropic_raw else None
+
+    if openai is None and anthropic is None:
+        raise SwitchError(f"Custom provider {provider_name} must define openai and/or anthropic config")
+
+    tools: List[str] = []
+    if anthropic is not None:
+        tools.append("cc")
+    if openai is not None:
+        tools.extend(openai["tools"])
+    tools = custom_provider_enabled_tools({"tools": tools})
+
+    primary = openai or anthropic or {}
+    result: Dict[str, Any] = {
+        "kind": "custom-provider",
+        "name": provider_name,
+        "tools": tools,
+        "base_url": str(primary.get("base_url") or ""),
+        "env_key": str(primary.get("env_key") or ""),
+        "default_model": str(primary.get("default_model") or ""),
+    }
+
+    if openai is not None:
+        result.update(
+            {
+                "base_url": openai["base_url"],
+                "env_key": openai["env_key"],
+                "default_model": openai["default_model"],
+                "openclaw_api": openai["openclaw_api"],
+                "hermes_api_mode": openai["hermes_api_mode"],
+                "codex_wire_api": openai["codex_wire_api"],
+                "codex_features": dict(openai["codex_features"]),
+                "openai": openai,
+            }
+        )
+    else:
+        result["openai"] = None
+
+    if anthropic is not None:
+        result["anthropic"] = anthropic
+    else:
+        result["anthropic"] = None
+
+    return result
+
+
+def normalize_custom_openai_provider_spec(name: str, spec: Dict[str, Any]) -> Dict[str, Any]:
+    return normalize_custom_provider_spec(name, {"name": name, "openai": spec})
 
 
 def load_custom_provider_store(path: Path) -> Dict[str, Any]:
@@ -1196,7 +1306,7 @@ def load_custom_provider_store(path: Path) -> Dict[str, Any]:
     for name, spec in providers_raw.items():
         if not isinstance(spec, dict):
             continue
-        normalized = normalize_custom_openai_provider_spec(str(name), spec)
+        normalized = normalize_custom_provider_spec(str(name), spec)
         providers[normalized["name"]] = normalized
     return {"providers": providers}
 
@@ -1223,6 +1333,24 @@ def custom_provider_map(store: Dict[str, Any]) -> Dict[str, Any]:
 
 def resolve_store_secret(store: Dict[str, str], env_key: str) -> str:
     return os.environ.get(env_key, "").strip() or str(store.get(env_key) or "").strip()
+
+
+def custom_provider_required_env_keys(spec: Dict[str, Any], tool: str) -> List[str]:
+    keys: List[str] = []
+    openai_cfg = spec.get("openai") if isinstance(spec.get("openai"), dict) else None
+    anthropic_cfg = spec.get("anthropic") if isinstance(spec.get("anthropic"), dict) else None
+
+    if tool in ("all", "cc") and anthropic_cfg and "cc" in spec["tools"]:
+        keys.append(str(anthropic_cfg["env_key"]))
+    if tool in ("all", *CUSTOM_OPENAI_COMPATIBLE_TOOLS) and openai_cfg:
+        if tool == "all" or tool in openai_cfg["tools"]:
+            keys.append(str(openai_cfg["env_key"]))
+
+    deduped: List[str] = []
+    for key in keys:
+        if key and key not in deduped:
+            deduped.append(key)
+    return deduped
 
 
 def load_codex_account_store(path: Path) -> Dict[str, Any]:
@@ -2014,6 +2142,8 @@ def provider_model_catalog(custom_store: Dict[str, Any] | None = None) -> Dict[s
         }
     }
     for name, spec in custom_provider_map(custom_store or {}).items():
+        openai_cfg = spec.get("openai") if isinstance(spec.get("openai"), dict) else None
+        anthropic_cfg = spec.get("anthropic") if isinstance(spec.get("anthropic"), dict) else None
         entry: Dict[str, Any] = {
             "custom": True,
             "kind": spec["kind"],
@@ -2021,28 +2151,35 @@ def provider_model_catalog(custom_store: Dict[str, Any] | None = None) -> Dict[s
             "env_key": spec["env_key"],
             "tools": list(spec["tools"]),
         }
-        if "codex" in spec["tools"]:
+        if anthropic_cfg is not None:
+            entry["claude_code"] = {
+                "default_model": anthropic_cfg["default_model"],
+                "base_url": anthropic_cfg["base_url"],
+                "env_key": anthropic_cfg["env_key"],
+                "extra_env": dict(anthropic_cfg.get("extra_env") or {}),
+            }
+        if openai_cfg is not None and "codex" in spec["tools"]:
             entry["codex"] = {
-                "default_model": spec["default_model"],
+                "default_model": openai_cfg["default_model"],
                 "provider_block": name,
-                "env_key": spec["env_key"],
-                "wire_api": spec["codex_wire_api"],
-                "features": dict(spec["codex_features"]),
+                "env_key": openai_cfg["env_key"],
+                "wire_api": openai_cfg["codex_wire_api"],
+                "features": dict(openai_cfg["codex_features"]),
             }
-        if "openclaw" in spec["tools"]:
+        if openai_cfg is not None and "openclaw" in spec["tools"]:
             entry["openclaw"] = {
-                "default_model": f"{name}/{spec['default_model']}",
-                "api": spec["openclaw_api"],
+                "default_model": f"{name}/{openai_cfg['default_model']}",
+                "api": openai_cfg["openclaw_api"],
             }
-        if "droid" in spec["tools"]:
+        if openai_cfg is not None and "droid" in spec["tools"]:
             entry["droid"] = {
-                "default_model": spec["default_model"],
+                "default_model": openai_cfg["default_model"],
             }
-        if "hermes" in spec["tools"]:
+        if openai_cfg is not None and "hermes" in spec["tools"]:
             entry["hermes"] = {
-                "default_model": spec["default_model"],
+                "default_model": openai_cfg["default_model"],
                 "provider": f"custom:{name}",
-                "api_mode": spec["hermes_api_mode"],
+                "api_mode": openai_cfg["hermes_api_mode"],
             }
         catalog["providers"][name] = entry
     return catalog
@@ -2091,18 +2228,52 @@ def cmd_key_list(store: Dict[str, str]) -> None:
         print(f"  {key:<32} {mask_secret(store[key])}")
 
 
+def merge_custom_provider_record(existing: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {"name": incoming["name"]}
+
+    if isinstance(existing, dict):
+        if isinstance(existing.get("openai"), dict):
+            payload["openai"] = dict(existing["openai"])
+        if isinstance(existing.get("anthropic"), dict):
+            payload["anthropic"] = dict(existing["anthropic"])
+
+    if isinstance(incoming.get("openai"), dict):
+        payload["openai"] = dict(incoming["openai"])
+    if isinstance(incoming.get("anthropic"), dict):
+        payload["anthropic"] = dict(incoming["anthropic"])
+
+    return normalize_custom_provider_spec(incoming["name"], payload)
+
+
 def cmd_provider_add_openai(cfg: Config, spec: Dict[str, Any]) -> None:
     if not spec.get("default_model"):
         raise SwitchError("Custom provider default_model must not be empty")
     store = load_custom_provider_store(cfg.custom_providers_file)
     providers = custom_provider_map(store)
-    providers[spec["name"]] = spec
+    providers[spec["name"]] = merge_custom_provider_record(providers.get(spec["name"], {}), spec)
     save_custom_provider_store(cfg.custom_providers_file, {"providers": providers})
-    ok(f"Saved custom provider → {spec['name']}")
+    ok(f"Saved custom OpenAI-compatible provider → {spec['name']}")
     info(f"base_url={spec['base_url']}")
     info(f"env_key={spec['env_key']}")
     info(f"default_model={spec['default_model']}")
-    info(f"tools={','.join(spec['tools'])}")
+    info(f"tools={','.join(spec['openai']['tools'])}")
+
+
+def cmd_provider_add_anthropic(cfg: Config, spec: Dict[str, Any]) -> None:
+    anthropic_cfg = spec.get("anthropic") if isinstance(spec.get("anthropic"), dict) else None
+    if anthropic_cfg is None or not anthropic_cfg.get("default_model"):
+        raise SwitchError("Custom anthropic provider default_model must not be empty")
+    store = load_custom_provider_store(cfg.custom_providers_file)
+    providers = custom_provider_map(store)
+    providers[spec["name"]] = merge_custom_provider_record(providers.get(spec["name"], {}), spec)
+    save_custom_provider_store(cfg.custom_providers_file, {"providers": providers})
+    ok(f"Saved custom Anthropic-compatible provider → {spec['name']}")
+    info(f"base_url={anthropic_cfg['base_url']}")
+    info(f"env_key={anthropic_cfg['env_key']}")
+    info(f"default_model={anthropic_cfg['default_model']}")
+    if anthropic_cfg.get("extra_env"):
+        info("extra_env=" + ",".join(f"{key}={value}" for key, value in sorted(anthropic_cfg["extra_env"].items())))
+    info("tools=cc")
 
 
 def cmd_provider_list(cfg: Config) -> None:
@@ -2114,15 +2285,30 @@ def cmd_provider_list(cfg: Config) -> None:
     print("Custom providers:")
     for name in sorted(providers):
         spec = providers[name]
-        feature_flags = []
-        for feature_name, enabled in sorted((spec.get("codex_features") or {}).items()):
-            feature_flags.append(f"{feature_name}={'on' if enabled else 'off'}")
-        extras = f" features[{', '.join(feature_flags)}]" if feature_flags else ""
-        print(
-            f"  {name:<18} {spec['base_url']}  "
-            f"env={spec['env_key']}  model={spec['default_model']}  "
-            f"tools={','.join(spec['tools'])}{extras}"
-        )
+        openai_cfg = spec.get("openai") if isinstance(spec.get("openai"), dict) else None
+        anthropic_cfg = spec.get("anthropic") if isinstance(spec.get("anthropic"), dict) else None
+
+        print(f"  {name:<18} tools={','.join(spec['tools'])}")
+        if openai_cfg is not None:
+            feature_flags = []
+            for feature_name, enabled in sorted((openai_cfg.get("codex_features") or {}).items()):
+                feature_flags.append(f"{feature_name}={'on' if enabled else 'off'}")
+            extras = f" features[{', '.join(feature_flags)}]" if feature_flags else ""
+            print(
+                f"    openai     {openai_cfg['base_url']}  "
+                f"env={openai_cfg['env_key']}  model={openai_cfg['default_model']}  "
+                f"tools={','.join(openai_cfg['tools'])}{extras}"
+            )
+        if anthropic_cfg is not None:
+            extras = ""
+            if anthropic_cfg.get("extra_env"):
+                extras = " extra_env[" + ", ".join(
+                    f"{key}={value}" for key, value in sorted(anthropic_cfg["extra_env"].items())
+                ) + "]"
+            print(
+                f"    anthropic  {anthropic_cfg['base_url']}  "
+                f"env={anthropic_cfg['env_key']}  model={anthropic_cfg['default_model']}{extras}"
+            )
 
 
 def cmd_provider_remove(cfg: Config, name: str) -> None:
@@ -2376,7 +2562,12 @@ def load_custom_providers_for_cfg(cfg: Config) -> Dict[str, Any]:
         return {}
 
 
-def find_custom_provider_by_base_url(base_url: str, providers: Dict[str, Any]) -> str:
+def find_custom_provider_by_base_url(
+    base_url: str,
+    providers: Dict[str, Any],
+    *,
+    protocol: str = "",
+) -> str:
     value = (base_url or "").strip()
     if not value:
         return ""
@@ -2385,8 +2576,23 @@ def find_custom_provider_by_base_url(base_url: str, providers: Dict[str, Any]) -
     except SwitchError:
         return ""
     for name, spec in providers.items():
-        if normalize_base_url(spec["base_url"]) == target:
-            return name
+        candidates: List[str] = []
+        if protocol in ("", "openai"):
+            openai_cfg = spec.get("openai") if isinstance(spec.get("openai"), dict) else None
+            if openai_cfg and openai_cfg.get("base_url"):
+                candidates.append(str(openai_cfg["base_url"]))
+        if protocol in ("", "anthropic"):
+            anthropic_cfg = spec.get("anthropic") if isinstance(spec.get("anthropic"), dict) else None
+            if anthropic_cfg and anthropic_cfg.get("base_url"):
+                candidates.append(str(anthropic_cfg["base_url"]))
+        if not candidates and spec.get("base_url"):
+            candidates.append(str(spec["base_url"]))
+        for candidate in candidates:
+            try:
+                if normalize_base_url(candidate) == target:
+                    return name
+            except SwitchError:
+                continue
     return ""
 
 
@@ -2422,6 +2628,9 @@ def detect_provider(tool: str, cfg: Config) -> str:
             return "duck"
         if "openrouter.ai" in url:
             return "openrouter"
+        custom_name = find_custom_provider_by_base_url(url, custom_providers, protocol="anthropic")
+        if custom_name and "cc" in custom_provider_enabled_tools(custom_providers[custom_name]):
+            return custom_name
         return f"unknown({url})" if url else "unknown"
 
     if tool == "openclaw":
@@ -2539,7 +2748,7 @@ def detect_provider(tool: str, cfg: Config) -> str:
             suffix = provider.split(":", 1)[1]
             if suffix in custom_providers:
                 return suffix
-        custom_name = find_custom_provider_by_base_url(base_url, custom_providers)
+        custom_name = find_custom_provider_by_base_url(base_url, custom_providers, protocol="openai")
         if custom_name:
             return custom_name
         return provider or "unknown"
@@ -2577,7 +2786,7 @@ def detect_provider(tool: str, cfg: Config) -> str:
                         if dc1_key and cm_key == dc1_key:
                             return "duck_cc1"
                         return "duck"
-                    custom_name = find_custom_provider_by_base_url(str(cm_url or ""), custom_providers)
+                    custom_name = find_custom_provider_by_base_url(str(cm_url or ""), custom_providers, protocol="openai")
                     if custom_name:
                         return custom_name
             except Exception:
@@ -2653,7 +2862,7 @@ def show_status(cfg: Config) -> None:
     print("  🌊 = AI Wave (api.ai-wave.org)")
     print("  🧊 = iCodeEasy (api.icodeeasy.cc)")
     if custom_providers:
-        print("  🛠 = Custom OpenAI-compatible provider")
+        print("  🛠 = Custom provider (OpenAI-compatible and/or Anthropic-compatible)")
 
 
 
@@ -2709,7 +2918,14 @@ def get_provider_models(provider: str, custom_store: Dict[str, Any] | None = Non
     """Return {family: (models...)} for a provider."""
     custom_spec = custom_provider_map(custom_store or {}).get(provider)
     if custom_spec:
-        models = (custom_spec["default_model"],)
+        models_list: List[str] = []
+        openai_cfg = custom_spec.get("openai") if isinstance(custom_spec.get("openai"), dict) else None
+        anthropic_cfg = custom_spec.get("anthropic") if isinstance(custom_spec.get("anthropic"), dict) else None
+        if openai_cfg and openai_cfg.get("default_model"):
+            models_list.append(str(openai_cfg["default_model"]))
+        if anthropic_cfg and anthropic_cfg.get("default_model"):
+            models_list.append(str(anthropic_cfg["default_model"]))
+        models = tuple(dict.fromkeys(models_list))
     elif provider == "quotio":
         models = QUOTIO_AVAILABLE_MODELS
     elif provider == "duck":
@@ -3826,6 +4042,39 @@ def custom_openai_models_payload_for_models_json(spec: Dict[str, Any], target_mo
         models.append(it)
     p["models"] = models
     return p
+
+
+def switch_custom_cc_provider(spec: Dict[str, Any], cfg: Config, store: Dict[str, str], model: str = "") -> None:
+    provider_name = spec["name"]
+    anthropic_cfg = spec.get("anthropic") if isinstance(spec.get("anthropic"), dict) else None
+    if anthropic_cfg is None:
+        raise SwitchError(f"Custom provider '{provider_name}' has no anthropic config for Claude Code")
+
+    info(f"Switching Claude Code → {provider_name}")
+    backup(cfg.cc_settings)
+
+    data = load_json(cfg.cc_settings)
+    env = data.setdefault("env", {})
+    if not isinstance(env, dict):
+        env = {}
+        data["env"] = env
+
+    api_key = ensure_key(
+        anthropic_cfg["env_key"],
+        resolve_store_secret(store, anthropic_cfg["env_key"]),
+        f"required for Claude Code {provider_name}",
+    )
+
+    clear_cc_custom_model_env(env)
+    clear_cc_model_alias_env(env)
+    env["ANTHROPIC_BASE_URL"] = anthropic_cfg["base_url"]
+    env["ANTHROPIC_AUTH_TOKEN"] = api_key
+    for key, value in sorted((anthropic_cfg.get("extra_env") or {}).items()):
+        env[key] = value
+
+    data["model"] = model or anthropic_cfg["default_model"]
+    save_json(cfg.cc_settings, data)
+    ok(f"Claude Code → {provider_name}")
 
 
 def restart_openclaw_gateway(home: Path) -> None:
@@ -5613,6 +5862,7 @@ def usage() -> None:
     print("  switch-api key set <ENV_KEY> <VALUE>")
     print("  switch-api provider list")
     print("  switch-api provider add-openai <name> <base_url> <env_key> <default_model> [options]")
+    print("  switch-api provider add-anthropic <name> <base_url> <env_key> <default_model> [options]")
     print("  switch-api provider rm <name>")
     print("  switch-api <provider>")
     print("  switch-api all <provider>")
@@ -5642,7 +5892,9 @@ def usage() -> None:
     print("       switch-api key list")
     print("       switch-api provider add-openai myrelay https://relay.example.com/v1 MYRELAY_API_KEY gpt-5.4")
     print("       switch-api provider add-openai myrelay https://relay.example.com/v1 MYRELAY_API_KEY gpt-5.4 --disable-image-generation")
+    print("       switch-api provider add-anthropic myrelay https://relay.example.com/anthropic MYRELAY_CC_API_KEY claude-sonnet-4-6 --env CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")
     print("       switch-api provider list")
+    print("       switch-api cc myrelay")
     print("       switch-api codex myrelay")
     print("       switch-api myrelay              # switch enabled tools for custom provider")
     print("  3) single tool switch:")
@@ -5726,6 +5978,7 @@ def usage() -> None:
     print("  switch-api codex-account use <name>    # 切换 accounts/auth.json_* 或官方账号目录")
     print("  switch-api key set <ENV_KEY> <VALUE>   # 写入 credentials.json + ~/.env，并确保 shell source ~/.env")
     print("  switch-api provider add-openai ...     # 注册自定义 OpenAI-compatible provider（codex/openclaw/droid/hermes）")
+    print("  switch-api provider add-anthropic ...  # 注册自定义 Anthropic-compatible provider（cc）")
     print("  switch-api <tool> <provider> <model>   # 指定模型切换")
 
 
@@ -5832,6 +6085,14 @@ def normalize_tool_name(tool: str) -> str:
     return TOOL_ALIASES.get(tool, tool)
 
 
+def parse_custom_env_kv(arg: str) -> Tuple[str, str]:
+    if "=" not in arg:
+        raise SwitchError("Expected KEY=VALUE for --env")
+    key, value = arg.split("=", 1)
+    env_key = validate_env_key_name(key.strip())
+    return env_key, value
+
+
 def parse_provider_add_openai_args(args: List[str]) -> Dict[str, Any]:
     if len(args) < 4:
         raise SwitchError(
@@ -5893,7 +6154,42 @@ def parse_provider_add_openai_args(args: List[str]) -> Dict[str, Any]:
             continue
         raise SwitchError(f"Unknown provider add-openai option: {arg}")
 
-    return normalize_custom_openai_provider_spec(spec["name"], spec)
+    return normalize_custom_provider_spec(spec["name"], {"name": spec["name"], "openai": spec})
+
+
+def parse_provider_add_anthropic_args(args: List[str]) -> Dict[str, Any]:
+    if len(args) < 4:
+        raise SwitchError(
+            "Usage: switch-api provider add-anthropic <name> <base_url> <env_key> <default_model> "
+            "[--env KEY=VALUE ...]"
+        )
+
+    spec: Dict[str, Any] = {
+        "name": args[0],
+        "base_url": args[1],
+        "env_key": args[2],
+        "default_model": args[3],
+        "extra_env": {},
+    }
+
+    idx = 4
+    while idx < len(args):
+        arg = args[idx]
+        if arg.startswith("--env="):
+            key, value = parse_custom_env_kv(arg.split("=", 1)[1].strip())
+            spec["extra_env"][key] = value
+            idx += 1
+            continue
+        if arg == "--env":
+            if idx + 1 >= len(args):
+                raise SwitchError("Missing value for --env")
+            key, value = parse_custom_env_kv(args[idx + 1].strip())
+            spec["extra_env"][key] = value
+            idx += 2
+            continue
+        raise SwitchError(f"Unknown provider add-anthropic option: {arg}")
+
+    return normalize_custom_provider_spec(spec["name"], {"name": spec["name"], "anthropic": spec})
 
 
 def parse_args(argv: Iterable[str], known_providers: Iterable[str] | None = None) -> Tuple[str, str, Any]:
@@ -5931,7 +6227,15 @@ def parse_args(argv: Iterable[str], known_providers: Iterable[str] | None = None
                 usage()
                 raise SystemExit(1)
             return ("provider-add-openai", spec["name"], spec)
-        err("Usage: switch-api provider <list|rm|add-openai> ...")
+        if len(args) >= 6 and args[1] == "add-anthropic":
+            try:
+                spec = parse_provider_add_anthropic_args(args[2:])
+            except SwitchError as ex:
+                err(str(ex))
+                usage()
+                raise SystemExit(1)
+            return ("provider-add-anthropic", spec["name"], spec)
+        err("Usage: switch-api provider <list|rm|add-openai|add-anthropic> ...")
         usage()
         raise SystemExit(1)
 
@@ -6090,7 +6394,7 @@ def main() -> int:
         return 0
 
     if tool == "list":
-        cmd_list_models(provider)
+        cmd_list_models(provider, custom_store)
         return 0
 
     if tool == "check":
@@ -6118,6 +6422,11 @@ def main() -> int:
         save_provider_model_catalog(cfg.provider_models_file, load_custom_provider_store(cfg.custom_providers_file))
         return 0
 
+    if tool == "provider-add-anthropic":
+        cmd_provider_add_anthropic(cfg, profile)
+        save_provider_model_catalog(cfg.provider_models_file, load_custom_provider_store(cfg.custom_providers_file))
+        return 0
+
     if tool == "provider-remove":
         cmd_provider_remove(cfg, provider)
         save_provider_model_catalog(cfg.provider_models_file, load_custom_provider_store(cfg.custom_providers_file))
@@ -6126,19 +6435,21 @@ def main() -> int:
     custom_spec = custom_provider_map(custom_store).get(provider)
 
     if custom_spec:
-        if tool not in ("all", *CUSTOM_OPENAI_COMPATIBLE_TOOLS):
+        enabled_tools = custom_provider_enabled_tools(custom_spec)
+        if tool not in ("all", *TOOLS):
             raise SwitchError(
-                f"Custom provider '{provider}' is supported for {', '.join(CUSTOM_OPENAI_COMPATIBLE_TOOLS)}, not {tool}"
+                f"Custom provider '{provider}' is supported for {', '.join(enabled_tools)}, not {tool}"
             )
-        if tool != "all" and tool not in custom_spec["tools"]:
+        if tool != "all" and tool not in enabled_tools:
             raise SwitchError(
-                f"Custom provider '{provider}' is enabled for {', '.join(custom_spec['tools'])}, not {tool}"
+                f"Custom provider '{provider}' is enabled for {', '.join(enabled_tools)}, not {tool}"
             )
-        if not resolve_store_secret(store, custom_spec["env_key"]):
-            raise SwitchError(
-                f"{custom_spec['env_key']} is not set! "
-                f"Run: switch-api key set {custom_spec['env_key']} <value>"
-            )
+        for env_key in custom_provider_required_env_keys(custom_spec, tool):
+            if not resolve_store_secret(store, env_key):
+                raise SwitchError(
+                    f"{env_key} is not set! "
+                    f"Run: switch-api key set {env_key} <value>"
+                )
 
     if provider == "quotio" and not keys["quotio"]:
         raise SwitchError("QUOTIO_API_KEY is not set! Edit ~/.env and run: source ~/.zshrc")
@@ -6268,7 +6579,9 @@ def main() -> int:
         validate_model_for_tool(tool, model, provider, force, custom_provider=custom_spec)
 
     if custom_spec is not None:
-        if tool == "openclaw":
+        if tool == "cc":
+            switch_custom_cc_provider(custom_spec, cfg, store, model=model)
+        elif tool == "openclaw":
             switch_custom_openclaw_provider(
                 custom_spec,
                 cfg,
@@ -6296,6 +6609,8 @@ def main() -> int:
                 + ",".join(custom_spec["tools"])
                 + " — switching enabled tools"
             )
+            if "cc" in custom_spec["tools"]:
+                switch_custom_cc_provider(custom_spec, cfg, store, model=model)
             if "openclaw" in custom_spec["tools"]:
                 switch_custom_openclaw_provider(
                     custom_spec,
