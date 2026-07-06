@@ -49,6 +49,29 @@ switch-api codex-account add alt             # 创建 ~/.codex-profiles/alt 并�
 switch-api codex-account use alt             # 持久化切换到 alt（写入 CODEX_HOME）
 ```
 
+### Keys & Custom OpenAI-compatible Providers
+```bash
+switch-api key set MY_RELAY_API_KEY sk-xxx
+switch-api key list
+
+switch-api provider add-openai myrelay https://relay.example.com/v1 MY_RELAY_API_KEY gpt-5.4
+switch-api provider add-openai myrelay https://relay.example.com/v1 MY_RELAY_API_KEY gpt-5.4 --disable-image-generation
+switch-api provider list
+switch-api provider rm myrelay
+
+switch-api codex myrelay
+switch-api openclaw myrelay
+switch-api droid myrelay
+switch-api hermes myrelay
+switch-api myrelay                   # 切换该 custom provider 启用的全部工具
+```
+
+当前 `provider add-openai` 面向 **OpenAI-compatible** 网关，支持工具：
+- `codex`
+- `openclaw`
+- `droid`
+- `hermes`
+
 `codex-account` 与 provider 是两套机制：
 - `provider` 切换的是 API endpoint / API key
 - `codex openai` 切换的是 Codex 官方 OAuth 模式（`auth.json`）
@@ -162,6 +185,11 @@ switch-api droid quotio_local gpt-5.3-codex-xhigh  # 超高思考
 
 ## Credential Management
 - Credential store: `~/.config/switch-api/credentials.json` (mode 600)
+- Shared shell env file: `~/.env`
+- `switch-api key set ...` 会：
+  - 写入 `credentials.json`
+  - 写入 `~/.env`
+  - 检查 `~/.zshrc` / `~/.bashrc` 是否已加载 `~/.env`；若没有则自动补一条
 - Supported environment variables:
   - `DUCK_ANTHROPIC_API_KEY`, `DUCK_GEMINI_API_KEY`, `DUCKCODING_API_KEY`
   - `QUOTIO_API_KEY`
@@ -178,6 +206,7 @@ switch-api droid quotio_local gpt-5.3-codex-xhigh  # 超高思考
   - `ICODEEASY_API_KEY`
   - `DUCK_CODEX2CC_API_KEY`
 - Keys are loaded from env → credential store (auto-merged on each run)
+- 对需要 shell env 的链路，`switch-api` 现在优先把共享变量渲染到 `~/.env`
 - `aiwave` 当前分槽规则：
   - `codex` / `droid` 使用 `AIWAVE_CODEX_API_KEY`
   - `gemini-gcp` 与 `gemini` 现在是两套独立槽位

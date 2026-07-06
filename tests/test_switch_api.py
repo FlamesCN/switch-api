@@ -58,6 +58,10 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
     def write_json(self, path: Path, data) -> None:
         self.write(path, json.dumps(data))
 
+    def assert_shell_rc_sources_env(self, path: Path) -> None:
+        text = path.read_text(encoding="utf-8")
+        self.assertIn('source "$HOME/.env"', text)
+
     def init_openclaw_files(self) -> None:
         self.write_json(
             self.cfg.oc_config,
@@ -165,6 +169,28 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
             ("cc", "deepseek", "@model:deepseek-v4-pro"),
         )
 
+    def test_parse_args_supports_key_and_custom_provider_commands(self):
+        self.assertEqual(
+            self.mod.parse_args(["key", "set", "MY_RELAY_API_KEY", "secret"]),
+            ("key-set", "MY_RELAY_API_KEY", "secret"),
+        )
+
+        action, provider, spec = self.mod.parse_args(
+            [
+                "provider",
+                "add-openai",
+                "myrelay",
+                "https://relay.example.com/v1",
+                "MY_RELAY_API_KEY",
+                "gpt-5.4",
+                "--disable-image-generation",
+            ]
+        )
+        self.assertEqual(action, "provider-add-openai")
+        self.assertEqual(provider, "myrelay")
+        self.assertEqual(spec["env_key"], "MY_RELAY_API_KEY")
+        self.assertFalse(spec["codex_features"]["image_generation"])
+
     def test_switch_openclaw_flames_updates_all_agents_by_default(self):
         self.write_json(
             self.home / ".openclaw/openclaw.json",
@@ -207,6 +233,17 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
 
             auth_profiles = json.loads((agent_dir / "auth-profiles.json").read_text(encoding="utf-8"))
             self.assertEqual(auth_profiles["lastGood"]["flames"], "flames:manual")
+
+    def test_cmd_key_set_writes_credentials_env_and_shell_bootstrap(self):
+        store = {}
+
+        self.mod.cmd_key_set(self.cfg, store, "MY_RELAY_API_KEY", "sk-test-1234")
+
+        saved = json.loads(self.cfg.cred_file.read_text(encoding="utf-8"))
+        self.assertEqual(saved["MY_RELAY_API_KEY"], "sk-test-1234")
+        self.assertEqual((self.home / ".env").read_text(encoding="utf-8"), 'export MY_RELAY_API_KEY="sk-test-1234"\n')
+        self.assert_shell_rc_sources_env(self.cfg.bashrc)
+        self.assert_shell_rc_sources_env(self.cfg.zshrc)
 
     def test_switch_openclaw_flames_with_explicit_agent_uses_agent_model_override(self):
         self.write_json(
@@ -457,8 +494,8 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertIn('base_url = "https://molifangapi.xyz/v1"', text)
         self.assertIn('env_key = "MOLIFANG_API_KEY"', text)
         self.assertEqual((self.home / ".env").read_text(encoding="utf-8"), 'export MOLIFANG_API_KEY="dummy"\n')
-        self.assertEqual(self.cfg.zshrc.read_text(encoding="utf-8"), 'export MOLIFANG_API_KEY="dummy"\n')
-        self.assertEqual(self.cfg.bashrc.read_text(encoding="utf-8"), 'export MOLIFANG_API_KEY="dummy"\n')
+        self.assert_shell_rc_sources_env(self.cfg.zshrc)
+        self.assert_shell_rc_sources_env(self.cfg.bashrc)
         self.assertEqual(self.mod.detect_provider("codex", self.cfg), "molifang")
 
     def test_switch_openclaw_molifang_writes_provider_and_auth_store(self):
@@ -493,6 +530,73 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertEqual(custom["apiKey"], "dummy")
         self.assertEqual(data["sessionDefaultSettings"]["model"], "custom:Molifang-gpt-5.5-0")
         self.assertEqual(self.mod.detect_provider("droid", self.cfg), "molifang")
+
+    def test_cmd_provider_add_openai_and_switch_custom_provider_surfaces(self):
+        spec = self.mod.normalize_custom_openai_provider_spec(
+            "myrelay",
+            {
+                "name": "myrelay",
+                "base_url": "https://relay.example.com/v1",
+                "env_key": "MY_RELAY_API_KEY",
+                "default_model": "gpt-5.4",
+                "tools": ["codex", "openclaw", "droid", "hermes"],
+                "openclaw_api": "openai-completions",
+                "hermes_api_mode": "codex_responses",
+                "codex_features": {"image_generation": False},
+            },
+        )
+        self.mod.cmd_provider_add_openai(self.cfg, spec)
+
+        saved = self.mod.load_custom_provider_store(self.cfg.custom_providers_file)
+        self.assertEqual(saved["providers"]["myrelay"]["env_key"], "MY_RELAY_API_KEY")
+
+        self.mod.cmd_key_set(self.cfg, {}, "MY_RELAY_API_KEY", "dummy")
+
+        self.mod.switch_custom_codex_provider(spec, self.cfg, {"MY_RELAY_API_KEY": "dummy"}, model="")
+        text = self.cfg.cx_config.read_text(encoding="utf-8")
+        self.assertIsNotNone(re.search(r'^\s*model_provider\s*=\s*"myrelay"\s*$', text, re.M))
+        self.assertIn('base_url = "https://relay.example.com/v1"', text)
+        self.assertIn('env_key = "MY_RELAY_API_KEY"', text)
+        self.assertRegex(text, r"(?ms)^\[features\]\n(?:.*\n)*image_generation = false$")
+        self.assertEqual(self.mod.detect_provider("codex", self.cfg), "myrelay")
+
+        self.init_openclaw_files()
+        self.mod.switch_custom_openclaw_provider(spec, self.cfg, {"MY_RELAY_API_KEY": "dummy"}, model="")
+        oc = json.loads(self.cfg.oc_config.read_text(encoding="utf-8"))
+        self.assertEqual(oc["agents"]["defaults"]["model"]["primary"], "myrelay/gpt-5.4")
+        models = json.loads(self.cfg.oc_models.read_text(encoding="utf-8"))
+        self.assertEqual(models["providers"]["myrelay"]["baseUrl"], "https://relay.example.com/v1")
+        self.assertEqual(models["providers"]["myrelay"]["api"], "openai-completions")
+        self.assertEqual(models["providers"]["myrelay"]["apiKey"], "dummy")
+        self.assertEqual(self.mod.detect_provider("openclaw", self.cfg), "myrelay")
+
+        self.mod.switch_custom_droid_provider(spec, self.cfg, {"MY_RELAY_API_KEY": "dummy"}, model="")
+        droid = json.loads(self.cfg.factory_settings.read_text(encoding="utf-8"))
+        self.assertEqual(droid["customModels"][0]["baseUrl"], "https://relay.example.com/v1")
+        self.assertEqual(droid["customModels"][0]["apiKey"], "dummy")
+        self.assertEqual(self.mod.detect_provider("droid", self.cfg), "myrelay")
+
+        self.write(
+            self.cfg.hermes_config,
+            yaml.safe_dump(
+                {
+                    "model": {
+                        "default": "gpt-5.4",
+                        "provider": "custom:flames",
+                        "base_url": "https://www.flamescn.vip/v1",
+                        "api_key": "old",
+                        "api_mode": "codex_responses",
+                    }
+                },
+                sort_keys=False,
+            ),
+        )
+        self.mod.switch_custom_hermes_provider(spec, self.cfg, {"MY_RELAY_API_KEY": "dummy"}, model="")
+        hermes = yaml.safe_load(self.cfg.hermes_config.read_text(encoding="utf-8"))
+        self.assertEqual(hermes["model"]["provider"], "custom:myrelay")
+        self.assertEqual(hermes["model"]["base_url"], "https://relay.example.com/v1")
+        self.assertEqual(hermes["model"]["api_key"], "dummy")
+        self.assertEqual(self.mod.detect_provider("hermes", self.cfg), "myrelay")
 
     def test_switch_openclaw_flames_writes_provider_and_auth_store(self):
         self.init_openclaw_files()
@@ -556,8 +660,8 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertIn("GEMINI_MODEL=gemini-2.5-flash", gemini_env)
         self.assertEqual(self.mod.detect_provider("gemini", self.cfg), "icodeeasy")
 
-        bashrc = self.cfg.bashrc.read_text(encoding="utf-8")
-        self.assertIn('export GEMINI_API_KEY="dummy"', bashrc)
+        self.assertEqual((self.home / ".env").read_text(encoding="utf-8"), 'export GEMINI_API_KEY="dummy"\n')
+        self.assert_shell_rc_sources_env(self.cfg.bashrc)
 
     def test_switch_gemini_cli_aiwave_uses_gemini_key_slot(self):
         self.mod.switch_gemini_cli(
@@ -576,8 +680,8 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertIn("GEMINI_API_KEY=gem-gcp-slot", gemini_env)
         self.assertIn("GEMINI_MODEL=gemini-3.1-pro-preview", gemini_env)
 
-        bashrc = self.cfg.bashrc.read_text(encoding="utf-8")
-        self.assertIn('export GEMINI_API_KEY="gem-gcp-slot"', bashrc)
+        self.assertEqual((self.home / ".env").read_text(encoding="utf-8"), 'export GEMINI_API_KEY="gem-gcp-slot"\n')
+        self.assert_shell_rc_sources_env(self.cfg.bashrc)
 
     def test_switch_gemini_cli_flames_updates_env_and_detects_flames(self):
         self.mod.switch_gemini_cli("flames", self.cfg, {"flames": "dummy"}, model="")
@@ -588,10 +692,9 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertIn("GEMINI_MODEL=gemini-3.5-flash", gemini_env)
         self.assertEqual(self.mod.detect_provider("gemini", self.cfg), "flames")
 
-        bashrc = self.cfg.bashrc.read_text(encoding="utf-8")
-        zshrc = self.cfg.zshrc.read_text(encoding="utf-8")
-        self.assertIn('export GEMINI_API_KEY="dummy"', bashrc)
-        self.assertIn('export GEMINI_API_KEY="dummy"', zshrc)
+        self.assertEqual((self.home / ".env").read_text(encoding="utf-8"), 'export GEMINI_API_KEY="dummy"\n')
+        self.assert_shell_rc_sources_env(self.cfg.bashrc)
+        self.assert_shell_rc_sources_env(self.cfg.zshrc)
 
         settings = json.loads((self.home / ".gemini/settings.json").read_text(encoding="utf-8"))
         self.assertEqual(settings["security"]["auth"]["selectedType"], "gemini-api-key")

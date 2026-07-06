@@ -139,7 +139,7 @@
 - **cc** — Claude Code，配置文件 `~/.claude/settings.json`
 - **openclaw** — OpenClaw Telegram Bot，配置文件 `~/.openclaw/openclaw.json`
 - **codex** — OpenAI Codex，配置文件默认 `~/.codex/config.toml`，若设置 `CODEX_HOME` 则跟随该目录
-- **droid** — Factory Droid CLI，默认通过 `~/.bashrc` Gemini 环境变量控制，codex profile 通过 `~/.factory/settings.json` customModels
+- **droid** — Factory Droid CLI，默认通过共享 `~/.env` Gemini 环境变量控制，codex profile 通过 `~/.factory/settings.json` customModels
 - **gemini** — Gemini CLI，配置文件 `~/.gemini/.env`
 - **all** — 以上全部
 
@@ -663,7 +663,16 @@ switch-api openclaw openai key
   - `codex` / `droid` / `openclaw key` 检查 `OPENAI_API_KEY`
   - `openclaw oauth` 检查 `~/.openclaw/agents/main/agent/auth-profiles.json` 中的真实 OAuth 凭据
 - 密钥快照保存到 `~/.config/switch-api/credentials.json`（权限 600）
-- Key 配置在 `~/.bashrc` 中，脚本自动读取 `export` 行
+- 共享 shell env 在 `~/.env`
+- `switch-api key set <ENV_KEY> <VALUE>` 会同时：
+  - 写入 `~/.config/switch-api/credentials.json`
+  - 写入 `~/.env`
+  - 检查 `~/.zshrc` / `~/.bashrc` 是否已加载 `~/.env`；若没有则自动补一条
+- 自定义 OpenAI-compatible provider 注册表：`~/.config/switch-api/custom-providers.json`
+- 当前自定义 provider 命令：
+  - `switch-api provider add-openai <name> <base_url> <env_key> <default_model> [--disable-image-generation]`
+  - `switch-api provider list`
+  - `switch-api provider rm <name>`
 
 ---
 
@@ -672,7 +681,9 @@ switch-api openclaw openai key
 ```
 ~/bin/switch-api                              部署脚本 (v2.0.1)
 ~/code/switch-api/bin/switch-api             源码仓库脚本 (v2.0.1)
-~/.bashrc                                     环境变量 (API Keys) + 快捷别名
+~/.bashrc                                     shell 启动文件（会自动补齐 source ~/.env）
+~/.zshrc                                      shell 启动文件（会自动补齐 source ~/.env）
+~/.env                                        共享 shell 环境变量
 ~/.claude/settings.json                       Claude Code 配置
 ~/.openclaw/openclaw.json                     OpenClaw 主配置 + auth metadata / 默认路由
 ~/.openclaw/agents/main/agent/models.json     OpenClaw 模型配置
@@ -685,6 +696,7 @@ switch-api openclaw openai key
 ~/.codex/backups/                             switch-api 改写前的 Codex 备份目录
 ~/.factory/settings.json                      Droid customModels（codex profile）
 ~/.config/switch-api/credentials.json         Provider 密钥快照
+~/.config/switch-api/custom-providers.json    自定义 OpenAI-compatible provider 注册表
 ~/.config/switch-api/provider-models.json     Provider 模型目录
 ~/logs/openclaw.log                           OpenClaw 启动日志
 ```

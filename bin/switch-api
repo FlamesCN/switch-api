@@ -584,6 +584,12 @@ TOOL_ALIASES = {
     "claude": "cc",
 }
 PROVIDERS = ("duck", "quotio", "quotio_local", "antigravity", "xingyun", "molifang", "flames", "deepseek", "openai", "openai_Gq80", "openai_V420", "openrouter", "aiwave", "duck_cc1", "duck_codex2cc", "icodeeasy", "gemini-balance")
+CUSTOM_OPENAI_COMPATIBLE_TOOLS = ("codex", "openclaw", "droid", "hermes")
+CUSTOM_OPENCLAW_APIS = ("openai-completions", "openai-responses")
+CUSTOM_HERMES_API_MODES = ("codex_responses", "chat_completions")
+ENV_KEY_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
+CUSTOM_PROVIDER_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+SHELL_ENV_SOURCE_LINE = '[ -f "$HOME/.env" ] && source "$HOME/.env"'
 
 # CC-only providers: these providers only support Claude Code
 CC_ONLY_PROVIDERS = ("duck_cc1", "duck_codex2cc")
@@ -1081,6 +1087,144 @@ def save_credential_store(path: Path, data: Dict[str, str]) -> None:
     os.replace(tmp, path)
 
 
+def validate_env_key_name(name: str) -> str:
+    key = (name or "").strip()
+    if not ENV_KEY_NAME_RE.match(key):
+        raise SwitchError(
+            "Environment key must match shell env style, e.g. MY_PROVIDER_API_KEY"
+        )
+    return key
+
+
+def validate_custom_provider_name(name: str) -> str:
+    provider_name = (name or "").strip().lower()
+    if not CUSTOM_PROVIDER_NAME_RE.match(provider_name):
+        raise SwitchError(
+            "Custom provider name must match ^[a-z0-9][a-z0-9_-]*$"
+        )
+    if provider_name in PROVIDERS or provider_name in TOOLS_WITH_ALL or provider_name in (
+        "status",
+        "check",
+        "list",
+        "help",
+        "version",
+        "provider",
+        "key",
+        "codex-account",
+    ):
+        raise SwitchError(f"Custom provider name is reserved: {provider_name}")
+    return provider_name
+
+
+def normalize_base_url(url: str) -> str:
+    value = (url or "").strip().rstrip("/")
+    if not value.startswith("http://") and not value.startswith("https://"):
+        raise SwitchError("base_url must start with http:// or https://")
+    return value
+
+
+def normalize_custom_openai_provider_spec(name: str, spec: Dict[str, Any]) -> Dict[str, Any]:
+    provider_name = validate_custom_provider_name(name or str(spec.get("name") or ""))
+    tools = spec.get("tools") or list(CUSTOM_OPENAI_COMPATIBLE_TOOLS)
+    if not isinstance(tools, list):
+        raise SwitchError(f"Invalid tools for custom provider {provider_name}")
+    tools = [str(item).strip() for item in tools if str(item).strip()]
+    invalid_tools = [tool for tool in tools if tool not in CUSTOM_OPENAI_COMPATIBLE_TOOLS]
+    if invalid_tools:
+        raise SwitchError(
+            f"Custom provider {provider_name} has unsupported tools: {', '.join(invalid_tools)}"
+        )
+    if not tools:
+        raise SwitchError(f"Custom provider {provider_name} must enable at least one tool")
+
+    openclaw_api = str(spec.get("openclaw_api") or "openai-completions").strip()
+    if openclaw_api not in CUSTOM_OPENCLAW_APIS:
+        raise SwitchError(
+            f"Custom provider {provider_name} openclaw_api must be one of: {', '.join(CUSTOM_OPENCLAW_APIS)}"
+        )
+
+    hermes_api_mode = str(spec.get("hermes_api_mode") or "codex_responses").strip()
+    if hermes_api_mode not in CUSTOM_HERMES_API_MODES:
+        raise SwitchError(
+            f"Custom provider {provider_name} hermes_api_mode must be one of: {', '.join(CUSTOM_HERMES_API_MODES)}"
+        )
+
+    codex_wire_api = str(spec.get("codex_wire_api") or "responses").strip()
+    if codex_wire_api != "responses":
+        raise SwitchError(
+            f"Custom provider {provider_name} codex_wire_api currently only supports 'responses'"
+        )
+
+    codex_features = spec.get("codex_features") or {}
+    if not isinstance(codex_features, dict):
+        raise SwitchError(f"Custom provider {provider_name} codex_features must be an object")
+    normalized_features: Dict[str, bool] = {}
+    for key, value in codex_features.items():
+        if isinstance(value, bool):
+            normalized_features[str(key)] = value
+
+    return {
+        "kind": "openai-compatible",
+        "name": provider_name,
+        "base_url": normalize_base_url(str(spec.get("base_url") or "")),
+        "env_key": validate_env_key_name(str(spec.get("env_key") or "")),
+        "default_model": str(spec.get("default_model") or "").strip(),
+        "tools": tools,
+        "openclaw_api": openclaw_api,
+        "hermes_api_mode": hermes_api_mode,
+        "codex_wire_api": codex_wire_api,
+        "codex_features": normalized_features,
+    }
+
+
+def load_custom_provider_store(path: Path) -> Dict[str, Any]:
+    if not path.exists():
+        return {"providers": {}}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as ex:
+        raise SwitchError(f"Failed to parse custom provider store: {path}: {ex}")
+
+    if not isinstance(raw, dict):
+        raise SwitchError(f"Invalid custom provider store: {path}")
+
+    providers_raw = raw.get("providers") or {}
+    if not isinstance(providers_raw, dict):
+        raise SwitchError(f"Invalid custom provider store providers: {path}")
+
+    providers: Dict[str, Any] = {}
+    for name, spec in providers_raw.items():
+        if not isinstance(spec, dict):
+            continue
+        normalized = normalize_custom_openai_provider_spec(str(name), spec)
+        providers[normalized["name"]] = normalized
+    return {"providers": providers}
+
+
+def save_custom_provider_store(path: Path, data: Dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        path.parent.chmod(0o700)
+    except Exception:
+        pass
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    try:
+        tmp.chmod(0o600)
+    except Exception:
+        pass
+    os.replace(tmp, path)
+
+
+def custom_provider_map(store: Dict[str, Any]) -> Dict[str, Any]:
+    providers = store.get("providers") or {}
+    return providers if isinstance(providers, dict) else {}
+
+
+def resolve_store_secret(store: Dict[str, str], env_key: str) -> str:
+    return os.environ.get(env_key, "").strip() or str(store.get(env_key) or "").strip()
+
+
 def load_codex_account_store(path: Path) -> Dict[str, Any]:
     if not path.exists():
         return {"active": "", "accounts": {}}
@@ -1331,15 +1475,73 @@ def set_toml_table_bool(text: str, table_name: str, key: str, value: bool) -> st
     return text.rstrip() + f'\n\n[{table_name}]\n{key} = {rendered}\n'
 
 
+def set_toml_table_string(text: str, table_name: str, key: str, value: str) -> str:
+    """Set a simple string key under a TOML table, creating the table if needed."""
+    rendered = json.dumps(value)
+    section_re = re.compile(
+        rf'(?ms)^(?P<header>\[{re.escape(table_name)}\]\s*$\n)(?P<body>.*?)(?=^\[|\Z)'
+    )
+    section = section_re.search(text)
+    if section:
+        body = section.group("body")
+        if re.search(rf'^\s*{re.escape(key)}\s*=\s*"[^"]*"\s*$', body, re.M):
+            body = re.sub(
+                rf'^\s*{re.escape(key)}\s*=\s*"[^"]*"\s*$',
+                f"{key} = {rendered}",
+                body,
+                count=1,
+                flags=re.M,
+            )
+        else:
+            if body and not body.endswith("\n"):
+                body += "\n"
+            body += f"{key} = {rendered}\n"
+        return text[: section.start()] + section.group("header") + body + text[section.end() :]
+
+    return text.rstrip() + f"\n\n[{table_name}]\n{key} = {rendered}\n"
+
+
+def shell_rc_sources_home_env(rc_text: str) -> bool:
+    patterns = (
+        r'(^|\s)source\s+~\/\.env(\s|$)',
+        r'(^|\s)source\s+"\$HOME/\.env"(\s|$)',
+        r"(^|\s)\.\s+~/\.env(\s|$)",
+        r'(^|\s)\.\s+"\$HOME/\.env"(\s|$)',
+        r'(^|\s)\[\s*-f\s+"\$HOME/\.env"\s*\]\s*&&\s*source\s+"\$HOME/\.env"(\s|$)',
+    )
+    return any(re.search(pattern, rc_text, re.M) for pattern in patterns)
+
+
+def ensure_shell_rc_sources_home_env(rc_path: Path) -> bool:
+    existing = rc_path.read_text(encoding="utf-8", errors="ignore") if rc_path.exists() else ""
+    if shell_rc_sources_home_env(existing):
+        return False
+
+    block = (
+        "\n# switch-api shared env\n"
+        f"{SHELL_ENV_SOURCE_LINE}\n"
+    )
+    if existing and not existing.endswith("\n"):
+        existing += "\n"
+    write_text(rc_path, existing + block)
+    return True
+
+
+def sync_shared_shell_env(cfg: "Config", updates: Dict[str, str]) -> None:
+    if not updates:
+        return
+    update_bashrc_exports(cfg.home / ".env", updates)
+    ensure_shell_rc_sources_home_env(cfg.zshrc)
+    ensure_shell_rc_sources_home_env(cfg.bashrc)
+    for key, value in updates.items():
+        os.environ[key] = value
+
+
 def sync_env_key_to_shell_files(cfg: "Config", key: str, value: str) -> None:
-    """Persist an API key where interactive Codex launches can inherit it."""
+    """Persist an API key to ~/.env and ensure login shells source it."""
     if not value:
         return
-    updates = {key: value}
-    update_bashrc_exports(cfg.home / ".env", updates)
-    update_bashrc_exports(cfg.zshrc, updates)
-    update_bashrc_exports(cfg.bashrc, updates)
-    os.environ[key] = value
+    sync_shared_shell_env(cfg, {key: value})
 
 def detect_codex_openai_mode(cfg: Config) -> str:
     if not cfg.cx_config.exists():
@@ -1652,8 +1854,8 @@ def resolve_aiwave_gemini_key(keys: Dict[str, str]) -> str:
     )
 
 
-def provider_model_catalog() -> Dict[str, Any]:
-    return {
+def provider_model_catalog(custom_store: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    catalog = {
         "providers": {
             "quotio": {
                 "available_models": list(QUOTIO_AVAILABLE_MODELS),
@@ -1811,17 +2013,127 @@ def provider_model_catalog() -> Dict[str, Any]:
             },
         }
     }
+    for name, spec in custom_provider_map(custom_store or {}).items():
+        entry: Dict[str, Any] = {
+            "custom": True,
+            "kind": spec["kind"],
+            "base_url": spec["base_url"],
+            "env_key": spec["env_key"],
+            "tools": list(spec["tools"]),
+        }
+        if "codex" in spec["tools"]:
+            entry["codex"] = {
+                "default_model": spec["default_model"],
+                "provider_block": name,
+                "env_key": spec["env_key"],
+                "wire_api": spec["codex_wire_api"],
+                "features": dict(spec["codex_features"]),
+            }
+        if "openclaw" in spec["tools"]:
+            entry["openclaw"] = {
+                "default_model": f"{name}/{spec['default_model']}",
+                "api": spec["openclaw_api"],
+            }
+        if "droid" in spec["tools"]:
+            entry["droid"] = {
+                "default_model": spec["default_model"],
+            }
+        if "hermes" in spec["tools"]:
+            entry["hermes"] = {
+                "default_model": spec["default_model"],
+                "provider": f"custom:{name}",
+                "api_mode": spec["hermes_api_mode"],
+            }
+        catalog["providers"][name] = entry
+    return catalog
 
 
-def save_provider_model_catalog(path: Path) -> None:
+def save_provider_model_catalog(path: Path, custom_store: Dict[str, Any] | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(provider_model_catalog(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp.write_text(
+        json.dumps(provider_model_catalog(custom_store), ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     try:
         tmp.chmod(0o600)
     except Exception:
         pass
     os.replace(tmp, path)
+
+
+def mask_secret(value: str) -> str:
+    if len(value) <= 8:
+        return "*" * len(value)
+    return value[:4] + "…" + value[-4:]
+
+
+def cmd_key_set(cfg: Config, store: Dict[str, str], env_key: str, value: str) -> None:
+    key_name = validate_env_key_name(env_key)
+    if not value.strip():
+        raise SwitchError("Key value must not be empty")
+    store[key_name] = value.strip()
+    save_credential_store(cfg.cred_file, store)
+    sync_shared_shell_env(cfg, {key_name: value.strip()})
+    ok(f"Saved key → {key_name}")
+    info(f"credentials: {cfg.cred_file}")
+    info(f"shell env: {cfg.home / '.env'}")
+    info("Ensured ~/.bashrc and ~/.zshrc load ~/.env")
+
+
+def cmd_key_list(store: Dict[str, str]) -> None:
+    env_keys = sorted(key for key in store if ENV_KEY_NAME_RE.match(key))
+    if not env_keys:
+        print("No env-style keys saved in credentials store.")
+        return
+    print("Saved env-style keys:")
+    for key in env_keys:
+        print(f"  {key:<32} {mask_secret(store[key])}")
+
+
+def cmd_provider_add_openai(cfg: Config, spec: Dict[str, Any]) -> None:
+    if not spec.get("default_model"):
+        raise SwitchError("Custom provider default_model must not be empty")
+    store = load_custom_provider_store(cfg.custom_providers_file)
+    providers = custom_provider_map(store)
+    providers[spec["name"]] = spec
+    save_custom_provider_store(cfg.custom_providers_file, {"providers": providers})
+    ok(f"Saved custom provider → {spec['name']}")
+    info(f"base_url={spec['base_url']}")
+    info(f"env_key={spec['env_key']}")
+    info(f"default_model={spec['default_model']}")
+    info(f"tools={','.join(spec['tools'])}")
+
+
+def cmd_provider_list(cfg: Config) -> None:
+    store = load_custom_provider_store(cfg.custom_providers_file)
+    providers = custom_provider_map(store)
+    if not providers:
+        print("No custom providers registered.")
+        return
+    print("Custom providers:")
+    for name in sorted(providers):
+        spec = providers[name]
+        feature_flags = []
+        for feature_name, enabled in sorted((spec.get("codex_features") or {}).items()):
+            feature_flags.append(f"{feature_name}={'on' if enabled else 'off'}")
+        extras = f" features[{', '.join(feature_flags)}]" if feature_flags else ""
+        print(
+            f"  {name:<18} {spec['base_url']}  "
+            f"env={spec['env_key']}  model={spec['default_model']}  "
+            f"tools={','.join(spec['tools'])}{extras}"
+        )
+
+
+def cmd_provider_remove(cfg: Config, name: str) -> None:
+    provider_name = validate_custom_provider_name(name)
+    store = load_custom_provider_store(cfg.custom_providers_file)
+    providers = custom_provider_map(store)
+    if provider_name not in providers:
+        raise SwitchError(f"Custom provider not found: {provider_name}")
+    del providers[provider_name]
+    save_custom_provider_store(cfg.custom_providers_file, {"providers": providers})
+    ok(f"Removed custom provider → {provider_name}")
 
 
 def resolve_cc_model_for_quotio(current_model: str) -> Tuple[str, str]:
@@ -2005,6 +2317,7 @@ class Config:
         self.hermes_profiles_dir = self.hermes_dir / "profiles"
         self.switch_dir = home / ".config/switch-api"
         self.cred_file = self.switch_dir / "credentials.json"
+        self.custom_providers_file = self.switch_dir / "custom-providers.json"
         self.provider_models_file = self.switch_dir / "provider-models.json"
         self.codex_accounts_file = self.switch_dir / "codex-accounts.json"
 
@@ -2056,8 +2369,30 @@ def detect_openclaw_openai_mode(cfg: Config) -> str:
     return ""
 
 
+def load_custom_providers_for_cfg(cfg: Config) -> Dict[str, Any]:
+    try:
+        return custom_provider_map(load_custom_provider_store(cfg.custom_providers_file))
+    except Exception:
+        return {}
+
+
+def find_custom_provider_by_base_url(base_url: str, providers: Dict[str, Any]) -> str:
+    value = (base_url or "").strip()
+    if not value:
+        return ""
+    try:
+        target = normalize_base_url(value)
+    except SwitchError:
+        return ""
+    for name, spec in providers.items():
+        if normalize_base_url(spec["base_url"]) == target:
+            return name
+    return ""
+
+
 # ----------------------------- status -----------------------------
 def detect_provider(tool: str, cfg: Config) -> str:
+    custom_providers = load_custom_providers_for_cfg(cfg)
     if tool == "cc":
         if not cfg.cc_settings.exists():
             return "no-config"
@@ -2114,6 +2449,9 @@ def detect_provider(tool: str, cfg: Config) -> str:
             return "openrouter"
         if model.startswith("openai-direct/") or model.startswith("openai-codex/"):
             return "openai"
+        custom_prefix = model.split("/", 1)[0].strip()
+        if custom_prefix in custom_providers:
+            return custom_prefix
         return f"unknown({model})" if model else "unknown"
 
     if tool == "codex":
@@ -2154,6 +2492,8 @@ def detect_provider(tool: str, cfg: Config) -> str:
             return "openrouter"
         if provider == "aiwave":
             return "aiwave"
+        if provider in custom_providers:
+            return provider
         return provider
 
 
@@ -2195,6 +2535,13 @@ def detect_provider(tool: str, cfg: Config) -> str:
             return "molifang"
         if provider == "custom:aiwave" or "ai-wave.org" in base_url:
             return "aiwave"
+        if provider.startswith("custom:"):
+            suffix = provider.split(":", 1)[1]
+            if suffix in custom_providers:
+                return suffix
+        custom_name = find_custom_provider_by_base_url(base_url, custom_providers)
+        if custom_name:
+            return custom_name
         return provider or "unknown"
 
     if tool == "droid":
@@ -2230,6 +2577,9 @@ def detect_provider(tool: str, cfg: Config) -> str:
                         if dc1_key and cm_key == dc1_key:
                             return "duck_cc1"
                         return "duck"
+                    custom_name = find_custom_provider_by_base_url(str(cm_url or ""), custom_providers)
+                    if custom_name:
+                        return custom_name
             except Exception:
                 pass
         base = os.environ.get("GEMINI_BASE_URL", "")
@@ -2247,6 +2597,7 @@ def detect_provider(tool: str, cfg: Config) -> str:
 def show_status(cfg: Config) -> None:
     codex_store = load_codex_account_store(cfg.codex_accounts_file)
     codex_account = find_codex_account_name(codex_store, cfg.codex_home)
+    custom_providers = load_custom_providers_for_cfg(cfg)
     print(f"{CYAN}═══ API Provider Status ═══{NC}")
     for tool in TOOLS:
         p = detect_provider(tool, cfg)
@@ -2286,6 +2637,8 @@ def show_status(cfg: Config) -> None:
             icon = "🦆"
         elif p == "icodeeasy":
             icon = "🧊"
+        elif p in custom_providers:
+            icon = "🛠"
         print(f"  {tool:<10} {icon}  {p}{suffix}")
     print(f"  {'codex_home':<10} 📁  {cfg.codex_home}" + (f" [{codex_account}]" if codex_account else ""))
     print(f"{CYAN}═══════════════════════════{NC}")
@@ -2299,6 +2652,8 @@ def show_status(cfg: Config) -> None:
     print("  🌐 = OpenRouter (openrouter.ai)")
     print("  🌊 = AI Wave (api.ai-wave.org)")
     print("  🧊 = iCodeEasy (api.icodeeasy.cc)")
+    if custom_providers:
+        print("  🛠 = Custom OpenAI-compatible provider")
 
 
 
@@ -2350,9 +2705,12 @@ def is_model_name(s: str) -> bool:
     return True  # default: treat as model name
 
 
-def get_provider_models(provider: str) -> Dict[str, Tuple[str, ...]]:
+def get_provider_models(provider: str, custom_store: Dict[str, Any] | None = None) -> Dict[str, Tuple[str, ...]]:
     """Return {family: (models...)} for a provider."""
-    if provider == "quotio":
+    custom_spec = custom_provider_map(custom_store or {}).get(provider)
+    if custom_spec:
+        models = (custom_spec["default_model"],)
+    elif provider == "quotio":
         models = QUOTIO_AVAILABLE_MODELS
     elif provider == "duck":
         # Merge all 3 duck keys
@@ -2425,12 +2783,25 @@ def tools_for_model(model: str) -> Tuple[str, ...]:
 
 
 # ----------------------------- list command ----------------------------
-def cmd_list_models(provider: str = "") -> None:
+def cmd_list_models(provider: str = "", custom_store: Dict[str, Any] | None = None) -> None:
     """Print available models for one or all providers."""
-    providers = [provider] if provider else ["quotio", "duck", "antigravity", "xingyun", "molifang", "aiwave", "flames", "deepseek", "icodeeasy", "duck_codex2cc", "openrouter"]
+    providers = [provider] if provider else [
+        "quotio",
+        "duck",
+        "antigravity",
+        "xingyun",
+        "molifang",
+        "aiwave",
+        "flames",
+        "deepseek",
+        "icodeeasy",
+        "duck_codex2cc",
+        "openrouter",
+        *sorted(custom_provider_map(custom_store or {}).keys()),
+    ]
 
     for prov in providers:
-        catalog = get_provider_models(prov)
+        catalog = get_provider_models(prov, custom_store)
         total = sum(len(v) for v in catalog.values())
         prov_label = {
             "quotio": "Quotio",
@@ -2680,11 +3051,12 @@ def probe_model_curl(provider: str, model: str, keys: Dict[str, str]) -> Tuple[b
 
 def cmd_check(cfg: Config, keys: Dict[str, str], online: bool = False) -> None:
     """Show current model status for each tool, optionally with online verification."""
+    custom_providers = load_custom_providers_for_cfg(cfg)
     print(f"{CYAN}═══ Model Status {'(online)' if online else ''} ═══{NC}")
     for tool in TOOLS:
         prov = detect_provider(tool, cfg)
         model = detect_current_model(tool, cfg)
-        icon = {"duck": "🦆", "quotio": "🔗", "antigravity": "🚀", "xingyun": "☁️", "molifang": "🧩", "aiwave": "🌊", "flames": "🔥", "deepseek": "🧠", "openai": "🔑", "openrouter": "🌐", "icodeeasy": "🧊"}.get(prov, "🔑" if prov.startswith("openai_") else "❓")
+        icon = {"duck": "🦆", "quotio": "🔗", "antigravity": "🚀", "xingyun": "☁️", "molifang": "🧩", "aiwave": "🌊", "flames": "🔥", "deepseek": "🧠", "openai": "🔑", "openrouter": "🌐", "icodeeasy": "🧊"}.get(prov, "🛠" if prov in custom_providers else ("🔑" if prov.startswith("openai_") else "❓"))
 
         # Truncate model for display
         model_display = model if len(model) <= 32 else model[:29] + "..."
@@ -2697,6 +3069,8 @@ def cmd_check(cfg: Config, keys: Dict[str, str], online: bool = False) -> None:
         if prov in ("quotio", "antigravity", "duck", "openrouter", "icodeeasy", "molifang", "flames", "aiwave"):
             in_catalog = model_in_provider(bare_model, prov)
             status = "✅" if in_catalog else "⚠️"
+        elif prov in custom_providers:
+            status = "—"
         else:
             status = "—"
 
@@ -2721,8 +3095,18 @@ def cmd_check(cfg: Config, keys: Dict[str, str], online: bool = False) -> None:
 
 
 # ----------------------------- model-level switch ----------------------
-def validate_model_for_tool(tool: str, model: str, provider: str, force: bool = False) -> None:
+def validate_model_for_tool(
+    tool: str,
+    model: str,
+    provider: str,
+    force: bool = False,
+    *,
+    custom_provider: Dict[str, Any] | None = None,
+) -> None:
     """Validate model compatibility. Raises SwitchError on failure."""
+    if custom_provider is not None:
+        return
+
     fam = model_family(model)
     compatible = FAMILY_TOOLS.get(fam, ())
     if provider == "flames" and tool == "cc" and fam == "gpt":
@@ -3404,6 +3788,41 @@ def flames_models_payload_for_models_json(target_model: str = FLAMES_DEFAULT_MOD
         it = dict(item)
         it["cost"] = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}
         it["api"] = "openai-responses"
+        models.append(it)
+    p["models"] = models
+    return p
+
+
+def custom_openai_model_entry(provider_name: str, model_id: str) -> Dict[str, Any]:
+    return {
+        "id": model_id,
+        "name": f"{model_id} ({provider_name})",
+        "reasoning": True,
+        "input": ["text"],
+        "contextWindow": 200000,
+        "maxTokens": 32768,
+    }
+
+
+def custom_openai_models_payload(spec: Dict[str, Any], target_model: str) -> Dict[str, Any]:
+    payload = {
+        "baseUrl": spec["base_url"],
+        "api": spec["openclaw_api"],
+        "apiKey": "",
+        "models": [custom_openai_model_entry(spec["name"], target_model)],
+    }
+    if spec["openclaw_api"] == "openai-responses":
+        payload["authHeader"] = True
+    return payload
+
+
+def custom_openai_models_payload_for_models_json(spec: Dict[str, Any], target_model: str) -> Dict[str, Any]:
+    p = custom_openai_models_payload(spec, target_model)
+    models = []
+    for item in p["models"]:
+        it = dict(item)
+        it["cost"] = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}
+        it["api"] = spec["openclaw_api"]
         models.append(it)
     p["models"] = models
     return p
@@ -4160,6 +4579,181 @@ def switch_openclaw(
         _switch_openclaw_single_agent(provider, agent_cfg, keys, profile, model=model)
 
 
+def switch_custom_openclaw_provider(
+    spec: Dict[str, Any],
+    cfg: Config,
+    store: Dict[str, str],
+    model: str = "",
+    *,
+    agent_id: str = "",
+    all_agents: bool = False,
+) -> None:
+    provider_name = spec["name"]
+    target_agent_ids = resolve_openclaw_target_agent_ids(cfg.home, agent_id=agent_id, all_agents=all_agents)
+    if len(target_agent_ids) > 1:
+        info(
+            "OpenClaw 多 agent 模式：将同步更新 "
+            + ", ".join(target_agent_ids)
+            + "；如需只切一个 agent，请使用 --agent <id>"
+        )
+
+    api_key = ensure_key(spec["env_key"], resolve_store_secret(store, spec["env_key"]), f"required for OpenClaw {provider_name}")
+    target_model = model or spec["default_model"]
+
+    for target_agent_id in target_agent_ids:
+        agent_cfg = Config(cfg.home)
+        configure_openclaw_agent_paths(agent_cfg, target_agent_id)
+        agent_cfg.requested_oc_agent_id = agent_id.strip()
+        if not agent_cfg.oc_models.exists():
+            if agent_id.strip():
+                raise SwitchError(f"Config file not found: {agent_cfg.oc_models}")
+            warn(f"Skipping stale OpenClaw agent '{target_agent_id}' (missing {agent_cfg.oc_models})")
+            continue
+
+        backup(agent_cfg.oc_config)
+        backup(agent_cfg.oc_models)
+        backup(agent_cfg.oc_auth)
+        backup(agent_cfg.oc_auth_profiles)
+
+        oc = load_json(agent_cfg.oc_config)
+        models_json = load_json(agent_cfg.oc_models)
+        oc_providers = (oc.setdefault("models", {})).setdefault("providers", {})
+        ensure_openclaw_defaults_model_config(oc)
+        model_providers = models_json.setdefault("providers", {})
+        use_agent_override = len(agent_cfg.oc_agent_ids) > 1 and agent_cfg.oc_agent_id == getattr(agent_cfg, "requested_oc_agent_id", "")
+        target_primary = f"{provider_name}/{target_model}"
+        set_openclaw_target_primary_model(
+            oc, agent_cfg.oc_agent_id, target_primary, use_agent_override=use_agent_override
+        )
+
+        payload = custom_openai_models_payload(spec, target_model)
+        payload["apiKey"] = api_key
+        oc_providers[provider_name] = payload
+
+        payload_models = custom_openai_models_payload_for_models_json(spec, target_model)
+        payload_models["apiKey"] = api_key
+        model_providers[provider_name] = payload_models
+
+        save_json(agent_cfg.oc_config, oc)
+        save_json(agent_cfg.oc_models, models_json)
+
+        auth = load_json(agent_cfg.oc_auth) if agent_cfg.oc_auth.exists() else {}
+        auth_profiles = load_json(agent_cfg.oc_auth_profiles) if agent_cfg.oc_auth_profiles.exists() else {}
+        profiles = auth_profiles.setdefault("profiles", {})
+        last_good = auth_profiles.setdefault("lastGood", {})
+
+        auth[provider_name] = {"type": "api_key", "key": api_key}
+        profiles[f"{provider_name}:manual"] = {
+            "type": "token",
+            "provider": provider_name,
+            "token": api_key,
+        }
+        last_good[provider_name] = f"{provider_name}:manual"
+
+        save_json(agent_cfg.oc_auth, auth)
+        save_json(agent_cfg.oc_auth_profiles, auth_profiles)
+
+    ok(f"OpenClaw → {provider_name} (配置已写入，未重启)")
+
+
+def switch_custom_codex_provider(spec: Dict[str, Any], cfg: Config, store: Dict[str, str], model: str = "") -> None:
+    provider_name = spec["name"]
+    info(f"Switching Codex → {provider_name}")
+    codex_backup(cfg, cfg.cx_config)
+
+    api_key = ensure_key(spec["env_key"], resolve_store_secret(store, spec["env_key"]), f"required for Codex {provider_name}")
+    sync_env_key_to_shell_files(cfg, spec["env_key"], api_key)
+
+    target_model = model or spec["default_model"]
+    text = read_text(cfg.cx_config)
+    text = set_codex_model_provider(text, provider_name)
+
+    model_match = re.search(r'^\s*model\s*=\s*"([^"]+)"\s*$', text, flags=re.M)
+    if model_match:
+        text = re.sub(
+            r'^\s*model\s*=\s*"[^"]+"\s*$',
+            f'model = "{target_model}"',
+            text,
+            count=1,
+            flags=re.M,
+        )
+    else:
+        text = f'model = "{target_model}"\n' + text
+
+    table_name = f"model_providers.{provider_name}"
+    text = set_toml_table_string(text, table_name, "name", provider_name)
+    text = set_toml_table_string(text, table_name, "base_url", spec["base_url"])
+    text = set_toml_table_string(text, table_name, "wire_api", spec["codex_wire_api"])
+    text = set_toml_table_string(text, table_name, "env_key", spec["env_key"])
+    for feature_name, enabled in sorted((spec.get("codex_features") or {}).items()):
+        text = set_toml_table_bool(text, "features", feature_name, enabled)
+
+    write_text(cfg.cx_config, text)
+    ok(f"Codex → {provider_name}")
+
+
+def switch_custom_droid_provider(spec: Dict[str, Any], cfg: Config, store: Dict[str, str], model: str = "") -> None:
+    provider_name = spec["name"]
+    info(f"Switching Droid → {provider_name}")
+    api_key = ensure_key(spec["env_key"], resolve_store_secret(store, spec["env_key"]), f"required for Droid {provider_name}")
+    target_model = model or spec["default_model"]
+    _write_factory_custom_models(cfg.factory_settings, [
+        {
+            "model": target_model,
+            "displayName": f"{provider_name} {target_model}",
+            "baseUrl": spec["base_url"],
+            "apiKey": api_key,
+            "provider": "openai",
+        }
+    ])
+    ok(f"Droid → {provider_name} / {target_model}")
+    info(f"  Written to {cfg.factory_settings}")
+
+
+def switch_custom_hermes_provider(
+    spec: Dict[str, Any],
+    cfg: Config,
+    store: Dict[str, str],
+    model: str = "",
+    *,
+    profile_name: str = "",
+    all_profiles: bool = False,
+) -> None:
+    provider_name = spec["name"]
+    info(f"Switching Hermes → {provider_name}")
+    api_key = ensure_key(spec["env_key"], resolve_store_secret(store, spec["env_key"]), f"required for Hermes {provider_name}")
+    target_model = model or spec["default_model"]
+    config_paths = resolve_hermes_config_paths(
+        cfg,
+        profile_name=profile_name,
+        all_profiles=all_profiles,
+    )
+
+    for config_path in config_paths:
+        backup(config_path)
+        data = load_yaml(config_path)
+        model_cfg = data.get("model")
+        if not isinstance(model_cfg, dict):
+            model_cfg = {"default": str(model_cfg or "").strip()} if model_cfg else {}
+            data["model"] = model_cfg
+        model_cfg["default"] = target_model
+        model_cfg["provider"] = f"custom:{provider_name}"
+        model_cfg["base_url"] = spec["base_url"]
+        model_cfg["api_key"] = api_key
+        model_cfg["api_mode"] = spec["hermes_api_mode"]
+
+        custom_entry = _ensure_hermes_custom_provider_entry(data, provider_name, spec["base_url"])
+        custom_entry["api_key"] = api_key
+        custom_entry["api_mode"] = spec["hermes_api_mode"]
+        custom_entry["model"] = target_model
+
+        save_yaml(config_path, data)
+        info(f"Updated {config_path}")
+
+    scope = profile_name or ("all-profiles" if all_profiles else "root")
+    ok(f"Hermes[{scope}] → {provider_name} / {target_model}")
+
+
 def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = "") -> None:
     info(f"Switching Codex → {provider}")
     codex_backup(cfg, cfg.cx_config)
@@ -4364,7 +4958,7 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
             info("Added molifang provider to codex config")
         info(f"Codex → molifang / {target_model_m} ({MOLIFANG_ENV_KEY})")
         info("Codex image_generation feature disabled for molifang compatibility")
-        info(f"Synced {MOLIFANG_ENV_KEY} to ~/.env, ~/.zshrc, and ~/.bashrc")
+        info(f"Synced {MOLIFANG_ENV_KEY} to ~/.env (shell rc auto-load ensured)")
 
     if provider == "icodeeasy":
         model_match_i = re.search(r'^\s*model\s*=\s*"([^"]+)"\s*$', text, flags=re.M)
@@ -4664,7 +5258,7 @@ def _clear_factory_custom_models(settings_path: Path) -> None:
 
 def update_gemini_cli_env(provider: str, cfg: Config, keys: Dict[str, str], model: str = "") -> None:
     """Keep ~/.gemini/.env in sync with the current provider.
-    Ensures GOOGLE_GEMINI_BASE_URL points to the same provider as GEMINI_API_KEY in .bashrc."""
+    Ensures GOOGLE_GEMINI_BASE_URL points to the same provider as GEMINI_API_KEY in ~/.env."""
     key_slot = GEMINI_CLI_KEY_MAP.get(provider)
     if not key_slot:
         return
@@ -4698,7 +5292,7 @@ def update_gemini_balance_env(provider: str, cfg: Config, keys: Dict[str, str], 
 
 def switch_gemini_cli(provider: str, cfg: Config, keys: Dict[str, str], model: str = "") -> None:
     """Switch Gemini CLI to a different provider.
-    Also updates .bashrc GEMINI_API_KEY (shared with Droid)."""
+    Also updates ~/.env GEMINI_API_KEY (shared with Droid)."""
     info(f"Switching Gemini CLI → {provider}")
     key_slot = GEMINI_CLI_KEY_MAP.get(provider)
     if not key_slot:
@@ -4723,11 +5317,8 @@ def switch_gemini_cli(provider: str, cfg: Config, keys: Dict[str, str], model: s
     if provider == "gemini-balance":
         update_gemini_balance_env(provider, cfg, keys, model=model)
 
-    # Keep both rc files in sync so new bash/zsh sessions use the same key.
-    update_bashrc_exports(cfg.bashrc, {"GEMINI_API_KEY": api_key})
-    update_bashrc_exports(cfg.zshrc, {"GEMINI_API_KEY": api_key})
-    os.environ["GEMINI_API_KEY"] = api_key
-    warn("GEMINI_API_KEY in .bashrc/.zshrc updated — this also affects Droid")
+    sync_shared_shell_env(cfg, {"GEMINI_API_KEY": api_key})
+    warn("GEMINI_API_KEY in ~/.env updated — this also affects Droid")
     ok(f"Gemini CLI → {provider} (run 'source ~/.zshrc' in zsh if needed)")
 
 
@@ -4829,18 +5420,15 @@ def switch_droid(provider: str, cfg: Config, keys: Dict[str, str], profile: str 
         d_key = ensure_key(
             "DUCK_GEMINI_API_KEY/GEMINI_API_KEY", keys["duck_gemini"], "required for Droid duck"
         )
-        update_bashrc_exports(
-            cfg.bashrc,
+        sync_shared_shell_env(
+            cfg,
             {
                 "GEMINI_BASE_URL": DUCK_BASE_URL_V1,
                 "GEMINI_API_KEY": d_key,
                 "GEMINI_MODEL": DUCK_DROID_MODEL,
             },
         )
-        os.environ["GEMINI_BASE_URL"] = DUCK_BASE_URL_V1
-        os.environ["GEMINI_API_KEY"] = d_key
-        os.environ["GEMINI_MODEL"] = DUCK_DROID_MODEL
-        ok(f"Droid → duck / {DUCK_DROID_MODEL} (run 'source ~/.bashrc' to apply)")
+        ok(f"Droid → duck / {DUCK_DROID_MODEL} (run 'source ~/.zshrc' or reopen shell to apply)")
         update_gemini_cli_env(provider, cfg, keys)
 
     elif provider == "quotio":
@@ -4882,35 +5470,29 @@ def switch_droid(provider: str, cfg: Config, keys: Dict[str, str], profile: str 
             else:
                 # Gemini mode → env vars (existing behavior)
                 _clear_factory_custom_models(cfg.factory_settings)
-                update_bashrc_exports(
-                    cfg.bashrc,
+                sync_shared_shell_env(
+                    cfg,
                     {
                         "GEMINI_BASE_URL": QUOTIO_BASE_URL_V1,
                         "GEMINI_API_KEY": q_key,
                         "GEMINI_MODEL": droid_model,
                     },
                 )
-                os.environ["GEMINI_BASE_URL"] = QUOTIO_BASE_URL_V1
-                os.environ["GEMINI_API_KEY"] = q_key
-                os.environ["GEMINI_MODEL"] = droid_model
-                ok(f"Droid → quotio / {droid_model} (run 'source ~/.bashrc' to apply)")
+                ok(f"Droid → quotio / {droid_model} (run 'source ~/.zshrc' or reopen shell to apply)")
                 update_gemini_cli_env(provider, cfg, keys)
 
     elif provider == "antigravity":
         _clear_factory_custom_models(cfg.factory_settings)
         a_key = ensure_key("ANTIGRAVITY_API_KEY", keys["antigravity"], "required for Droid antigravity")
-        update_bashrc_exports(
-            cfg.bashrc,
+        sync_shared_shell_env(
+            cfg,
             {
                 "GEMINI_BASE_URL": ANTIGRAVITY_BASE_URL_V1BETA,
                 "GEMINI_API_KEY": a_key,
                 "GEMINI_MODEL": ANTIGRAVITY_DROID_MODEL,
             },
         )
-        os.environ["GEMINI_BASE_URL"] = ANTIGRAVITY_BASE_URL_V1BETA
-        os.environ["GEMINI_API_KEY"] = a_key
-        os.environ["GEMINI_MODEL"] = ANTIGRAVITY_DROID_MODEL
-        ok(f"Droid → antigravity / {ANTIGRAVITY_DROID_MODEL} (run 'source ~/.bashrc' to apply)")
+        ok(f"Droid → antigravity / {ANTIGRAVITY_DROID_MODEL} (run 'source ~/.zshrc' or reopen shell to apply)")
         update_gemini_cli_env(provider, cfg, keys)
 
     elif provider == "xingyun":
@@ -5027,6 +5609,11 @@ def usage() -> None:
     print("  switch-api codex-account list")
     print("  switch-api codex-account add <name> [path|@current]")
     print("  switch-api codex-account use <name>")
+    print("  switch-api key list")
+    print("  switch-api key set <ENV_KEY> <VALUE>")
+    print("  switch-api provider list")
+    print("  switch-api provider add-openai <name> <base_url> <env_key> <default_model> [options]")
+    print("  switch-api provider rm <name>")
     print("  switch-api <provider>")
     print("  switch-api all <provider>")
     print("  switch-api <tool> <provider>")
@@ -5050,6 +5637,14 @@ def usage() -> None:
     print("       switch-api codex-account add main @current")
     print("       switch-api codex-account add alt")
     print("       switch-api codex-account use alt")
+    print("  2.6) key / custom provider:")
+    print("       switch-api key set MOLIFANG_API_KEY sk-xxx")
+    print("       switch-api key list")
+    print("       switch-api provider add-openai myrelay https://relay.example.com/v1 MYRELAY_API_KEY gpt-5.4")
+    print("       switch-api provider add-openai myrelay https://relay.example.com/v1 MYRELAY_API_KEY gpt-5.4 --disable-image-generation")
+    print("       switch-api provider list")
+    print("       switch-api codex myrelay")
+    print("       switch-api myrelay              # switch enabled tools for custom provider")
     print("  3) single tool switch:")
     print("       switch-api cc duck")
     print("       switch-api claude deepseek       # claude 是 cc 的别名")
@@ -5129,6 +5724,8 @@ def usage() -> None:
     print("  switch-api list [provider]             # 列出可用模型")
     print("  switch-api check [--online]            # 检查当前模型状态")
     print("  switch-api codex-account use <name>    # 切换 accounts/auth.json_* 或官方账号目录")
+    print("  switch-api key set <ENV_KEY> <VALUE>   # 写入 credentials.json + ~/.env，并确保 shell source ~/.env")
+    print("  switch-api provider add-openai ...     # 注册自定义 OpenAI-compatible provider（codex/openclaw/droid/hermes）")
     print("  switch-api <tool> <provider> <model>   # 指定模型切换")
 
 
@@ -5203,11 +5800,14 @@ def parse_global_flags(argv: Iterable[str]) -> Tuple[List[str], bool, str, bool,
     return positional, force, agent_id, all_agents, hermes_profile, all_hermes_profiles
 
 
-def switch_path_touches_openclaw(tool: str, provider: str) -> bool:
+def switch_path_touches_openclaw(tool: str, provider: str, custom_store: Dict[str, Any] | None = None) -> bool:
     if tool == "openclaw":
         return True
     if tool != "all":
         return False
+    spec = custom_provider_map(custom_store or {}).get(provider)
+    if spec:
+        return "openclaw" in spec["tools"]
     if provider == "openai" or provider in OPENAI_NAMED_PROVIDERS:
         return False
     if provider == "quotio_local":
@@ -5217,11 +5817,14 @@ def switch_path_touches_openclaw(tool: str, provider: str) -> bool:
     return True
 
 
-def switch_path_touches_hermes(tool: str, provider: str) -> bool:
+def switch_path_touches_hermes(tool: str, provider: str, custom_store: Dict[str, Any] | None = None) -> bool:
     if tool == "hermes":
         return True
     if tool != "all":
         return False
+    spec = custom_provider_map(custom_store or {}).get(provider)
+    if spec:
+        return "hermes" in spec["tools"]
     return provider in ("flames", "aiwave", "molifang")
 
 
@@ -5229,14 +5832,106 @@ def normalize_tool_name(tool: str) -> str:
     return TOOL_ALIASES.get(tool, tool)
 
 
-def parse_args(argv: Iterable[str]) -> Tuple[str, str, str]:
+def parse_provider_add_openai_args(args: List[str]) -> Dict[str, Any]:
+    if len(args) < 4:
+        raise SwitchError(
+            "Usage: switch-api provider add-openai <name> <base_url> <env_key> <default_model> "
+            "[--tools codex,openclaw,droid,hermes] "
+            "[--openclaw-api openai-completions|openai-responses] "
+            "[--hermes-api-mode codex_responses|chat_completions] "
+            "[--disable-image-generation]"
+        )
+
+    spec: Dict[str, Any] = {
+        "name": args[0],
+        "base_url": args[1],
+        "env_key": args[2],
+        "default_model": args[3],
+        "tools": list(CUSTOM_OPENAI_COMPATIBLE_TOOLS),
+        "openclaw_api": "openai-completions",
+        "hermes_api_mode": "codex_responses",
+        "codex_wire_api": "responses",
+        "codex_features": {},
+    }
+
+    idx = 4
+    while idx < len(args):
+        arg = args[idx]
+        if arg == "--disable-image-generation":
+            spec["codex_features"]["image_generation"] = False
+            idx += 1
+            continue
+        if arg.startswith("--tools="):
+            spec["tools"] = [part.strip() for part in arg.split("=", 1)[1].split(",") if part.strip()]
+            idx += 1
+            continue
+        if arg == "--tools":
+            if idx + 1 >= len(args):
+                raise SwitchError("Missing value for --tools")
+            spec["tools"] = [part.strip() for part in args[idx + 1].split(",") if part.strip()]
+            idx += 2
+            continue
+        if arg.startswith("--openclaw-api="):
+            spec["openclaw_api"] = arg.split("=", 1)[1].strip()
+            idx += 1
+            continue
+        if arg == "--openclaw-api":
+            if idx + 1 >= len(args):
+                raise SwitchError("Missing value for --openclaw-api")
+            spec["openclaw_api"] = args[idx + 1].strip()
+            idx += 2
+            continue
+        if arg.startswith("--hermes-api-mode="):
+            spec["hermes_api_mode"] = arg.split("=", 1)[1].strip()
+            idx += 1
+            continue
+        if arg == "--hermes-api-mode":
+            if idx + 1 >= len(args):
+                raise SwitchError("Missing value for --hermes-api-mode")
+            spec["hermes_api_mode"] = args[idx + 1].strip()
+            idx += 2
+            continue
+        raise SwitchError(f"Unknown provider add-openai option: {arg}")
+
+    return normalize_custom_openai_provider_spec(spec["name"], spec)
+
+
+def parse_args(argv: Iterable[str], known_providers: Iterable[str] | None = None) -> Tuple[str, str, Any]:
     """Returns (action, provider, profile_or_model).
     action can be: status, check, check-online, list, list-<provider>,
                    or a tool name (cc/openclaw/codex/droid/gemini/all).
     """
     args = list(argv)
+    providers = tuple(dict.fromkeys(list(PROVIDERS) + list(known_providers or ())))
+    provider_set = set(providers)
 
     if not args:
+        usage()
+        raise SystemExit(1)
+
+    if args[0] == "key":
+        if len(args) == 2 and args[1] == "list":
+            return ("key-list", "", "")
+        if len(args) == 4 and args[1] == "set":
+            return ("key-set", args[2], args[3])
+        err("Usage: switch-api key <list|set ENV_KEY VALUE>")
+        usage()
+        raise SystemExit(1)
+
+    if args[0] == "provider":
+        if len(args) == 2 and args[1] == "list":
+            return ("provider-list", "", "")
+        if len(args) == 3 and args[1] in ("rm", "remove", "delete"):
+            return ("provider-remove", args[2], "")
+        if len(args) >= 6 and args[1] == "add-openai":
+            try:
+                spec = parse_provider_add_openai_args(args[2:])
+            except SwitchError as ex:
+                err(str(ex))
+                usage()
+                raise SystemExit(1)
+            return ("provider-add-openai", spec["name"], spec)
+        err("Usage: switch-api provider <list|rm|add-openai> ...")
         usage()
         raise SystemExit(1)
 
@@ -5267,7 +5962,7 @@ def parse_args(argv: Iterable[str]) -> Tuple[str, str, str]:
             return ("check", "", "")
         if a0 == "list":
             return ("list", "", "")
-        if a0 in PROVIDERS:
+        if a0 in provider_set:
             return ("all", a0, "")
 
         err(f"Unknown command: {a0}")
@@ -5279,7 +5974,7 @@ def parse_args(argv: Iterable[str]) -> Tuple[str, str, str]:
         a0 = normalize_tool_name(a0)
         # list <provider>
         if a0 == "list":
-            if a1 in PROVIDERS or a1 in ("duck", "quotio", "antigravity"):
+            if a1 in provider_set or a1 in ("duck", "quotio", "antigravity"):
                 return ("list", a1, "")
             err(f"Unknown provider for list: {a1}")
             raise SystemExit(1)
@@ -5288,8 +5983,8 @@ def parse_args(argv: Iterable[str]) -> Tuple[str, str, str]:
             return ("check-online", "", "")
         # <tool> <provider>
         if a0 in TOOLS_WITH_ALL:
-            if a1 not in PROVIDERS:
-                err(f"Unknown provider: {a1} (use: {', '.join(PROVIDERS)})")
+            if a1 not in provider_set:
+                err(f"Unknown provider: {a1} (use: {', '.join(providers)})")
                 usage()
                 raise SystemExit(1)
             return (a0, a1, "")
@@ -5305,8 +6000,8 @@ def parse_args(argv: Iterable[str]) -> Tuple[str, str, str]:
             err(f"Unknown tool: {tool}")
             usage()
             raise SystemExit(1)
-        if provider not in PROVIDERS:
-            err(f"Unknown provider: {provider} (use: {', '.join(PROVIDERS)})")
+        if provider not in provider_set:
+            err(f"Unknown provider: {provider} (use: {', '.join(providers)})")
             usage()
             raise SystemExit(1)
 
@@ -5355,7 +6050,8 @@ def main() -> int:
     store = load_credential_store(cfg.cred_file)
     store = enrich_store_from_env(store)
     save_credential_store(cfg.cred_file, store)
-    save_provider_model_catalog(cfg.provider_models_file)
+    custom_store = load_custom_provider_store(cfg.custom_providers_file)
+    save_provider_model_catalog(cfg.provider_models_file, custom_store)
     keys = get_keys(store)
 
     (
@@ -5366,11 +6062,11 @@ def main() -> int:
         hermes_profile_name,
         hermes_all_profiles,
     ) = parse_global_flags(sys.argv[1:])
-    tool, provider, profile = parse_args(argv_clean)
+    tool, provider, profile = parse_args(argv_clean, known_providers=custom_provider_map(custom_store).keys())
 
-    if (openclaw_agent_id or openclaw_all_agents) and not switch_path_touches_openclaw(tool, provider):
+    if (openclaw_agent_id or openclaw_all_agents) and not switch_path_touches_openclaw(tool, provider, custom_store):
         raise SwitchError("--agent/--all-agents 仅适用于会触发 OpenClaw 切换的命令")
-    if (hermes_profile_name or hermes_all_profiles) and not switch_path_touches_hermes(tool, provider):
+    if (hermes_profile_name or hermes_all_profiles) and not switch_path_touches_hermes(tool, provider, custom_store):
         raise SwitchError("--profile/--all-profiles 仅适用于会触发 Hermes 切换的命令")
 
     if tool == "status":
@@ -5405,11 +6101,50 @@ def main() -> int:
         cmd_check(cfg, keys, online=True)
         return 0
 
+    if tool == "key-list":
+        cmd_key_list(store)
+        return 0
+
+    if tool == "key-set":
+        cmd_key_set(cfg, store, provider, str(profile))
+        return 0
+
+    if tool == "provider-list":
+        cmd_provider_list(cfg)
+        return 0
+
+    if tool == "provider-add-openai":
+        cmd_provider_add_openai(cfg, profile)
+        save_provider_model_catalog(cfg.provider_models_file, load_custom_provider_store(cfg.custom_providers_file))
+        return 0
+
+    if tool == "provider-remove":
+        cmd_provider_remove(cfg, provider)
+        save_provider_model_catalog(cfg.provider_models_file, load_custom_provider_store(cfg.custom_providers_file))
+        return 0
+
+    custom_spec = custom_provider_map(custom_store).get(provider)
+
+    if custom_spec:
+        if tool not in ("all", *CUSTOM_OPENAI_COMPATIBLE_TOOLS):
+            raise SwitchError(
+                f"Custom provider '{provider}' is supported for {', '.join(CUSTOM_OPENAI_COMPATIBLE_TOOLS)}, not {tool}"
+            )
+        if tool != "all" and tool not in custom_spec["tools"]:
+            raise SwitchError(
+                f"Custom provider '{provider}' is enabled for {', '.join(custom_spec['tools'])}, not {tool}"
+            )
+        if not resolve_store_secret(store, custom_spec["env_key"]):
+            raise SwitchError(
+                f"{custom_spec['env_key']} is not set! "
+                f"Run: switch-api key set {custom_spec['env_key']} <value>"
+            )
+
     if provider == "quotio" and not keys["quotio"]:
-        raise SwitchError("QUOTIO_API_KEY is not set! Edit ~/.bashrc and run: source ~/.bashrc")
+        raise SwitchError("QUOTIO_API_KEY is not set! Edit ~/.env and run: source ~/.zshrc")
 
     if provider == "antigravity" and not keys["antigravity"]:
-        raise SwitchError("ANTIGRAVITY_API_KEY is not set! Edit ~/.bashrc and run: source ~/.bashrc")
+        raise SwitchError("ANTIGRAVITY_API_KEY is not set! Edit ~/.env and run: source ~/.zshrc")
 
     _is_openai = provider == "openai" or provider in OPENAI_NAMED_PROVIDERS
     is_openclaw_openai_oauth = tool == "openclaw" and _is_openai and profile == "oauth"
@@ -5429,7 +6164,7 @@ def main() -> int:
         raise SwitchError(f"Provider 'openrouter' is supported for codex/openclaw/droid, not {tool}")
 
     if provider == "openrouter" and not keys["openrouter"]:
-        raise SwitchError("OPENROUTER_API_KEY is not set! Edit ~/.bashrc and run: source ~/.bashrc")
+        raise SwitchError("OPENROUTER_API_KEY is not set! Edit ~/.env and run: source ~/.zshrc")
 
     if provider == "quotio_local" and tool not in ("codex", "droid", "all"):
         raise SwitchError(f"Provider 'quotio_local' is supported for codex/droid, not {tool}")
@@ -5507,6 +6242,8 @@ def main() -> int:
             info("Pre-flight skipped for Codex OpenAI 官方模式（auth.json / ChatGPT OAuth 决定可用性）")
         elif is_codex_openai_named:
             info("Pre-flight skipped for Codex flames_newapi key route（本地 config.toml 的 env_key 决定槽位）")
+        elif custom_spec is not None:
+            info(f"Pre-flight skipped for custom provider {provider}（无内置探测契约）")
         elif provider == "aiwave":
             info("Pre-flight skipped for AI Wave（不同工具走不同 key/protocol 路径）")
         elif provider == "deepseek":
@@ -5528,9 +6265,62 @@ def main() -> int:
     if profile.startswith("@model:"):
         model = profile[7:]
         profile = ""
-        validate_model_for_tool(tool, model, provider, force)
+        validate_model_for_tool(tool, model, provider, force, custom_provider=custom_spec)
 
-    if tool == "cc":
+    if custom_spec is not None:
+        if tool == "openclaw":
+            switch_custom_openclaw_provider(
+                custom_spec,
+                cfg,
+                store,
+                model=model,
+                agent_id=openclaw_agent_id,
+                all_agents=openclaw_all_agents,
+            )
+        elif tool == "codex":
+            switch_custom_codex_provider(custom_spec, cfg, store, model=model)
+        elif tool == "droid":
+            switch_custom_droid_provider(custom_spec, cfg, store, model=model)
+        elif tool == "hermes":
+            switch_custom_hermes_provider(
+                custom_spec,
+                cfg,
+                store,
+                model=model,
+                profile_name=hermes_profile_name,
+                all_profiles=hermes_all_profiles,
+            )
+        elif tool == "all":
+            info(
+                f"Custom provider {provider} supports "
+                + ",".join(custom_spec["tools"])
+                + " — switching enabled tools"
+            )
+            if "openclaw" in custom_spec["tools"]:
+                switch_custom_openclaw_provider(
+                    custom_spec,
+                    cfg,
+                    store,
+                    model=model,
+                    agent_id=openclaw_agent_id,
+                    all_agents=openclaw_all_agents,
+                )
+            if "codex" in custom_spec["tools"]:
+                switch_custom_codex_provider(custom_spec, cfg, store, model=model)
+            if "droid" in custom_spec["tools"]:
+                switch_custom_droid_provider(custom_spec, cfg, store, model=model)
+            if "hermes" in custom_spec["tools"]:
+                switch_custom_hermes_provider(
+                    custom_spec,
+                    cfg,
+                    store,
+                    model=model,
+                    profile_name=hermes_profile_name,
+                    all_profiles=hermes_all_profiles,
+                )
+        else:
+            raise SwitchError(f"Unsupported custom provider tool: {tool}")
+    elif tool == "cc":
         switch_cc(provider, cfg, keys, model=model)
     elif tool == "openclaw":
         switch_openclaw(provider, cfg, keys, profile, model=model, agent_id=openclaw_agent_id, all_agents=openclaw_all_agents)
