@@ -446,6 +446,54 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertIn('env_key = "ICODEEASY_API_KEY"', text)
         self.assertEqual(self.mod.detect_provider("codex", self.cfg), "icodeeasy")
 
+    def test_switch_codex_molifang_writes_gpt55_provider_block_and_detects(self):
+        self.mod.switch_codex("molifang", self.cfg, {"molifang": "dummy"}, model="")
+
+        text = self.cfg.cx_config.read_text(encoding="utf-8")
+        self.assertIsNotNone(re.search(r'^\s*model_provider\s*=\s*"molifang"\s*$', text, re.M))
+        self.assertIn('model = "gpt-5.5"', text)
+        self.assertRegex(text, r"(?ms)^\[features\]\n(?:.*\n)*image_generation = false$")
+        self.assertIn("[model_providers.molifang]", text)
+        self.assertIn('base_url = "https://molifangapi.xyz/v1"', text)
+        self.assertIn('env_key = "MOLIFANG_API_KEY"', text)
+        self.assertEqual((self.home / ".env").read_text(encoding="utf-8"), 'export MOLIFANG_API_KEY="dummy"\n')
+        self.assertEqual(self.cfg.zshrc.read_text(encoding="utf-8"), 'export MOLIFANG_API_KEY="dummy"\n')
+        self.assertEqual(self.cfg.bashrc.read_text(encoding="utf-8"), 'export MOLIFANG_API_KEY="dummy"\n')
+        self.assertEqual(self.mod.detect_provider("codex", self.cfg), "molifang")
+
+    def test_switch_openclaw_molifang_writes_provider_and_auth_store(self):
+        self.init_openclaw_files()
+
+        self.mod.switch_openclaw("molifang", self.cfg, {"molifang": "dummy"}, profile="", model="")
+
+        oc = json.loads(self.cfg.oc_config.read_text(encoding="utf-8"))
+        self.assertEqual(oc["agents"]["defaults"]["model"]["primary"], "molifang/gpt-5.5")
+
+        models = json.loads(self.cfg.oc_models.read_text(encoding="utf-8"))
+        self.assertEqual(models["providers"]["molifang"]["baseUrl"], "https://molifangapi.xyz/v1")
+        self.assertEqual(models["providers"]["molifang"]["api"], "openai-completions")
+        self.assertEqual(models["providers"]["molifang"]["apiKey"], "dummy")
+        self.assertEqual(models["providers"]["molifang"]["models"][0]["id"], "gpt-5.5")
+
+        auth = json.loads(self.cfg.oc_auth.read_text(encoding="utf-8"))
+        self.assertEqual(auth["molifang"]["key"], "dummy")
+
+        auth_profiles = json.loads(self.cfg.oc_auth_profiles.read_text(encoding="utf-8"))
+        self.assertEqual(auth_profiles["lastGood"]["molifang"], "molifang:manual")
+        self.assertEqual(self.mod.detect_provider("openclaw", self.cfg), "molifang")
+
+    def test_switch_droid_molifang_writes_custom_model(self):
+        self.mod.switch_droid("molifang", self.cfg, {"molifang": "dummy"}, profile="", model="")
+
+        data = json.loads(self.cfg.factory_settings.read_text(encoding="utf-8"))
+        custom = data["customModels"][0]
+        self.assertEqual(custom["model"], "gpt-5.5")
+        self.assertEqual(custom["displayName"], "Molifang gpt-5.5")
+        self.assertEqual(custom["baseUrl"], "https://molifangapi.xyz/v1")
+        self.assertEqual(custom["apiKey"], "dummy")
+        self.assertEqual(data["sessionDefaultSettings"]["model"], "custom:Molifang-gpt-5.5-0")
+        self.assertEqual(self.mod.detect_provider("droid", self.cfg), "molifang")
+
     def test_switch_openclaw_flames_writes_provider_and_auth_store(self):
         self.init_openclaw_files()
 
@@ -790,6 +838,10 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
     def test_model_in_provider_accepts_icodeeasy_gpt_and_gemini(self):
         self.assertTrue(self.mod.model_in_provider("gpt-5.4", "icodeeasy"))
         self.assertTrue(self.mod.model_in_provider("gemini-2.5-flash", "icodeeasy"))
+
+    def test_model_in_provider_accepts_molifang_only_gpt55(self):
+        self.assertTrue(self.mod.model_in_provider("gpt-5.5", "molifang"))
+        self.assertFalse(self.mod.model_in_provider("gpt-5.4", "molifang"))
 
     def test_model_in_provider_accepts_flames_deepseek(self):
         self.assertTrue(self.mod.model_in_provider("claude-fable-5", "flames"))

@@ -15,6 +15,7 @@ Unified API provider switcher across:
 | `quotio` | 🔗 | all | Quotio Tunnel (api.ancientechoes.ai) |
 | `antigravity` | 🚀 | all | Antigravity-tools (tools.ancientechoes.ai) |
 | `xingyun` | ☁️ | openclaw, codex, droid | Xingyun GPT (ai.xingyungept.cn) |
+| `molifang` | 🧩 | openclaw, codex, droid, hermes | Molifang API (molifangapi.xyz) — OpenAI GPT-5.5 only |
 | `flames` | 🔥 | cc, openclaw, codex, hermes | Flames NewAPI (www.flamescn.vip) |
 | `deepseek` | 🧠 | cc | DeepSeek Official Anthropic API (api.deepseek.com/anthropic) |
 | `quotio_local` | 🔗 | codex, droid | Quotio Local (本地 app, 127.0.0.1:8317) |
@@ -65,6 +66,7 @@ switch-api duck                      # 全部 → DuckCoding
 switch-api quotio                    # 全部 → Quotio
 switch-api antigravity               # 全部 → Antigravity
 switch-api xingyun                   # openclaw+codex+droid → Xingyun GPT
+switch-api molifang                  # openclaw+codex+droid+hermes → Molifang / gpt-5.5
 switch-api flames                    # cc+openclaw+codex+hermes → Flames NewAPI
 switch-api deepseek                  # cc → DeepSeek Official
 switch-api aiwave                    # openclaw+codex+droid+gemini+hermes → AI Wave
@@ -85,6 +87,10 @@ switch-api openclaw quotio [profile]
 switch-api openclaw icodeeasy [model]
 switch-api codex icodeeasy [model]
 switch-api openclaw xingyun gpt-5.4
+switch-api codex molifang            # Codex → Molifang / gpt-5.5
+switch-api openclaw molifang         # OpenClaw → molifang/gpt-5.5
+switch-api droid molifang            # Droid custom model → Molifang gpt-5.5
+switch-api hermes molifang           # Hermes → Molifang / gpt-5.5
 switch-api openclaw duck codex             # duckcoding-codex/gpt-5.4-xhigh-openai-compact
 switch-api openclaw flames [model]
 switch-api openclaw flames --agent lingxi  # 仅切换指定 OpenClaw agent
@@ -161,6 +167,7 @@ switch-api droid quotio_local gpt-5.3-codex-xhigh  # 超高思考
   - `QUOTIO_API_KEY`
   - `ANTIGRAVITY_API_KEY`
   - `XINGYUN_API_KEY`
+  - `MOLIFANG_API_KEY`
   - `OPENAI_API_KEY`, `OPENAI_GQ80_API_KEY`, `OPENAI_V420_API_KEY`
   - `FLAMES_API_KEY`
   - `DEEPSEEK_API_KEY`
