@@ -208,6 +208,29 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertEqual(spec["anthropic"]["env_key"], "MY_RELAY_CC_API_KEY")
         self.assertEqual(spec["anthropic"]["extra_env"]["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"], "1")
 
+        action, provider, payload = self.mod.parse_args(
+            ["provider", "export", "myrelay", "./myrelay.provider.json", "--with-secrets"]
+        )
+        self.assertEqual(action, "provider-export")
+        self.assertEqual(provider, "myrelay")
+        self.assertEqual(payload["path"], "./myrelay.provider.json")
+        self.assertTrue(payload["with_secrets"])
+
+        action, provider, payload = self.mod.parse_args(
+            ["provider", "export-all", "./providers.bundle.json", "--with-secrets"]
+        )
+        self.assertEqual(action, "provider-export-all")
+        self.assertEqual(provider, "")
+        self.assertEqual(payload["path"], "./providers.bundle.json")
+        self.assertTrue(payload["all"])
+
+        action, provider, payload = self.mod.parse_args(
+            ["provider", "import", "./providers.bundle.json", "--replace"]
+        )
+        self.assertEqual(action, "provider-import")
+        self.assertEqual(provider, "./providers.bundle.json")
+        self.assertTrue(payload["replace"])
+
     def test_switch_openclaw_flames_updates_all_agents_by_default(self):
         self.write_json(
             self.home / ".openclaw/openclaw.json",
@@ -640,6 +663,123 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
 
         catalog = self.mod.provider_model_catalog(saved)
         self.assertEqual(catalog["providers"]["myrelay"]["claude_code"]["default_model"], "claude-sonnet-4-6")
+
+    def test_cmd_provider_export_import_roundtrip_with_secrets(self):
+        openai_spec = self.mod.normalize_custom_openai_provider_spec(
+            "myrelay",
+            {
+                "name": "myrelay",
+                "base_url": "https://relay.example.com/v1",
+                "env_key": "MY_RELAY_API_KEY",
+                "default_model": "gpt-5.4",
+                "tools": ["codex", "openclaw", "droid", "hermes"],
+                "openclaw_api": "openai-completions",
+                "hermes_api_mode": "codex_responses",
+            },
+        )
+        anthropic_spec = self.mod.parse_provider_add_anthropic_args(
+            [
+                "myrelay",
+                "https://relay.example.com/anthropic",
+                "MY_RELAY_CC_API_KEY",
+                "claude-sonnet-4-6",
+                "--env",
+                "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
+            ]
+        )
+        self.mod.cmd_provider_add_openai(self.cfg, openai_spec)
+        self.mod.cmd_provider_add_anthropic(self.cfg, anthropic_spec)
+
+        store = {}
+        self.mod.cmd_key_set(self.cfg, store, "MY_RELAY_API_KEY", "dummy")
+        self.mod.cmd_key_set(self.cfg, store, "MY_RELAY_CC_API_KEY", "dummy-cc")
+
+        export_path = self.home / "providers.bundle.json"
+        self.mod.cmd_provider_export(
+            self.cfg,
+            store,
+            out_path=str(export_path),
+            include_secrets=True,
+            export_all=True,
+        )
+
+        exported = json.loads(export_path.read_text(encoding="utf-8"))
+        self.assertEqual(exported["format"], "switch-api/provider-bundle")
+        self.assertIn("myrelay", exported["providers"])
+        self.assertEqual(exported["env_values"]["MY_RELAY_API_KEY"], "dummy")
+        self.assertEqual(exported["env_values"]["MY_RELAY_CC_API_KEY"], "dummy-cc")
+
+        with tempfile.TemporaryDirectory() as tempdir2:
+            home2 = Path(tempdir2)
+            cfg2 = self.mod.Config(home2)
+            store2 = {}
+            self.mod.cmd_provider_import(cfg2, store2, str(export_path), replace=False)
+
+            saved2 = self.mod.load_custom_provider_store(cfg2.custom_providers_file)
+            self.assertIn("myrelay", saved2["providers"])
+            self.assertIn("cc", saved2["providers"]["myrelay"]["tools"])
+
+            creds2 = json.loads(cfg2.cred_file.read_text(encoding="utf-8"))
+            self.assertEqual(creds2["MY_RELAY_API_KEY"], "dummy")
+            self.assertEqual(creds2["MY_RELAY_CC_API_KEY"], "dummy-cc")
+            self.assertEqual(store2["MY_RELAY_API_KEY"], "dummy")
+            self.assertEqual(store2["MY_RELAY_CC_API_KEY"], "dummy-cc")
+
+            env_text = (home2 / ".env").read_text(encoding="utf-8")
+            self.assertIn('export MY_RELAY_API_KEY="dummy"', env_text)
+            self.assertIn('export MY_RELAY_CC_API_KEY="dummy-cc"', env_text)
+            self.assert_shell_rc_sources_env(cfg2.bashrc)
+            self.assert_shell_rc_sources_env(cfg2.zshrc)
+
+    def test_cmd_provider_import_replace_overwrites_provider_store(self):
+        bundle_path = self.home / "providers.bundle.json"
+        bundle_path.write_text(
+            json.dumps(
+                {
+                    "format": "switch-api/provider-bundle",
+                    "schema_version": 1,
+                    "providers": {
+                        "myrelay": {
+                            "name": "myrelay",
+                            "openai": {
+                                "base_url": "https://relay.example.com/v1",
+                                "env_key": "MY_RELAY_API_KEY",
+                                "default_model": "gpt-5.4",
+                                "tools": ["codex"],
+                                "openclaw_api": "openai-completions",
+                                "hermes_api_mode": "codex_responses",
+                                "codex_wire_api": "responses",
+                                "codex_features": {},
+                            }
+                        }
+                    },
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        self.mod.cmd_provider_add_openai(
+            self.cfg,
+            self.mod.normalize_custom_openai_provider_spec(
+                "oldrelay",
+                {
+                    "name": "oldrelay",
+                    "base_url": "https://old.example.com/v1",
+                    "env_key": "OLD_RELAY_API_KEY",
+                    "default_model": "gpt-5.4",
+                    "tools": ["codex"],
+                    "openclaw_api": "openai-completions",
+                    "hermes_api_mode": "codex_responses",
+                },
+            ),
+        )
+
+        self.mod.cmd_provider_import(self.cfg, {}, str(bundle_path), replace=True)
+        saved = self.mod.load_custom_provider_store(self.cfg.custom_providers_file)
+        self.assertEqual(set(saved["providers"]), {"myrelay"})
 
     def test_switch_openclaw_flames_writes_provider_and_auth_store(self):
         self.init_openclaw_files()

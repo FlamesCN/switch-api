@@ -59,6 +59,10 @@ switch-api provider add-openai myrelay https://relay.example.com/v1 MY_RELAY_API
 switch-api provider add-openai myrelay https://relay.example.com/v1 MY_RELAY_API_KEY gpt-5.4 --disable-image-generation
 switch-api provider add-anthropic myrelay https://relay.example.com/anthropic MY_RELAY_CC_API_KEY claude-sonnet-4-6
 switch-api provider add-anthropic myrelay https://relay.example.com/anthropic MY_RELAY_CC_API_KEY claude-sonnet-4-6 --env CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+switch-api provider export myrelay ./myrelay.provider.json
+switch-api provider export-all ./providers.bundle.json
+switch-api provider export-all ./providers.bundle.json --with-secrets
+switch-api provider import ./providers.bundle.json
 switch-api provider list
 switch-api provider rm myrelay
 
@@ -96,6 +100,12 @@ switch-api myrelay                   # 切换该 custom provider 启用的全部
 - `~/.bashrc`
 
 里有 `source ~/.env` 的加载逻辑。
+
+provider bundle 导入/导出：
+- 默认导出 **不包含** secret
+- `--with-secrets` 才会把相关 env value 一起写进 bundle
+- `provider import` 默认 merge
+- `provider import ... --replace` 用导入内容替换当前 provider 注册表
 
 `codex-account` 与 provider 是两套机制：
 - `provider` 切换的是 API endpoint / API key

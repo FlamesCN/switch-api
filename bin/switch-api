@@ -34,7 +34,7 @@ import shutil
 import subprocess
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
 
@@ -599,7 +599,7 @@ CC_ONLY_PROVIDERS = ("duck_cc1", "duck_codex2cc")
 OPENCLAW_CLAUDE_PROVIDERS = ("duck", "quotio", "antigravity", "icodeeasy")
 OPENCLAW_GEMINI_PROFILES = frozenset(("gemini", "gemini3", "gemini-3", "gemini3-pro-high"))
 
-APP_VERSION = "2.0.6"
+APP_VERSION = "2.0.7"
 
 RED = "\033[0;31m"
 GREEN = "\033[0;32m"
@@ -822,6 +822,13 @@ def normalize_path(home: Path, raw: str) -> Path:
     path = Path(raw).expanduser()
     if not path.is_absolute():
         path = home / path
+    return Path(os.path.abspath(str(path)))
+
+
+def resolve_cli_path(raw: str) -> Path:
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        path = Path.cwd() / path
     return Path(os.path.abspath(str(path)))
 
 
@@ -1351,6 +1358,70 @@ def custom_provider_required_env_keys(spec: Dict[str, Any], tool: str) -> List[s
         if key and key not in deduped:
             deduped.append(key)
     return deduped
+
+
+def build_provider_export_bundle(
+    providers: Dict[str, Any],
+    store: Dict[str, str],
+    *,
+    names: List[str] | None = None,
+    include_secrets: bool = False,
+) -> Dict[str, Any]:
+    selected_names = names or sorted(providers)
+    selected: Dict[str, Any] = {}
+    for name in selected_names:
+        if name not in providers:
+            raise SwitchError(f"Custom provider not found: {name}")
+        selected[name] = providers[name]
+
+    bundle: Dict[str, Any] = {
+        "format": "switch-api/provider-bundle",
+        "schema_version": 1,
+        "exported_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "providers": selected,
+    }
+
+    if include_secrets:
+        env_values: Dict[str, str] = {}
+        for spec in selected.values():
+            for env_key in custom_provider_required_env_keys(spec, "all"):
+                secret = resolve_store_secret(store, env_key)
+                if secret:
+                    env_values[env_key] = secret
+        if env_values:
+            bundle["env_values"] = env_values
+
+    return bundle
+
+
+def normalize_provider_import_bundle(raw: Any) -> Dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise SwitchError("Provider import payload must be a JSON object")
+
+    providers_raw = raw.get("providers")
+    if not isinstance(providers_raw, dict):
+        raise SwitchError("Provider import payload must contain a providers object")
+
+    providers: Dict[str, Any] = {}
+    for name, spec in providers_raw.items():
+        if not isinstance(spec, dict):
+            raise SwitchError(f"Invalid custom provider spec for {name}")
+        normalized = normalize_custom_provider_spec(str(name), spec)
+        providers[normalized["name"]] = normalized
+
+    if not providers:
+        raise SwitchError("Provider import payload must contain at least one provider")
+
+    env_values_raw = raw.get("env_values") or {}
+    if not isinstance(env_values_raw, dict):
+        raise SwitchError("Provider import env_values must be an object")
+
+    env_values: Dict[str, str] = {}
+    for key, value in env_values_raw.items():
+        env_key = validate_env_key_name(str(key))
+        env_values[env_key] = str(value)
+
+    return {"providers": providers, "env_values": env_values}
 
 
 def load_codex_account_store(path: Path) -> Dict[str, Any]:
@@ -2274,6 +2345,85 @@ def cmd_provider_add_anthropic(cfg: Config, spec: Dict[str, Any]) -> None:
     if anthropic_cfg.get("extra_env"):
         info("extra_env=" + ",".join(f"{key}={value}" for key, value in sorted(anthropic_cfg["extra_env"].items())))
     info("tools=cc")
+
+
+def cmd_provider_export(
+    cfg: Config,
+    store: Dict[str, str],
+    *,
+    name: str = "",
+    out_path: str = "",
+    include_secrets: bool = False,
+    export_all: bool = False,
+) -> None:
+    provider_store = load_custom_provider_store(cfg.custom_providers_file)
+    providers = custom_provider_map(provider_store)
+    if not providers:
+        raise SwitchError("No custom providers registered.")
+
+    selected_names = sorted(providers) if export_all else [validate_custom_provider_name(name)]
+    bundle = build_provider_export_bundle(
+        providers,
+        store,
+        names=selected_names,
+        include_secrets=include_secrets,
+    )
+    rendered = json.dumps(bundle, ensure_ascii=False, indent=2) + "\n"
+
+    if not out_path or out_path == "-":
+        print(rendered, end="")
+        return
+
+    target_path = resolve_cli_path(out_path)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    target_path.write_text(rendered, encoding="utf-8")
+    ok(f"Exported custom provider bundle → {target_path}")
+    info(
+        f"providers={','.join(selected_names)}"
+        + (" (with secrets)" if include_secrets else "")
+    )
+
+
+def cmd_provider_import(cfg: Config, store: Dict[str, str], source_path: str, *, replace: bool = False) -> None:
+    source = (source_path or "").strip()
+    if not source:
+        raise SwitchError("Provider import source path must not be empty")
+
+    if source == "-":
+        raw_text = sys.stdin.read()
+        source_label = "<stdin>"
+    else:
+        source_file = resolve_cli_path(source)
+        if not source_file.exists():
+            raise SwitchError(f"Provider import file not found: {source_file}")
+        raw_text = source_file.read_text(encoding="utf-8")
+        source_label = str(source_file)
+
+    try:
+        payload = json.loads(raw_text)
+    except Exception as ex:
+        raise SwitchError(f"Failed to parse provider import JSON: {source_label}: {ex}")
+
+    bundle = normalize_provider_import_bundle(payload)
+    existing = {} if replace else custom_provider_map(load_custom_provider_store(cfg.custom_providers_file))
+    merged = dict(existing)
+    merged.update(bundle["providers"])
+    save_custom_provider_store(cfg.custom_providers_file, {"providers": merged})
+
+    imported_env_values = dict(bundle["env_values"])
+    if imported_env_values:
+        store.update(imported_env_values)
+        save_credential_store(cfg.cred_file, store)
+        sync_shared_shell_env(cfg, imported_env_values)
+
+    save_provider_model_catalog(cfg.provider_models_file, load_custom_provider_store(cfg.custom_providers_file))
+    ok(
+        f"Imported custom provider bundle ← {source_label}"
+        + (" (replace)" if replace else " (merge)")
+    )
+    info("providers=" + ",".join(sorted(bundle["providers"])))
+    if imported_env_values:
+        info("env_keys=" + ",".join(sorted(imported_env_values)))
 
 
 def cmd_provider_list(cfg: Config) -> None:
@@ -5863,6 +6013,9 @@ def usage() -> None:
     print("  switch-api provider list")
     print("  switch-api provider add-openai <name> <base_url> <env_key> <default_model> [options]")
     print("  switch-api provider add-anthropic <name> <base_url> <env_key> <default_model> [options]")
+    print("  switch-api provider export <name> [path|-] [--with-secrets]")
+    print("  switch-api provider export-all [path|-] [--with-secrets]")
+    print("  switch-api provider import <path|-> [--replace]")
     print("  switch-api provider rm <name>")
     print("  switch-api <provider>")
     print("  switch-api all <provider>")
@@ -5894,6 +6047,9 @@ def usage() -> None:
     print("       switch-api provider add-openai myrelay https://relay.example.com/v1 MYRELAY_API_KEY gpt-5.4 --disable-image-generation")
     print("       switch-api provider add-anthropic myrelay https://relay.example.com/anthropic MYRELAY_CC_API_KEY claude-sonnet-4-6 --env CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")
     print("       switch-api provider list")
+    print("       switch-api provider export myrelay ./myrelay.provider.json")
+    print("       switch-api provider export-all ./providers.bundle.json --with-secrets")
+    print("       switch-api provider import ./providers.bundle.json")
     print("       switch-api cc myrelay")
     print("       switch-api codex myrelay")
     print("       switch-api myrelay              # switch enabled tools for custom provider")
@@ -5979,6 +6135,8 @@ def usage() -> None:
     print("  switch-api key set <ENV_KEY> <VALUE>   # 写入 credentials.json + ~/.env，并确保 shell source ~/.env")
     print("  switch-api provider add-openai ...     # 注册自定义 OpenAI-compatible provider（codex/openclaw/droid/hermes）")
     print("  switch-api provider add-anthropic ...  # 注册自定义 Anthropic-compatible provider（cc）")
+    print("  switch-api provider export ...         # 导出 provider bundle（默认不带 secrets）")
+    print("  switch-api provider import ...         # 导入 provider bundle（默认 merge，可 --replace）")
     print("  switch-api <tool> <provider> <model>   # 指定模型切换")
 
 
@@ -6192,6 +6350,67 @@ def parse_provider_add_anthropic_args(args: List[str]) -> Dict[str, Any]:
     return normalize_custom_provider_spec(spec["name"], {"name": spec["name"], "anthropic": spec})
 
 
+def parse_provider_export_args(args: List[str], *, export_all: bool = False) -> Dict[str, Any]:
+    if not args and not export_all:
+        raise SwitchError("Usage: switch-api provider export <name> [path|-] [--with-secrets]")
+
+    name = ""
+    out_path = ""
+    include_secrets = False
+
+    idx = 0
+    if not export_all:
+        name = args[0]
+        idx = 1
+
+    while idx < len(args):
+        arg = args[idx]
+        if arg == "--with-secrets":
+            include_secrets = True
+            idx += 1
+            continue
+        if arg.startswith("--"):
+            raise SwitchError(f"Unknown provider export option: {arg}")
+        if out_path:
+            raise SwitchError("Provider export accepts at most one output path")
+        out_path = arg
+        idx += 1
+
+    return {
+        "name": name,
+        "path": out_path,
+        "with_secrets": include_secrets,
+        "all": export_all,
+    }
+
+
+def parse_provider_import_args(args: List[str]) -> Dict[str, Any]:
+    if not args:
+        raise SwitchError("Usage: switch-api provider import <path|-> [--replace]")
+
+    source = ""
+    replace = False
+
+    idx = 0
+    while idx < len(args):
+        arg = args[idx]
+        if arg == "--replace":
+            replace = True
+            idx += 1
+            continue
+        if arg.startswith("--"):
+            raise SwitchError(f"Unknown provider import option: {arg}")
+        if source:
+            raise SwitchError("Provider import accepts exactly one source path")
+        source = arg
+        idx += 1
+
+    if not source:
+        raise SwitchError("Usage: switch-api provider import <path|-> [--replace]")
+
+    return {"path": source, "replace": replace}
+
+
 def parse_args(argv: Iterable[str], known_providers: Iterable[str] | None = None) -> Tuple[str, str, Any]:
     """Returns (action, provider, profile_or_model).
     action can be: status, check, check-online, list, list-<provider>,
@@ -6235,7 +6454,31 @@ def parse_args(argv: Iterable[str], known_providers: Iterable[str] | None = None
                 usage()
                 raise SystemExit(1)
             return ("provider-add-anthropic", spec["name"], spec)
-        err("Usage: switch-api provider <list|rm|add-openai|add-anthropic> ...")
+        if len(args) >= 3 and args[1] == "export":
+            try:
+                payload = parse_provider_export_args(args[2:], export_all=False)
+            except SwitchError as ex:
+                err(str(ex))
+                usage()
+                raise SystemExit(1)
+            return ("provider-export", payload["name"], payload)
+        if len(args) >= 2 and args[1] == "export-all":
+            try:
+                payload = parse_provider_export_args(args[2:], export_all=True)
+            except SwitchError as ex:
+                err(str(ex))
+                usage()
+                raise SystemExit(1)
+            return ("provider-export-all", "", payload)
+        if len(args) >= 3 and args[1] == "import":
+            try:
+                payload = parse_provider_import_args(args[2:])
+            except SwitchError as ex:
+                err(str(ex))
+                usage()
+                raise SystemExit(1)
+            return ("provider-import", payload["path"], payload)
+        err("Usage: switch-api provider <list|rm|add-openai|add-anthropic|export|export-all|import> ...")
         usage()
         raise SystemExit(1)
 
@@ -6425,6 +6668,31 @@ def main() -> int:
     if tool == "provider-add-anthropic":
         cmd_provider_add_anthropic(cfg, profile)
         save_provider_model_catalog(cfg.provider_models_file, load_custom_provider_store(cfg.custom_providers_file))
+        return 0
+
+    if tool == "provider-export":
+        cmd_provider_export(
+            cfg,
+            store,
+            name=provider,
+            out_path=str(profile.get("path") or ""),
+            include_secrets=bool(profile.get("with_secrets")),
+            export_all=False,
+        )
+        return 0
+
+    if tool == "provider-export-all":
+        cmd_provider_export(
+            cfg,
+            store,
+            out_path=str(profile.get("path") or ""),
+            include_secrets=bool(profile.get("with_secrets")),
+            export_all=True,
+        )
+        return 0
+
+    if tool == "provider-import":
+        cmd_provider_import(cfg, store, provider, replace=bool(profile.get("replace")))
         return 0
 
     if tool == "provider-remove":

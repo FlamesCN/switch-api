@@ -1,6 +1,6 @@
 ---
 name: api-provider-admin
-description: '维护 switch-api 的 key 与自定义 provider 时使用：写 key、注册/删除 custom provider、排查 ~/.env 与 shell source 关系。'
+description: '维护 switch-api 的 key 与自定义 provider 时使用：写 key、注册/删除 custom provider、导入/导出 provider bundle、排查 ~/.env 与 shell source 关系。'
 metadata: { "openclaw": { "emoji": "🧰", "requires": { "anyBins": ["switch-api"] }, "os": ["linux"] } }
 ---
 
@@ -12,6 +12,7 @@ metadata: { "openclaw": { "emoji": "🧰", "requires": { "anyBins": ["switch-api
 - 保存 / 更新 API key
 - 注册自定义 provider
 - 删除自定义 provider
+- 导入 / 导出 provider bundle
 - 检查 `~/.env`、`~/.bashrc`、`~/.zshrc` 是否正确联动
 
 ## Key 写入
@@ -71,6 +72,27 @@ switch-api provider add-anthropic myrelay ...
 switch-api provider list
 switch-api provider rm <name>
 ```
+
+## 导出 / 导入
+
+```bash
+switch-api provider export <name> [path|-]
+switch-api provider export-all [path|-]
+switch-api provider export-all ./providers.bundle.json --with-secrets
+
+switch-api provider import ./providers.bundle.json
+switch-api provider import ./providers.bundle.json --replace
+```
+
+规则：
+- 默认导出不带 secret
+- `--with-secrets` 才会导出 `env_values`
+- 导入时若 bundle 带 `env_values`，会同时写入：
+  - `~/.config/switch-api/credentials.json`
+  - `~/.env`
+  - 并自动确保 shell 加载 `~/.env`
+- 默认导入是 merge
+- `--replace` 只替换 provider 注册表，不主动清理旧 credentials
 
 ## 注册后切换
 

@@ -147,7 +147,7 @@
 
 ## 命令行用法
 
-脚本位置：`~/bin/switch-api`（Python 脚本，v2.0.6）
+脚本位置：`~/bin/switch-api`（Python 脚本，v2.0.7）
 
 ### 语法
 
@@ -673,6 +673,9 @@ switch-api openclaw openai key
 - 当前自定义 provider 命令：
   - `switch-api provider add-openai <name> <base_url> <env_key> <default_model> [--disable-image-generation]`
   - `switch-api provider add-anthropic <name> <base_url> <env_key> <default_model> [--env KEY=VALUE ...]`
+  - `switch-api provider export <name> [path|-] [--with-secrets]`
+  - `switch-api provider export-all [path|-] [--with-secrets]`
+  - `switch-api provider import <path|-> [--replace]`
   - `switch-api provider list`
   - `switch-api provider rm <name>`
 - 同一个 provider 名称可以同时挂：
@@ -682,14 +685,19 @@ switch-api openclaw openai key
   - 先执行 `switch-api provider add-openai myrelay ...`
   - 再执行 `switch-api provider add-anthropic myrelay ...`
   - 之后 `switch-api myrelay` 会切换该 provider 已启用的全部工具
+- provider bundle 规则：
+  - 默认导出不带 secret
+  - `--with-secrets` 才导出 `env_values`
+  - `provider import` 默认 merge
+  - `provider import ... --replace` 用导入内容替换当前 provider 注册表
 
 ---
 
 ## 文件清单
 
 ```
-~/bin/switch-api                              部署脚本 (v2.0.6)
-~/code/switch-api/bin/switch-api             源码仓库脚本 (v2.0.6)
+~/bin/switch-api                              部署脚本 (v2.0.7)
+~/code/switch-api/bin/switch-api             源码仓库脚本 (v2.0.7)
 ~/.bashrc                                     shell 启动文件（会自动补齐 source ~/.env）
 ~/.zshrc                                      shell 启动文件（会自动补齐 source ~/.env）
 ~/.env                                        共享 shell 环境变量

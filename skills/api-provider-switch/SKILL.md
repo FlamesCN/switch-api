@@ -8,7 +8,7 @@ metadata: { "openclaw": { "emoji": "🔀", "requires": { "anyBins": ["switch-api
 
 ## 工具
 
-`~/bin/switch-api`（v2.0.6）— 统一切换：
+`~/bin/switch-api`（v2.0.7）— 统一切换：
 - Claude Code (`cc`, alias: `claude`)
 - OpenClaw (`openclaw`)
 - Codex (`codex`)
@@ -75,6 +75,14 @@ switch-api key list
 - 写入 `~/.config/switch-api/credentials.json`
 - 写入 `~/.env`
 - 自动确保 `~/.zshrc` / `~/.bashrc` 会加载 `~/.env`
+
+如果要迁移 / 备份自定义 provider，也可以配合：
+
+```bash
+switch-api provider export myrelay ./myrelay.provider.json
+switch-api provider export-all ./providers.bundle.json --with-secrets
+switch-api provider import ./providers.bundle.json
+```
 
 ## 模型兼容规则
 
