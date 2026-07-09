@@ -1,7 +1,7 @@
 ---
 name: api-provider-admin
 description: '维护 switch-api 的 key 与自定义 provider 时使用：写 key、注册/删除 custom provider、导入/导出 provider bundle、排查 ~/.env 与 shell source 关系。'
-metadata: { "openclaw": { "emoji": "🧰", "requires": { "anyBins": ["switch-api"] }, "os": ["linux"] } }
+metadata: { "openclaw": { "emoji": "🧰", "requires": { "anyBins": ["switch-api"] }, "os": ["linux", "darwin"] } }
 ---
 
 # API Provider Admin Skill
@@ -34,6 +34,7 @@ switch-api key list
 ```bash
 switch-api provider add-openai <name> <base_url> <env_key> <default_model>
 switch-api provider add-openai myrelay https://relay.example.com/v1 MY_RELAY_API_KEY gpt-5.4 --disable-image-generation
+switch-api provider add-openai myrelay https://relay.example.com/v1 MY_RELAY_API_KEY gpt-5.4 --models-url https://relay.example.com/v1/models --models-auth bearer,anthropic
 ```
 
 适用工具：
@@ -47,6 +48,7 @@ switch-api provider add-openai myrelay https://relay.example.com/v1 MY_RELAY_API
 ```bash
 switch-api provider add-anthropic <name> <base_url> <env_key> <default_model>
 switch-api provider add-anthropic myrelay https://relay.example.com/anthropic MY_RELAY_CC_API_KEY claude-sonnet-4-6 --env CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+switch-api provider add-anthropic anyrouter https://anyrouter.top ANYROUTER_API_KEY claude-opus-4-8 --env ANTHROPIC_BETAS=context-1m-2025-08-07
 ```
 
 适用工具：
@@ -70,8 +72,16 @@ switch-api provider add-anthropic myrelay ...
 
 ```bash
 switch-api provider list
+switch-api provider sync-models <name>
+switch-api probe <name>
+switch-api doctor <name>
 switch-api provider rm <name>
 ```
+
+说明：
+- `provider sync-models` 会抓取 custom provider 的 `/v1/models`
+- `probe` 会测 `/models` 和请求链路
+- `doctor` 会先刷新模型缓存，再跑完整探测
 
 ## 导出 / 导入
 

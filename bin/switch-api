@@ -587,6 +587,7 @@ PROVIDERS = ("duck", "quotio", "quotio_local", "antigravity", "xingyun", "molifa
 CUSTOM_OPENAI_COMPATIBLE_TOOLS = ("codex", "openclaw", "droid", "hermes")
 CUSTOM_OPENCLAW_APIS = ("openai-completions", "openai-responses")
 CUSTOM_HERMES_API_MODES = ("codex_responses", "chat_completions")
+MODEL_DISCOVERY_AUTH_MODES = ("bearer", "anthropic", "none")
 ENV_KEY_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 CUSTOM_PROVIDER_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 SHELL_ENV_SOURCE_LINE = '[ -f "$HOME/.env" ] && source "$HOME/.env"'
@@ -599,7 +600,7 @@ CC_ONLY_PROVIDERS = ("duck_cc1", "duck_codex2cc")
 OPENCLAW_CLAUDE_PROVIDERS = ("duck", "quotio", "antigravity", "icodeeasy")
 OPENCLAW_GEMINI_PROFILES = frozenset(("gemini", "gemini3", "gemini-3", "gemini3-pro-high"))
 
-APP_VERSION = "2.0.7"
+APP_VERSION = "2.0.8"
 
 RED = "\033[0;31m"
 GREEN = "\033[0;32m"
@@ -1152,6 +1153,118 @@ def normalize_custom_env_map(provider_name: str, extra_env: Any) -> Dict[str, st
     return normalized
 
 
+def normalize_available_models(raw: Any) -> List[str]:
+    if not raw:
+        return []
+    if not isinstance(raw, list):
+        raise SwitchError("available_models must be a list")
+    models: List[str] = []
+    for item in raw:
+        value = str(item or "").strip()
+        if value and value not in models:
+            models.append(value)
+    return models
+
+
+def derive_model_discovery_url(base_url: str) -> str:
+    value = normalize_base_url(base_url)
+    if value.endswith("/models"):
+        return value
+    if value.endswith("/v1"):
+        return value + "/models"
+    if value.endswith("/v1beta"):
+        return value[: -len("/v1beta")] + "/v1/models"
+    if value.endswith("/v1/messages"):
+        return value[: -len("/messages")] + "/models"
+    if value.endswith("/chat/completions"):
+        return value[: -len("/chat/completions")] + "/models"
+    if value.endswith("/messages"):
+        return value[: -len("/messages")] + "/models"
+    if value.endswith("/anthropic"):
+        return value[: -len("/anthropic")] + "/v1/models"
+    return value + "/v1/models"
+
+
+def derive_openai_chat_completions_url(base_url: str) -> str:
+    value = normalize_base_url(base_url)
+    if value.endswith("/chat/completions"):
+        return value
+    if value.endswith("/v1"):
+        return value + "/chat/completions"
+    return value + "/v1/chat/completions"
+
+
+def derive_openai_responses_url(base_url: str) -> str:
+    value = normalize_base_url(base_url)
+    if value.endswith("/responses"):
+        return value
+    if value.endswith("/v1"):
+        return value + "/responses"
+    return value + "/v1/responses"
+
+
+def derive_anthropic_messages_url(base_url: str) -> str:
+    value = normalize_base_url(base_url)
+    if value.endswith("/messages"):
+        return value
+    if value.endswith("/v1"):
+        return value + "/messages"
+    if value.endswith("/anthropic"):
+        return value + "/v1/messages"
+    return value + "/v1/messages"
+
+
+def normalize_model_discovery_auth_modes(raw: Any, default_modes: Iterable[str]) -> List[str]:
+    items: List[str] = []
+    if raw is None or raw == "":
+        items = list(default_modes)
+    elif isinstance(raw, str):
+        items = [part.strip() for part in raw.split(",") if part.strip()]
+    elif isinstance(raw, list):
+        items = [str(part).strip() for part in raw if str(part).strip()]
+    else:
+        raise SwitchError("model_discovery.auth_modes must be a string or list")
+
+    normalized: List[str] = []
+    for item in items:
+        if item not in MODEL_DISCOVERY_AUTH_MODES:
+            raise SwitchError(
+                "model_discovery.auth_modes must be one of: "
+                + ", ".join(MODEL_DISCOVERY_AUTH_MODES)
+            )
+        if item not in normalized:
+            normalized.append(item)
+    return normalized
+
+
+def normalize_model_discovery_config(
+    provider_name: str,
+    base_url: str,
+    raw: Any,
+    *,
+    default_auth_modes: Iterable[str],
+) -> Dict[str, Any] | None:
+    if raw is False:
+        return None
+    if raw in (None, ""):
+        payload: Dict[str, Any] = {}
+    elif isinstance(raw, dict):
+        payload = dict(raw)
+    else:
+        raise SwitchError(f"Custom provider {provider_name} model_discovery must be an object or false")
+
+    models_url = str(payload.get("models_url") or "").strip() or derive_model_discovery_url(base_url)
+    auth_modes = normalize_model_discovery_auth_modes(payload.get("auth_modes"), default_auth_modes)
+    result: Dict[str, Any] = {
+        "models_url": normalize_base_url(models_url),
+        "auth_modes": auth_modes,
+    }
+    for key in ("last_sync_at", "last_sync_error", "last_sync_auth_mode", "last_sync_status"):
+        if key in payload and payload[key] not in (None, ""):
+            result[key] = str(payload[key])
+    return result
+
+
 def normalize_custom_openai_provider_section(name: str, spec: Dict[str, Any]) -> Dict[str, Any]:
     provider_name = validate_custom_provider_name(name or str(spec.get("name") or ""))
     tools = spec.get("tools") or list(CUSTOM_OPENAI_COMPATIBLE_TOOLS)
@@ -1196,6 +1309,13 @@ def normalize_custom_openai_provider_section(name: str, spec: Dict[str, Any]) ->
         "base_url": normalize_base_url(str(spec.get("base_url") or "")),
         "env_key": validate_env_key_name(str(spec.get("env_key") or "")),
         "default_model": str(spec.get("default_model") or "").strip(),
+        "available_models": normalize_available_models(spec.get("available_models") or []),
+        "model_discovery": normalize_model_discovery_config(
+            provider_name,
+            str(spec.get("base_url") or ""),
+            spec.get("model_discovery"),
+            default_auth_modes=("bearer", "anthropic", "none"),
+        ),
         "tools": tools,
         "openclaw_api": openclaw_api,
         "hermes_api_mode": hermes_api_mode,
@@ -1215,6 +1335,13 @@ def normalize_custom_anthropic_provider_section(name: str, spec: Dict[str, Any])
         "base_url": normalize_base_url(str(spec.get("base_url") or "")),
         "env_key": validate_env_key_name(str(spec.get("env_key") or "")),
         "default_model": default_model,
+        "available_models": normalize_available_models(spec.get("available_models") or []),
+        "model_discovery": normalize_model_discovery_config(
+            provider_name,
+            str(spec.get("base_url") or ""),
+            spec.get("model_discovery"),
+            default_auth_modes=("bearer", "anthropic", "none"),
+        ),
         "extra_env": extra_env,
     }
 
@@ -1340,6 +1467,306 @@ def custom_provider_map(store: Dict[str, Any]) -> Dict[str, Any]:
 
 def resolve_store_secret(store: Dict[str, str], env_key: str) -> str:
     return os.environ.get(env_key, "").strip() or str(store.get(env_key) or "").strip()
+
+
+def build_model_discovery_headers(api_key: str, auth_mode: str) -> Dict[str, str]:
+    headers: Dict[str, str] = {"User-Agent": "switch-api/" + APP_VERSION}
+    if auth_mode == "bearer":
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+    elif auth_mode == "anthropic":
+        if api_key:
+            headers["x-api-key"] = api_key
+        headers["anthropic-version"] = "2023-06-01"
+    elif auth_mode == "none":
+        pass
+    else:
+        raise SwitchError(f"Unsupported model discovery auth mode: {auth_mode}")
+    return headers
+
+
+def extract_model_ids_from_payload(payload: Any) -> List[str]:
+    items: Any = payload
+    if isinstance(payload, dict):
+        if isinstance(payload.get("data"), list):
+            items = payload.get("data")
+        elif isinstance(payload.get("models"), list):
+            items = payload.get("models")
+        else:
+            items = []
+
+    models: List[str] = []
+    if isinstance(items, list):
+        for item in items:
+            model_id = ""
+            if isinstance(item, dict):
+                for key in ("id", "name", "model"):
+                    value = str(item.get(key) or "").strip()
+                    if value:
+                        model_id = value
+                        break
+            elif isinstance(item, str):
+                model_id = item.strip()
+            if model_id and model_id not in models:
+                models.append(model_id)
+    return models
+
+
+def fetch_remote_model_catalog(
+    models_url: str,
+    api_key: str,
+    auth_modes: Iterable[str],
+    *,
+    timeout: int = 10,
+) -> Tuple[List[str], str, str]:
+    import urllib.error
+    import urllib.request
+
+    last_error = "unknown error"
+    for auth_mode in auth_modes:
+        headers = build_model_discovery_headers(api_key, auth_mode)
+        try:
+            req = urllib.request.Request(models_url, headers=headers)
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                body = resp.read().decode("utf-8", errors="replace")
+            payload = json.loads(body)
+            models = extract_model_ids_from_payload(payload)
+            if models:
+                return models, auth_mode, ""
+            last_error = f"{auth_mode}: no model ids found"
+        except urllib.error.HTTPError as e:
+            body = _read_error_body(e)
+            last_error = f"{auth_mode}: HTTP {e.code}" + (f" {body}" if body else "")
+        except urllib.error.URLError as e:
+            last_error = f"{auth_mode}: {e.reason}"
+        except json.JSONDecodeError as e:
+            last_error = f"{auth_mode}: invalid JSON ({e})"
+        except Exception as e:
+            last_error = f"{auth_mode}: {e}"
+    return [], "", last_error
+
+
+def perform_json_http_request(
+    method: str,
+    url: str,
+    headers: Dict[str, str],
+    payload: Dict[str, Any] | None = None,
+    *,
+    timeout: int = 12,
+) -> Tuple[bool, int, str]:
+    import urllib.error
+    import urllib.request
+
+    body_bytes = None
+    req_headers = dict(headers)
+    if payload is not None:
+        req_headers.setdefault("Content-Type", "application/json")
+        body_bytes = json.dumps(payload).encode("utf-8")
+
+    try:
+        req = urllib.request.Request(url, data=body_bytes, headers=req_headers, method=method.upper())
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+            return 200 <= resp.status < 300, int(resp.status), body[:1200]
+    except urllib.error.HTTPError as e:
+        return False, int(e.code), _read_error_body(e)
+    except urllib.error.URLError as e:
+        return False, 0, str(e.reason)
+    except Exception as e:
+        return False, 0, str(e)
+
+
+def anthropic_extra_headers(extra_env: Dict[str, str] | None = None) -> Dict[str, str]:
+    payload: Dict[str, str] = {}
+    extra = extra_env or {}
+    betas = str(extra.get("ANTHROPIC_BETAS") or "").strip()
+    if betas:
+        payload["anthropic-beta"] = betas
+    version = str(extra.get("ANTHROPIC_VERSION") or "").strip() or "2023-06-01"
+    payload["anthropic-version"] = version
+    return payload
+
+
+def probe_custom_openai_provider(spec: Dict[str, Any], store: Dict[str, str]) -> List[Tuple[str, bool, str]]:
+    provider_name = spec["name"]
+    openai_cfg = spec.get("openai") if isinstance(spec.get("openai"), dict) else None
+    if openai_cfg is None:
+        return []
+
+    api_key = resolve_store_secret(store, str(openai_cfg.get("env_key") or ""))
+    if not api_key:
+        return [("openai key", False, f"missing {openai_cfg.get('env_key')}")]
+
+    results: List[Tuple[str, bool, str]] = []
+    discovery = openai_cfg.get("model_discovery") if isinstance(openai_cfg.get("model_discovery"), dict) else None
+    if discovery is not None:
+        models, auth_mode, error_text = fetch_remote_model_catalog(
+            str(discovery.get("models_url") or derive_model_discovery_url(openai_cfg["base_url"])),
+            api_key,
+            discovery.get("auth_modes") or ("bearer",),
+        )
+        if models:
+            results.append(("openai /models", True, f"{len(models)} models via {auth_mode}"))
+        else:
+            results.append(("openai /models", False, error_text))
+
+    target_model = str(openai_cfg.get("default_model") or "").strip()
+    ok_chat, status_chat, detail_chat = perform_json_http_request(
+        "POST",
+        derive_openai_chat_completions_url(openai_cfg["base_url"]),
+        {"Authorization": f"Bearer {api_key}"},
+        {
+            "model": target_model,
+            "messages": [{"role": "user", "content": "Reply with exactly: ok"}],
+            "max_tokens": 1,
+        },
+    )
+    results.append(("openai /chat/completions", ok_chat, f"HTTP {status_chat}: {detail_chat[:220]}"))
+
+    if str(openai_cfg.get("codex_wire_api") or "") == "responses":
+        ok_resp, status_resp, detail_resp = perform_json_http_request(
+            "POST",
+            derive_openai_responses_url(openai_cfg["base_url"]),
+            {"Authorization": f"Bearer {api_key}"},
+            {
+                "model": target_model,
+                "input": "Reply with exactly: ok",
+                "max_output_tokens": 1,
+            },
+        )
+        results.append(("openai /responses", ok_resp, f"HTTP {status_resp}: {detail_resp[:220]}"))
+
+    return results
+
+
+def probe_custom_anthropic_provider(spec: Dict[str, Any], store: Dict[str, str]) -> List[Tuple[str, bool, str]]:
+    provider_name = spec["name"]
+    anthropic_cfg = spec.get("anthropic") if isinstance(spec.get("anthropic"), dict) else None
+    if anthropic_cfg is None:
+        return []
+
+    api_key = resolve_store_secret(store, str(anthropic_cfg.get("env_key") or ""))
+    if not api_key:
+        return [("anthropic key", False, f"missing {anthropic_cfg.get('env_key')}")]
+
+    results: List[Tuple[str, bool, str]] = []
+    discovery = anthropic_cfg.get("model_discovery") if isinstance(anthropic_cfg.get("model_discovery"), dict) else None
+    auth_modes = discovery.get("auth_modes") if discovery else ("bearer", "anthropic", "none")
+    models_url = str(discovery.get("models_url") or derive_model_discovery_url(anthropic_cfg["base_url"])) if discovery else derive_model_discovery_url(anthropic_cfg["base_url"])
+    models, auth_mode, error_text = fetch_remote_model_catalog(models_url, api_key, auth_modes)
+    if models:
+        results.append(("anthropic /models", True, f"{len(models)} models via {auth_mode}"))
+    else:
+        results.append(("anthropic /models", False, error_text))
+
+    headers = build_model_discovery_headers(api_key, auth_mode or "bearer")
+    headers.update(anthropic_extra_headers(anthropic_cfg.get("extra_env") if isinstance(anthropic_cfg.get("extra_env"), dict) else {}))
+    ok_msg, status_msg, detail_msg = perform_json_http_request(
+        "POST",
+        derive_anthropic_messages_url(anthropic_cfg["base_url"]),
+        headers,
+        {
+            "model": str(anthropic_cfg.get("default_model") or ""),
+            "messages": [{"role": "user", "content": "Reply with exactly: ok"}],
+            "max_tokens": 32,
+        },
+    )
+    results.append(("anthropic /v1/messages", ok_msg, f"HTTP {status_msg}: {detail_msg[:220]}"))
+    return results
+
+
+def cmd_probe_provider(cfg: "Config", store: Dict[str, str], provider_name: str, *, doctor: bool = False) -> None:
+    providers = custom_provider_map(load_custom_provider_store(cfg.custom_providers_file))
+    name = validate_custom_provider_name(provider_name)
+    spec = providers.get(name)
+    if spec is None:
+        raise SwitchError(f"Custom provider not found: {name}")
+
+    if doctor:
+        info(f"Refreshing model catalog for {name} before probe")
+        synced_store = sync_custom_provider_specs(cfg, store, provider_name=name)
+        spec = custom_provider_map(synced_store)[name]
+
+    print(f"{CYAN}═══ {'Doctor' if doctor else 'Probe'} {name} ═══{NC}")
+    sections: List[Tuple[str, bool, str]] = []
+    sections.extend(probe_custom_openai_provider(spec, store))
+    sections.extend(probe_custom_anthropic_provider(spec, store))
+    if not sections:
+        raise SwitchError(f"Custom provider '{name}' has no probeable config")
+
+    failures = 0
+    for label, ok_flag, detail in sections:
+        icon = f"{GREEN}OK{NC}" if ok_flag else f"{RED}FAIL{NC}"
+        if not ok_flag:
+            failures += 1
+        print(f"  {label:<28} {icon}  {detail}")
+
+    if doctor:
+        refreshed = load_custom_provider_store(cfg.custom_providers_file)
+        current = custom_provider_map(refreshed).get(name, {})
+        openai_cfg = current.get("openai") if isinstance(current.get("openai"), dict) else None
+        anthropic_cfg = current.get("anthropic") if isinstance(current.get("anthropic"), dict) else None
+        if openai_cfg:
+            md = openai_cfg.get("model_discovery") or {}
+            print(f"  {'openai cache':<28} {CYAN}INFO{NC}  models={len(openai_cfg.get('available_models') or [])} status={md.get('last_sync_status','?')}")
+        if anthropic_cfg:
+            md = anthropic_cfg.get("model_discovery") or {}
+            print(f"  {'anthropic cache':<28} {CYAN}INFO{NC}  models={len(anthropic_cfg.get('available_models') or [])} status={md.get('last_sync_status','?')}")
+    print(f"{CYAN}═══════════════════════{NC}")
+
+    if failures:
+        raise SwitchError(f"Provider {name} probe failed: {failures} checks failed")
+
+
+def sync_custom_provider_model_cache(
+    spec: Dict[str, Any],
+    store: Dict[str, str],
+    *,
+    timeout: int = 10,
+) -> Tuple[Dict[str, Any], List[str]]:
+    updated = json.loads(json.dumps(spec))
+    notes: List[str] = []
+
+    for section_name in ("openai", "anthropic"):
+        section = updated.get(section_name) if isinstance(updated.get(section_name), dict) else None
+        if section is None:
+            continue
+        discovery = section.get("model_discovery") if isinstance(section.get("model_discovery"), dict) else None
+        if discovery is None:
+            continue
+
+        env_key = str(section.get("env_key") or "").strip()
+        api_key = resolve_store_secret(store, env_key)
+        if not api_key:
+            discovery["last_sync_status"] = "skipped"
+            discovery["last_sync_error"] = f"missing {env_key}"
+            discovery["last_sync_at"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+            notes.append(f"{section_name}: skipped (missing {env_key})")
+            continue
+
+        models_url = str(discovery.get("models_url") or "").strip()
+        auth_modes = discovery.get("auth_modes") or []
+        models, auth_mode, error_text = fetch_remote_model_catalog(
+            models_url,
+            api_key,
+            auth_modes,
+            timeout=timeout,
+        )
+        discovery["last_sync_at"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        if models:
+            section["available_models"] = models
+            discovery["last_sync_status"] = "ok"
+            discovery["last_sync_auth_mode"] = auth_mode
+            discovery.pop("last_sync_error", None)
+            notes.append(f"{section_name}: synced {len(models)} models via {auth_mode}")
+        else:
+            discovery["last_sync_status"] = "error"
+            if auth_mode:
+                discovery["last_sync_auth_mode"] = auth_mode
+            discovery["last_sync_error"] = error_text
+            notes.append(f"{section_name}: {error_text}")
+
+    return normalize_custom_provider_spec(updated["name"], updated), notes
 
 
 def custom_provider_required_env_keys(spec: Dict[str, Any], tool: str) -> List[str]:
@@ -2222,20 +2649,27 @@ def provider_model_catalog(custom_store: Dict[str, Any] | None = None) -> Dict[s
             "env_key": spec["env_key"],
             "tools": list(spec["tools"]),
         }
+        available_models: List[str] = []
         if anthropic_cfg is not None:
+            available_models.extend(normalize_available_models(anthropic_cfg.get("available_models") or []))
             entry["claude_code"] = {
                 "default_model": anthropic_cfg["default_model"],
                 "base_url": anthropic_cfg["base_url"],
                 "env_key": anthropic_cfg["env_key"],
                 "extra_env": dict(anthropic_cfg.get("extra_env") or {}),
+                "available_models": list(anthropic_cfg.get("available_models") or []),
+                "model_discovery": dict(anthropic_cfg.get("model_discovery") or {}),
             }
         if openai_cfg is not None and "codex" in spec["tools"]:
+            available_models.extend(normalize_available_models(openai_cfg.get("available_models") or []))
             entry["codex"] = {
                 "default_model": openai_cfg["default_model"],
                 "provider_block": name,
                 "env_key": openai_cfg["env_key"],
                 "wire_api": openai_cfg["codex_wire_api"],
                 "features": dict(openai_cfg["codex_features"]),
+                "available_models": list(openai_cfg.get("available_models") or []),
+                "model_discovery": dict(openai_cfg.get("model_discovery") or {}),
             }
         if openai_cfg is not None and "openclaw" in spec["tools"]:
             entry["openclaw"] = {
@@ -2252,6 +2686,12 @@ def provider_model_catalog(custom_store: Dict[str, Any] | None = None) -> Dict[s
                 "provider": f"custom:{name}",
                 "api_mode": openai_cfg["hermes_api_mode"],
             }
+        if available_models:
+            deduped: List[str] = []
+            for model_id in available_models:
+                if model_id not in deduped:
+                    deduped.append(model_id)
+            entry["available_models"] = deduped
         catalog["providers"][name] = entry
     return catalog
 
@@ -2345,6 +2785,40 @@ def cmd_provider_add_anthropic(cfg: Config, spec: Dict[str, Any]) -> None:
     if anthropic_cfg.get("extra_env"):
         info("extra_env=" + ",".join(f"{key}={value}" for key, value in sorted(anthropic_cfg["extra_env"].items())))
     info("tools=cc")
+
+
+def sync_custom_provider_specs(
+    cfg: Config,
+    store: Dict[str, str],
+    *,
+    provider_name: str = "",
+) -> Dict[str, Any]:
+    provider_store = load_custom_provider_store(cfg.custom_providers_file)
+    providers = custom_provider_map(provider_store)
+    if not providers:
+        raise SwitchError("No custom providers registered.")
+
+    target_names = [validate_custom_provider_name(provider_name)] if provider_name else sorted(providers)
+    changed = False
+    for name in target_names:
+        if name not in providers:
+            raise SwitchError(f"Custom provider not found: {name}")
+        synced_spec, notes = sync_custom_provider_model_cache(providers[name], store)
+        providers[name] = synced_spec
+        changed = True
+        for note in notes:
+            info(f"{name}: {note}")
+
+    if changed:
+        save_custom_provider_store(cfg.custom_providers_file, {"providers": providers})
+        save_provider_model_catalog(cfg.provider_models_file, {"providers": providers})
+    return {"providers": providers}
+
+
+def cmd_provider_sync_models(cfg: Config, store: Dict[str, str], provider_name: str = "") -> None:
+    synced = sync_custom_provider_specs(cfg, store, provider_name=provider_name)
+    names = [provider_name] if provider_name else sorted(custom_provider_map(synced))
+    ok("Synced model catalogs → " + ",".join(names))
 
 
 def cmd_provider_export(
@@ -2444,6 +2918,8 @@ def cmd_provider_list(cfg: Config) -> None:
             for feature_name, enabled in sorted((openai_cfg.get("codex_features") or {}).items()):
                 feature_flags.append(f"{feature_name}={'on' if enabled else 'off'}")
             extras = f" features[{', '.join(feature_flags)}]" if feature_flags else ""
+            if openai_cfg.get("available_models"):
+                extras += f" models[{len(openai_cfg.get('available_models') or [])}]"
             print(
                 f"    openai     {openai_cfg['base_url']}  "
                 f"env={openai_cfg['env_key']}  model={openai_cfg['default_model']}  "
@@ -2455,6 +2931,8 @@ def cmd_provider_list(cfg: Config) -> None:
                 extras = " extra_env[" + ", ".join(
                     f"{key}={value}" for key, value in sorted(anthropic_cfg["extra_env"].items())
                 ) + "]"
+            if anthropic_cfg.get("available_models"):
+                extras += f" models[{len(anthropic_cfg.get('available_models') or [])}]"
             print(
                 f"    anthropic  {anthropic_cfg['base_url']}  "
                 f"env={anthropic_cfg['env_key']}  model={anthropic_cfg['default_model']}{extras}"
@@ -3071,8 +3549,12 @@ def get_provider_models(provider: str, custom_store: Dict[str, Any] | None = Non
         models_list: List[str] = []
         openai_cfg = custom_spec.get("openai") if isinstance(custom_spec.get("openai"), dict) else None
         anthropic_cfg = custom_spec.get("anthropic") if isinstance(custom_spec.get("anthropic"), dict) else None
+        if openai_cfg:
+            models_list.extend(normalize_available_models(openai_cfg.get("available_models") or []))
         if openai_cfg and openai_cfg.get("default_model"):
             models_list.append(str(openai_cfg["default_model"]))
+        if anthropic_cfg:
+            models_list.extend(normalize_available_models(anthropic_cfg.get("available_models") or []))
         if anthropic_cfg and anthropic_cfg.get("default_model"):
             models_list.append(str(anthropic_cfg["default_model"]))
         models = tuple(dict.fromkeys(models_list))
@@ -3149,8 +3631,21 @@ def tools_for_model(model: str) -> Tuple[str, ...]:
 
 
 # ----------------------------- list command ----------------------------
-def cmd_list_models(provider: str = "", custom_store: Dict[str, Any] | None = None) -> None:
+def cmd_list_models(
+    provider: str = "",
+    custom_store: Dict[str, Any] | None = None,
+    *,
+    cfg: Config | None = None,
+    store: Dict[str, str] | None = None,
+    online: bool = False,
+) -> None:
     """Print available models for one or all providers."""
+    if online:
+        if cfg is None or store is None:
+            raise SwitchError("Online model listing requires cfg and store")
+        sync_custom_provider_specs(cfg, store, provider_name=provider)
+        custom_store = load_custom_provider_store(cfg.custom_providers_file)
+
     providers = [provider] if provider else [
         "quotio",
         "duck",
@@ -6013,6 +6508,9 @@ def usage() -> None:
     print("  switch-api provider list")
     print("  switch-api provider add-openai <name> <base_url> <env_key> <default_model> [options]")
     print("  switch-api provider add-anthropic <name> <base_url> <env_key> <default_model> [options]")
+    print("  switch-api provider sync-models [name]")
+    print("  switch-api probe <custom-provider>")
+    print("  switch-api doctor <custom-provider>")
     print("  switch-api provider export <name> [path|-] [--with-secrets]")
     print("  switch-api provider export-all [path|-] [--with-secrets]")
     print("  switch-api provider import <path|-> [--replace]")
@@ -6046,6 +6544,10 @@ def usage() -> None:
     print("       switch-api provider add-openai myrelay https://relay.example.com/v1 MYRELAY_API_KEY gpt-5.4")
     print("       switch-api provider add-openai myrelay https://relay.example.com/v1 MYRELAY_API_KEY gpt-5.4 --disable-image-generation")
     print("       switch-api provider add-anthropic myrelay https://relay.example.com/anthropic MYRELAY_CC_API_KEY claude-sonnet-4-6 --env CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")
+    print("       switch-api provider add-anthropic anyrouter https://anyrouter.top MY_RELAY_API_KEY claude-opus-4-8 --env ANTHROPIC_BETAS=context-1m-2025-08-07")
+    print("       switch-api provider sync-models anyrouter")
+    print("       switch-api probe anyrouter")
+    print("       switch-api doctor anyrouter")
     print("       switch-api provider list")
     print("       switch-api provider export myrelay ./myrelay.provider.json")
     print("       switch-api provider export-all ./providers.bundle.json --with-secrets")
@@ -6130,11 +6632,13 @@ def usage() -> None:
     print("       switch-api cc duck_codex2cc      # CC → Duck CodeX (opus→xhigh, sonnet→high)")
     print()
     print("  switch-api list [provider]             # 列出可用模型")
+    print("  switch-api list [provider] --online    # 在线刷新 custom provider 模型后再列出")
     print("  switch-api check [--online]            # 检查当前模型状态")
     print("  switch-api codex-account use <name>    # 切换 accounts/auth.json_* 或官方账号目录")
     print("  switch-api key set <ENV_KEY> <VALUE>   # 写入 credentials.json + ~/.env，并确保 shell source ~/.env")
     print("  switch-api provider add-openai ...     # 注册自定义 OpenAI-compatible provider（codex/openclaw/droid/hermes）")
     print("  switch-api provider add-anthropic ...  # 注册自定义 Anthropic-compatible provider（cc）")
+    print("  switch-api provider sync-models ...    # 同步 custom provider 的 /models 列表到 provider-models.json")
     print("  switch-api provider export ...         # 导出 provider bundle（默认不带 secrets）")
     print("  switch-api provider import ...         # 导入 provider bundle（默认 merge，可 --replace）")
     print("  switch-api <tool> <provider> <model>   # 指定模型切换")
@@ -6258,6 +6762,7 @@ def parse_provider_add_openai_args(args: List[str]) -> Dict[str, Any]:
             "[--tools codex,openclaw,droid,hermes] "
             "[--openclaw-api openai-completions|openai-responses] "
             "[--hermes-api-mode codex_responses|chat_completions] "
+            "[--models-url URL] [--models-auth bearer,anthropic,none] [--no-model-discovery] "
             "[--disable-image-generation]"
         )
 
@@ -6271,6 +6776,7 @@ def parse_provider_add_openai_args(args: List[str]) -> Dict[str, Any]:
         "hermes_api_mode": "codex_responses",
         "codex_wire_api": "responses",
         "codex_features": {},
+        "model_discovery": {},
     }
 
     idx = 4
@@ -6279,6 +6785,42 @@ def parse_provider_add_openai_args(args: List[str]) -> Dict[str, Any]:
         if arg == "--disable-image-generation":
             spec["codex_features"]["image_generation"] = False
             idx += 1
+            continue
+        if arg == "--no-model-discovery":
+            spec["model_discovery"] = False
+            idx += 1
+            continue
+        if arg.startswith("--models-url="):
+            if spec["model_discovery"] is False:
+                spec["model_discovery"] = {}
+            spec["model_discovery"]["models_url"] = arg.split("=", 1)[1].strip()
+            idx += 1
+            continue
+        if arg == "--models-url":
+            if idx + 1 >= len(args):
+                raise SwitchError("Missing value for --models-url")
+            if spec["model_discovery"] is False:
+                spec["model_discovery"] = {}
+            spec["model_discovery"]["models_url"] = args[idx + 1].strip()
+            idx += 2
+            continue
+        if arg.startswith("--models-auth="):
+            if spec["model_discovery"] is False:
+                spec["model_discovery"] = {}
+            spec["model_discovery"]["auth_modes"] = [
+                part.strip() for part in arg.split("=", 1)[1].split(",") if part.strip()
+            ]
+            idx += 1
+            continue
+        if arg == "--models-auth":
+            if idx + 1 >= len(args):
+                raise SwitchError("Missing value for --models-auth")
+            if spec["model_discovery"] is False:
+                spec["model_discovery"] = {}
+            spec["model_discovery"]["auth_modes"] = [
+                part.strip() for part in args[idx + 1].split(",") if part.strip()
+            ]
+            idx += 2
             continue
         if arg.startswith("--tools="):
             spec["tools"] = [part.strip() for part in arg.split("=", 1)[1].split(",") if part.strip()]
@@ -6319,7 +6861,7 @@ def parse_provider_add_anthropic_args(args: List[str]) -> Dict[str, Any]:
     if len(args) < 4:
         raise SwitchError(
             "Usage: switch-api provider add-anthropic <name> <base_url> <env_key> <default_model> "
-            "[--env KEY=VALUE ...]"
+            "[--env KEY=VALUE ...] [--models-url URL] [--models-auth bearer,anthropic,none] [--no-model-discovery]"
         )
 
     spec: Dict[str, Any] = {
@@ -6328,6 +6870,7 @@ def parse_provider_add_anthropic_args(args: List[str]) -> Dict[str, Any]:
         "env_key": args[2],
         "default_model": args[3],
         "extra_env": {},
+        "model_discovery": {},
     }
 
     idx = 4
@@ -6343,6 +6886,42 @@ def parse_provider_add_anthropic_args(args: List[str]) -> Dict[str, Any]:
                 raise SwitchError("Missing value for --env")
             key, value = parse_custom_env_kv(args[idx + 1].strip())
             spec["extra_env"][key] = value
+            idx += 2
+            continue
+        if arg == "--no-model-discovery":
+            spec["model_discovery"] = False
+            idx += 1
+            continue
+        if arg.startswith("--models-url="):
+            if spec["model_discovery"] is False:
+                spec["model_discovery"] = {}
+            spec["model_discovery"]["models_url"] = arg.split("=", 1)[1].strip()
+            idx += 1
+            continue
+        if arg == "--models-url":
+            if idx + 1 >= len(args):
+                raise SwitchError("Missing value for --models-url")
+            if spec["model_discovery"] is False:
+                spec["model_discovery"] = {}
+            spec["model_discovery"]["models_url"] = args[idx + 1].strip()
+            idx += 2
+            continue
+        if arg.startswith("--models-auth="):
+            if spec["model_discovery"] is False:
+                spec["model_discovery"] = {}
+            spec["model_discovery"]["auth_modes"] = [
+                part.strip() for part in arg.split("=", 1)[1].split(",") if part.strip()
+            ]
+            idx += 1
+            continue
+        if arg == "--models-auth":
+            if idx + 1 >= len(args):
+                raise SwitchError("Missing value for --models-auth")
+            if spec["model_discovery"] is False:
+                spec["model_discovery"] = {}
+            spec["model_discovery"]["auth_modes"] = [
+                part.strip() for part in args[idx + 1].split(",") if part.strip()
+            ]
             idx += 2
             continue
         raise SwitchError(f"Unknown provider add-anthropic option: {arg}")
@@ -6436,6 +7015,10 @@ def parse_args(argv: Iterable[str], known_providers: Iterable[str] | None = None
     if args[0] == "provider":
         if len(args) == 2 and args[1] == "list":
             return ("provider-list", "", "")
+        if len(args) == 2 and args[1] == "sync-models":
+            return ("provider-sync-models", "", "")
+        if len(args) == 3 and args[1] == "sync-models":
+            return ("provider-sync-models", args[2], "")
         if len(args) == 3 and args[1] in ("rm", "remove", "delete"):
             return ("provider-remove", args[2], "")
         if len(args) >= 6 and args[1] == "add-openai":
@@ -6478,7 +7061,7 @@ def parse_args(argv: Iterable[str], known_providers: Iterable[str] | None = None
                 usage()
                 raise SystemExit(1)
             return ("provider-import", payload["path"], payload)
-        err("Usage: switch-api provider <list|rm|add-openai|add-anthropic|export|export-all|import> ...")
+        err("Usage: switch-api provider <list|sync-models|rm|add-openai|add-anthropic|export|export-all|import> ...")
         usage()
         raise SystemExit(1)
 
@@ -6507,6 +7090,12 @@ def parse_args(argv: Iterable[str], known_providers: Iterable[str] | None = None
             return ("status", "", "")
         if a0 == "check":
             return ("check", "", "")
+        if a0 == "probe":
+            err("Usage: switch-api probe <custom-provider>")
+            raise SystemExit(1)
+        if a0 == "doctor":
+            err("Usage: switch-api doctor <custom-provider>")
+            raise SystemExit(1)
         if a0 == "list":
             return ("list", "", "")
         if a0 in provider_set:
@@ -6528,6 +7117,12 @@ def parse_args(argv: Iterable[str], known_providers: Iterable[str] | None = None
         # check --online / check online
         if a0 == "check" and a1 in ("--online", "online"):
             return ("check-online", "", "")
+        if a0 == "probe":
+            return ("probe-provider", a1, "")
+        if a0 == "doctor":
+            return ("doctor-provider", a1, "")
+        if a0 == "list" and a1 in ("--online", "online"):
+            return ("list-online", "", "")
         # <tool> <provider>
         if a0 in TOOLS_WITH_ALL:
             if a1 not in provider_set:
@@ -6543,6 +7138,11 @@ def parse_args(argv: Iterable[str], known_providers: Iterable[str] | None = None
     if len(args) == 3:
         tool, provider, arg3 = args
         tool = normalize_tool_name(tool)
+        if tool == "list" and arg3 in ("--online", "online"):
+            if provider in provider_set:
+                return ("list-online", provider, "")
+            err(f"Unknown provider for list: {provider}")
+            raise SystemExit(1)
         if tool not in TOOLS_WITH_ALL:
             err(f"Unknown tool: {tool}")
             usage()
@@ -6640,12 +7240,24 @@ def main() -> int:
         cmd_list_models(provider, custom_store)
         return 0
 
+    if tool == "list-online":
+        cmd_list_models(provider, custom_store, cfg=cfg, store=store, online=True)
+        return 0
+
     if tool == "check":
         cmd_check(cfg, keys, online=False)
         return 0
 
     if tool == "check-online":
         cmd_check(cfg, keys, online=True)
+        return 0
+
+    if tool == "probe-provider":
+        cmd_probe_provider(cfg, store, provider, doctor=False)
+        return 0
+
+    if tool == "doctor-provider":
+        cmd_probe_provider(cfg, store, provider, doctor=True)
         return 0
 
     if tool == "key-list":
@@ -6660,14 +7272,25 @@ def main() -> int:
         cmd_provider_list(cfg)
         return 0
 
+    if tool == "provider-sync-models":
+        cmd_provider_sync_models(cfg, store, provider)
+        return 0
+
     if tool == "provider-add-openai":
         cmd_provider_add_openai(cfg, profile)
-        save_provider_model_catalog(cfg.provider_models_file, load_custom_provider_store(cfg.custom_providers_file))
+        if resolve_store_secret(store, str(profile.get("env_key") or "")):
+            sync_custom_provider_specs(cfg, store, provider_name=provider)
+        else:
+            save_provider_model_catalog(cfg.provider_models_file, load_custom_provider_store(cfg.custom_providers_file))
         return 0
 
     if tool == "provider-add-anthropic":
         cmd_provider_add_anthropic(cfg, profile)
-        save_provider_model_catalog(cfg.provider_models_file, load_custom_provider_store(cfg.custom_providers_file))
+        anthropic_cfg = profile.get("anthropic") if isinstance(profile.get("anthropic"), dict) else {}
+        if resolve_store_secret(store, str(anthropic_cfg.get("env_key") or "")):
+            sync_custom_provider_specs(cfg, store, provider_name=provider)
+        else:
+            save_provider_model_catalog(cfg.provider_models_file, load_custom_provider_store(cfg.custom_providers_file))
         return 0
 
     if tool == "provider-export":

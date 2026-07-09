@@ -35,6 +35,10 @@ See `VERSION`.
 switch-api status                    # 查看各工具当前提供商
 switch-api check [--online]          # 检查当前模型状态
 switch-api list [provider]           # 列出可用模型
+switch-api list [provider] --online  # 在线刷新 custom provider 模型后再列出
+switch-api provider sync-models [provider]  # 同步 custom provider 的 /models
+switch-api probe <custom-provider>   # 探测 custom provider 的 /models + 请求链路
+switch-api doctor <custom-provider>  # 先刷新模型缓存，再做完整探测
 switch-api codex-account status      # 查看当前 Codex 官方 auth / 目录状态
 switch-api codex-account list        # 列出 accounts/auth.json_* 与已注册的官方账号目录
 ```
@@ -59,6 +63,11 @@ switch-api provider add-openai myrelay https://relay.example.com/v1 MY_RELAY_API
 switch-api provider add-openai myrelay https://relay.example.com/v1 MY_RELAY_API_KEY gpt-5.4 --disable-image-generation
 switch-api provider add-anthropic myrelay https://relay.example.com/anthropic MY_RELAY_CC_API_KEY claude-sonnet-4-6
 switch-api provider add-anthropic myrelay https://relay.example.com/anthropic MY_RELAY_CC_API_KEY claude-sonnet-4-6 --env CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+switch-api provider add-anthropic anyrouter https://anyrouter.top ANYROUTER_API_KEY claude-opus-4-8 --env ANTHROPIC_BETAS=context-1m-2025-08-07
+switch-api provider sync-models anyrouter
+switch-api probe anyrouter
+switch-api doctor anyrouter
+switch-api list anyrouter --online
 switch-api provider export myrelay ./myrelay.provider.json
 switch-api provider export-all ./providers.bundle.json
 switch-api provider export-all ./providers.bundle.json --with-secrets
@@ -82,6 +91,9 @@ switch-api myrelay                   # 切换该 custom provider 启用的全部
   - `hermes`
 - `provider add-anthropic` 面向 **Anthropic-compatible** 网关，支持工具：
   - `cc`
+- custom provider 现在支持自动探测 `/v1/models` 并缓存到：
+  - `~/.config/switch-api/custom-providers.json`
+  - `~/.config/switch-api/provider-models.json`
 
 同一个 provider 名称可以同时挂这两套配置；例如先执行：
 - `switch-api provider add-openai myrelay ...`

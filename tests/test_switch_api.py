@@ -231,6 +231,170 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertEqual(provider, "./providers.bundle.json")
         self.assertTrue(payload["replace"])
 
+        self.assertEqual(
+            self.mod.parse_args(["list", "myrelay", "--online"], known_providers=["myrelay"]),
+            ("list-online", "myrelay", ""),
+        )
+        self.assertEqual(
+            self.mod.parse_args(["probe", "myrelay"], known_providers=["myrelay"]),
+            ("probe-provider", "myrelay", ""),
+        )
+        self.assertEqual(
+            self.mod.parse_args(["doctor", "myrelay"], known_providers=["myrelay"]),
+            ("doctor-provider", "myrelay", ""),
+        )
+
+    def test_parse_provider_add_supports_model_discovery_options(self):
+        action, provider, spec = self.mod.parse_args(
+            [
+                "provider",
+                "add-openai",
+                "anyrouter",
+                "https://anyrouter.top/v1",
+                "ANYROUTER_API_KEY",
+                "gpt-5.5",
+                "--models-url",
+                "https://anyrouter.top/v1/models",
+                "--models-auth",
+                "bearer,anthropic",
+            ]
+        )
+        self.assertEqual(action, "provider-add-openai")
+        self.assertEqual(provider, "anyrouter")
+        self.assertEqual(spec["openai"]["model_discovery"]["models_url"], "https://anyrouter.top/v1/models")
+        self.assertEqual(spec["openai"]["model_discovery"]["auth_modes"], ["bearer", "anthropic"])
+
+        action, provider, spec = self.mod.parse_args(
+            [
+                "provider",
+                "add-anthropic",
+                "anyrouter",
+                "https://anyrouter.top",
+                "ANYROUTER_API_KEY",
+                "claude-opus-4-8",
+                "--env",
+                "ANTHROPIC_BETAS=context-1m-2025-08-07",
+                "--models-auth",
+                "bearer,anthropic,none",
+            ]
+        )
+        self.assertEqual(action, "provider-add-anthropic")
+        self.assertEqual(provider, "anyrouter")
+        self.assertEqual(
+            spec["anthropic"]["model_discovery"]["models_url"],
+            "https://anyrouter.top/v1/models",
+        )
+        self.assertEqual(
+            spec["anthropic"]["model_discovery"]["auth_modes"],
+            ["bearer", "anthropic", "none"],
+        )
+
+    def test_sync_custom_provider_model_cache_discovers_models_and_updates_catalog(self):
+        openai_spec = self.mod.normalize_custom_openai_provider_spec(
+            "anyrouter",
+            {
+                "name": "anyrouter",
+                "base_url": "https://anyrouter.top/v1",
+                "env_key": "ANYROUTER_API_KEY",
+                "default_model": "gpt-5.5",
+                "tools": ["codex", "openclaw", "droid", "hermes"],
+            },
+        )
+        anthropic_spec = self.mod.parse_provider_add_anthropic_args(
+            [
+                "anyrouter",
+                "https://anyrouter.top",
+                "ANYROUTER_API_KEY",
+                "claude-opus-4-8",
+                "--env",
+                "ANTHROPIC_BETAS=context-1m-2025-08-07",
+            ]
+        )
+        merged = self.mod.merge_custom_provider_record(openai_spec, anthropic_spec)
+
+        class FakeResponse:
+            def __init__(self, payload):
+                self.payload = payload
+
+            def read(self):
+                return json.dumps(self.payload).encode("utf-8")
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        payload = {"data": [{"id": "claude-opus-4-8"}, {"id": "gpt-5.5"}, {"id": "gpt-5-codex"}]}
+        with patch("urllib.request.urlopen", return_value=FakeResponse(payload)) as mocked:
+            synced, notes = self.mod.sync_custom_provider_model_cache(
+                merged,
+                {"ANYROUTER_API_KEY": "dummy"},
+            )
+
+        self.assertTrue(notes)
+        self.assertEqual(
+            synced["openai"]["available_models"],
+            ["claude-opus-4-8", "gpt-5.5", "gpt-5-codex"],
+        )
+        self.assertEqual(
+            synced["anthropic"]["available_models"],
+            ["claude-opus-4-8", "gpt-5.5", "gpt-5-codex"],
+        )
+        self.assertEqual(synced["openai"]["model_discovery"]["last_sync_status"], "ok")
+        self.assertEqual(synced["openai"]["model_discovery"]["last_sync_auth_mode"], "bearer")
+        self.assertEqual(synced["anthropic"]["model_discovery"]["last_sync_auth_mode"], "bearer")
+        self.assertEqual(mocked.call_count, 2)
+
+        self.mod.save_custom_provider_store(self.cfg.custom_providers_file, {"providers": {"anyrouter": synced}})
+        saved = self.mod.load_custom_provider_store(self.cfg.custom_providers_file)
+        catalog = self.mod.provider_model_catalog(saved)
+        self.assertIn("gpt-5-codex", catalog["providers"]["anyrouter"]["available_models"])
+        self.assertIn(
+            "claude-opus-4-8",
+            catalog["providers"]["anyrouter"]["claude_code"]["available_models"],
+        )
+
+    def test_probe_custom_provider_uses_synced_configs(self):
+        openai_spec = self.mod.normalize_custom_openai_provider_spec(
+            "myrelay",
+            {
+                "name": "myrelay",
+                "base_url": "https://relay.example.com/v1",
+                "env_key": "MY_RELAY_API_KEY",
+                "default_model": "gpt-5.4",
+                "tools": ["codex"],
+            },
+        )
+        anthropic_spec = self.mod.parse_provider_add_anthropic_args(
+            [
+                "myrelay",
+                "https://relay.example.com",
+                "MY_RELAY_API_KEY",
+                "claude-sonnet-4-6",
+                "--env",
+                "ANTHROPIC_BETAS=context-1m-2025-08-07",
+            ]
+        )
+        merged = self.mod.merge_custom_provider_record(openai_spec, anthropic_spec)
+        self.mod.save_custom_provider_store(self.cfg.custom_providers_file, {"providers": {"myrelay": merged}})
+
+        with patch.object(
+            self.mod,
+            "fetch_remote_model_catalog",
+            return_value=(["gpt-5.4", "claude-sonnet-4-6"], "bearer", ""),
+        ), patch.object(
+            self.mod,
+            "perform_json_http_request",
+            return_value=(True, 200, '{"ok":true}'),
+        ):
+            self.mod.cmd_probe_provider(
+                self.cfg,
+                {"MY_RELAY_API_KEY": "dummy"},
+                "myrelay",
+                doctor=True,
+            )
+
     def test_switch_openclaw_flames_updates_all_agents_by_default(self):
         self.write_json(
             self.home / ".openclaw/openclaw.json",
