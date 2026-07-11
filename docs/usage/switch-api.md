@@ -40,11 +40,16 @@
   - `codex` 走 OpenAI Responses 兼容入口（`model_provider = "icodeeasy"`）
   - `gemini` 走 Gemini `v1beta` 兼容入口
   - 实际可用模型以服务端鉴权结果为准；`switch-api` 当前默认模型：`claude-opus-4-8` / `gpt-5.4` / `gemini-3.5-flash`
-- **flames** — Flames NewAPI `https://www.flamescn.vip/v1`，支持 **Claude Code + Codex + OpenClaw + Hermes**
+- **flames** — Flames NewAPI `https://www.flamescn.vip/v1`，支持 **Claude Code + Codex + OpenClaw + Gemini + Hermes + Grok**
   - `cc` 走 Anthropic 兼容入口，默认 `claude-opus-4-8`，也支持 `claude-fable-5` / `claude-haiku-4-5-20251001` / `claude-sonnet-5` / `claude-opus-4-6` / `claude-opus-4-7` / `gpt-5.4` / `gpt-5.3-codex` / `deepseek-v4-flash` / `deepseek-v4-pro`
   - `codex` 复用内部 provider block：`model_provider = "flames_newapi"`
   - `env_key` 固定切回 `FLAMES_API_KEY`
   - `openclaw` 通过自定义 provider `flames/...` 接入，默认模型 `gpt-5.4`
+  - `gemini` 通过 `GOOGLE_GEMINI_BASE_URL=https://www.flamescn.vip` 接入，默认模型 `gemini-3.5-flash`
+  - `grok` 通过 `~/.grok/config.toml` 的 managed model 接入，默认模型 `grok-build-0.1`
+- **xai** — xAI 官方直连 `https://cli-chat-proxy.grok.com/v1`，支持 **Grok**
+  - `grok xai` 会把默认模型切回 `grok-build`
+  - 鉴权依赖 `~/.grok/auth.json` 登录态，或 `XAI_API_KEY` / `GROK_CODE_XAI_API_KEY`
 - **deepseek** — DeepSeek 官方 `https://api.deepseek.com/anthropic`，支持 **Claude Code**
   - `cc` 直连 Anthropic 兼容 `messages` 接口
   - 默认模型 `deepseek-v4-pro`
@@ -141,6 +146,7 @@
 - **codex** — OpenAI Codex，配置文件默认 `~/.codex/config.toml`，若设置 `CODEX_HOME` 则跟随该目录
 - **droid** — Factory Droid CLI，默认通过共享 `~/.env` Gemini 环境变量控制，codex profile 通过 `~/.factory/settings.json` customModels
 - **gemini** — Gemini CLI，配置文件 `~/.gemini/.env`
+- **grok** — Grok CLI，配置文件 `~/.grok/config.toml`
 - **all** — 以上全部
 
 ---
@@ -159,8 +165,8 @@ switch-api [--force] [--agent <id> | --all-agents] <参数1> [参数2] [参数3]
 ```bash
 switch-api <tool> <provider>
 ```
-- `<tool>` = `cc` | `claude`(=`cc`) | `openclaw` | `codex` | `droid` | `all`
-- `<provider>` = `duck` | `quotio` | `antigravity` | `xingyun` | `flames` | `openai` | `openrouter` | `icodeeasy` | ...
+- `<tool>` = `cc` | `claude`(=`cc`) | `openclaw` | `codex` | `droid` | `gemini` | `hermes` | `grok` | `all`
+- `<provider>` = `duck` | `quotio` | `antigravity` | `xingyun` | `flames` | `xai` | `openai` | `openrouter` | `icodeeasy` | ...
 
 **方式二：单参数（快捷全切）**
 ```bash
@@ -230,7 +236,8 @@ switch-api quotio              # 全部 → Quotio
 switch-api antigravity         # 全部 → Antigravity-tools
 switch-api aiwave             # openclaw+codex+droid+gemini+hermes → AI Wave
 switch-api icodeeasy           # cc+openclaw+codex+gemini → iCodeEasy
-switch-api flames              # cc+openclaw+codex+hermes → Flames NewAPI
+switch-api flames              # cc+openclaw+codex+gemini+hermes+grok → Flames NewAPI
+switch-api xai                 # grok → xAI 官方直连
 switch-api deepseek            # cc → DeepSeek Official
 switch-api all duck            # 同上（完整写法）
 switch-api all quotio
@@ -276,6 +283,12 @@ switch-api codex flames                     # flames_newapi + FLAMES_API_KEY
 switch-api codex openai                     # 官方 ChatGPT OAuth
 switch-api codex openai_Gq80                # flames_newapi + OPENAI_GQ80_API_KEY
 switch-api codex openai_V420                # flames_newapi + OPENAI_V420_API_KEY
+
+# ─── 只切 Grok CLI ─────────────────────────────
+switch-api grok flames                      # Flames / grok-build-0.1
+switch-api grok flames grok-4.5
+switch-api grok xai                         # xAI 官方直连 / grok-build
+switch-api grok xai grok-4.5
 
 # ─── 只切 Droid ────────────────────────────────
 switch-api droid duck                       # Duck Gemini
@@ -567,22 +580,25 @@ OpenClaw 走 OpenAI 时会额外显示认证模式后缀，避免把 OAuth 和 A
 
 不同工具需要不同的 API 协议，不是所有 provider 都支持所有工具：
 
-| Provider | API 协议 | cc | openclaw | codex | droid | gemini | hermes |
-|----------|----------|:--:|:--------:|:-----:|:-----:|:------:|:------:|
-| duck | OpenAI + Anthropic | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
-| quotio | OpenAI + Anthropic + Gemini | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
-| antigravity | OpenAI + Anthropic + Gemini | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
-| **icodeeasy** | **Anthropic + OpenAI + Gemini** | ✅ | ✅* | ✅ | ❌ | ✅ | ❌ |
-| deepseek | Anthropic | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **duck_codex2cc** | **Anthropic 原生 (映射)** | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| openai | OpenAI | ❌ | ✅* | ✅ | ✅ | ❌ | ❌ |
-| openrouter | OpenAI | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ |
-| aiwave | OpenAI + Gemini | ❌ | ✅ (Gemini) | ✅ | ✅ | ✅ | ✅ (Gemini) |
-| flames | Anthropic + OpenAI Responses | ✅* | ✅ | ✅ | ❌ | ❌ | ✅ |
-| duck_cc1 | Anthropic 原生 only | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Provider | API 协议 | cc | openclaw | codex | droid | gemini | hermes | grok |
+|----------|----------|:--:|:--------:|:-----:|:-----:|:------:|:------:|:----:|
+| duck | OpenAI + Anthropic | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| quotio | OpenAI + Anthropic + Gemini | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| antigravity | OpenAI + Anthropic + Gemini | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
+| **icodeeasy** | **Anthropic + OpenAI + Gemini** | ✅ | ✅* | ✅ | ❌ | ✅ | ❌ | ❌ |
+| deepseek | Anthropic | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| **duck_codex2cc** | **Anthropic 原生 (映射)** | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| openai | OpenAI | ❌ | ✅* | ✅ | ✅ | ❌ | ❌ | ❌ |
+| openrouter | OpenAI | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| aiwave | OpenAI + Gemini | ❌ | ✅ (Gemini) | ✅ | ✅ | ✅ | ✅ (Gemini) | ❌ |
+| flames | Anthropic + OpenAI Responses + Gemini | ✅* | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ |
+| xai | 官方 Grok proxy | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| duck_cc1 | Anthropic 原生 only | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
 > **关键限制**：
 > `flames` 在 `cc` 下通过 Anthropic 兼容网关暴露自定义模型，目前内置支持 `gpt-5.4` / `gpt-5.3-codex` / `deepseek-v4-flash` / `deepseek-v4-pro`。
+> `flames` 的 `grok` 通过 `~/.grok/config.toml` 中的 managed model 指向 `https://www.flamescn.vip/v1`。
+> `xai` 只用于 Grok 官方直连，依赖 `~/.grok/auth.json` 或 `XAI_API_KEY` / `GROK_CODE_XAI_API_KEY`。
 > `icodeeasy` 现在可用于 `cc` / `openclaw` / `codex` / `gemini`，但 `openclaw` 当前仍走 Anthropic `messages` 链路，所以只支持 Claude 模型。
 > `duck_cc1` 和 `duck_codex2cc` 仍然只能用于 Claude Code。
 > `aiwave` 现按 key 槽拆分：`codex` / `droid` 使用 `AIWAVE_CODEX_API_KEY`。
@@ -643,6 +659,7 @@ switch-api openclaw openai key
 - **droid**: `gemini-*`（默认）+ `gpt-*`（codex profile）
 - **gemini**: 仅 `gemini-*`
 - **hermes**: `gpt-*` / `gemini-*`（取决于 provider）
+- **grok**: 官方 `xai` 直连支持 `grok-*`；Flames / 自定义 OpenAI-compatible relay 也可用 `gpt-*`
 
 ### 模型级切换验证流程
 
@@ -679,7 +696,7 @@ switch-api openclaw openai key
   - `switch-api provider list`
   - `switch-api provider rm <name>`
 - 同一个 provider 名称可以同时挂：
-  - OpenAI-compatible 配置（`codex/openclaw/droid/hermes`）
+  - OpenAI-compatible 配置（`codex/openclaw/droid/hermes/grok`）
   - Anthropic-compatible 配置（`cc`）
 - 例如：
   - 先执行 `switch-api provider add-openai myrelay ...`
@@ -712,6 +729,8 @@ switch-api openclaw openai key
 ~/.codex/accounts/auth.json_<name>            Codex 官方账号快照源文件
 ~/.codex/backups/                             switch-api 改写前的 Codex 备份目录
 ~/.factory/settings.json                      Droid customModels（codex profile）
+~/.grok/config.toml                           Grok CLI 模型路由配置
+~/.grok/auth.json                             Grok CLI 官方登录态 / session 凭据
 ~/.config/switch-api/credentials.json         Provider 密钥快照
 ~/.config/switch-api/custom-providers.json    自定义 provider 注册表（OpenAI-compatible + Anthropic-compatible）
 ~/.config/switch-api/provider-models.json     Provider 模型目录

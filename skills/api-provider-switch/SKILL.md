@@ -1,6 +1,6 @@
 ---
 name: api-provider-switch
-description: '切换 AI 工具的 API provider / 模型，或查看当前 provider / 可用模型时使用。覆盖 cc、openclaw、codex、droid、gemini、hermes，以及 repo 内自定义 provider。'
+description: '切换 AI 工具的 API provider / 模型，或查看当前 provider / 可用模型时使用。覆盖 cc、openclaw、codex、droid、gemini、hermes、grok，以及 repo 内自定义 provider。'
 metadata: { "openclaw": { "emoji": "🔀", "requires": { "anyBins": ["switch-api"] }, "os": ["linux", "darwin"] } }
 ---
 
@@ -15,6 +15,7 @@ metadata: { "openclaw": { "emoji": "🔀", "requires": { "anyBins": ["switch-api
 - Droid (`droid`)
 - Gemini CLI (`gemini`)
 - Hermes (`hermes`)
+- Grok (`grok`)
 
 ## 常用查询
 
@@ -42,6 +43,8 @@ switch-api openclaw quotio
 switch-api codex flames
 switch-api droid molifang
 switch-api hermes aiwave
+switch-api grok flames
+switch-api grok xai
 ```
 
 ## 自定义 provider
@@ -49,7 +52,7 @@ switch-api hermes aiwave
 支持两类自定义 provider：
 
 1. **OpenAI-compatible**
-   - 工具：`codex` / `openclaw` / `droid` / `hermes`
+   - 工具：`codex` / `openclaw` / `droid` / `hermes` / `grok`
 2. **Anthropic-compatible**
    - 工具：`cc`
 
@@ -114,6 +117,7 @@ switch-api cc anyrouter
 - `droid`: `gemini-*` + `gpt-*`
 - `gemini`: `gemini-*`
 - `hermes`: `gpt-*` / `gemini-*`（取决于 provider）
+- `grok`: `grok-*`；在 Flames / 自定义 OpenAI-compatible relay 下也可用 `gpt-*`
 
 模型级切换：
 

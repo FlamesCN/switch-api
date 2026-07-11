@@ -42,6 +42,7 @@ switch-api provider add-openai myrelay https://relay.example.com/v1 MY_RELAY_API
 - `openclaw`
 - `droid`
 - `hermes`
+- `grok`
 
 ## 自定义 Anthropic-compatible provider
 
@@ -67,6 +68,7 @@ switch-api provider add-anthropic myrelay ...
 - `openclaw`
 - `droid`
 - `hermes`
+- `grok`
 
 ## 检查 / 删除
 
@@ -109,5 +111,6 @@ switch-api provider import ./providers.bundle.json --replace
 ```bash
 switch-api cc myrelay
 switch-api codex myrelay
+switch-api grok myrelay
 switch-api myrelay
 ```

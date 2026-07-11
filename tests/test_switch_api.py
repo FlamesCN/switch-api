@@ -89,6 +89,16 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
             },
         )
 
+    def init_grok_config(self, text: str = "") -> None:
+        self.write(
+            self.cfg.grok_config,
+            text
+            or (
+                "[ui]\n"
+                'fork_secondary_model = "grok-build"\n'
+            ),
+        )
+
     def init_gemini_balance_env(self, extra: str = "") -> None:
         self.write(
             self.cfg.gemini_balance_env,
@@ -263,6 +273,7 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertEqual(provider, "anyrouter")
         self.assertEqual(spec["openai"]["model_discovery"]["models_url"], "https://anyrouter.top/v1/models")
         self.assertEqual(spec["openai"]["model_discovery"]["auth_modes"], ["bearer", "anthropic"])
+        self.assertIn("grok", spec["openai"]["tools"])
 
         action, provider, spec = self.mod.parse_args(
             [
@@ -743,7 +754,7 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
                 "base_url": "https://relay.example.com/v1",
                 "env_key": "MY_RELAY_API_KEY",
                 "default_model": "gpt-5.4",
-                "tools": ["codex", "openclaw", "droid", "hermes"],
+                "tools": ["codex", "openclaw", "droid", "hermes", "grok"],
                 "openclaw_api": "openai-completions",
                 "hermes_api_mode": "codex_responses",
                 "codex_features": {"image_generation": False},
@@ -824,6 +835,16 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertEqual(hermes["model"]["base_url"], "https://relay.example.com/v1")
         self.assertEqual(hermes["model"]["api_key"], "dummy")
         self.assertEqual(self.mod.detect_provider("hermes", self.cfg), "myrelay")
+
+        self.init_grok_config()
+        self.mod.switch_custom_grok_provider(spec, self.cfg, {"MY_RELAY_API_KEY": "dummy"}, model="gpt-5.4")
+        grok_text = self.cfg.grok_config.read_text(encoding="utf-8")
+        self.assertIn('default = "switch-api-provider"', grok_text)
+        self.assertIn('model = "gpt-5.4"', grok_text)
+        self.assertIn('base_url = "https://relay.example.com/v1"', grok_text)
+        self.assertIn('env_key = "MY_RELAY_API_KEY"', grok_text)
+        self.assertEqual(self.mod.detect_provider("grok", self.cfg), "myrelay")
+        self.assertEqual(self.mod.detect_current_model("grok", self.cfg), "gpt-5.4")
 
         catalog = self.mod.provider_model_catalog(saved)
         self.assertEqual(catalog["providers"]["myrelay"]["claude_code"]["default_model"], "claude-sonnet-4-6")
@@ -1048,6 +1069,56 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertEqual(settings["model"]["name"], "gemini-3.5-flash")
         self.assertTrue(settings["experimental"]["dynamicModelConfiguration"])
         self.assertIn("gemini-3.5-flash", settings["modelConfigs"]["modelDefinitions"])
+
+    def test_switch_grok_flames_writes_managed_model_and_detects_flames(self):
+        self.init_grok_config()
+
+        self.mod.switch_grok("flames", self.cfg, {"flames": "dummy"}, model="grok-4.5")
+
+        text = self.cfg.grok_config.read_text(encoding="utf-8")
+        self.assertIn('default = "switch-api-provider"', text)
+        self.assertIn('model = "grok-4.5"', text)
+        self.assertIn('base_url = "https://www.flamescn.vip/v1"', text)
+        self.assertIn('api_backend = "responses"', text)
+        self.assertIn('env_key = "FLAMES_API_KEY"', text)
+        self.assertEqual(self.mod.detect_provider("grok", self.cfg), "flames")
+        self.assertEqual(self.mod.detect_current_model("grok", self.cfg), "grok-4.5")
+        self.assertEqual((self.home / ".env").read_text(encoding="utf-8"), 'export FLAMES_API_KEY="dummy"\n')
+        self.assert_shell_rc_sources_env(self.cfg.bashrc)
+        self.assert_shell_rc_sources_env(self.cfg.zshrc)
+
+    def test_switch_grok_xai_restores_builtin_direct_mode(self):
+        self.init_grok_config(
+            (
+                "[models]\n"
+                'default = "switch-api-provider"\n'
+                "\n"
+                "[model.switch-api-provider]\n"
+                'model = "grok-4.5"\n'
+                'base_url = "https://www.flamescn.vip/v1"\n'
+                'env_key = "FLAMES_API_KEY"\n'
+                'api_backend = "responses"\n'
+            )
+        )
+        self.write_json(self.cfg.grok_auth, {"auth_mode": "session"})
+
+        self.mod.switch_grok("xai", self.cfg, {}, model="")
+
+        text = self.cfg.grok_config.read_text(encoding="utf-8")
+        self.assertIn('default = "grok-build"', text)
+        self.assertEqual(self.mod.detect_provider("grok", self.cfg), "xai")
+        self.assertEqual(self.mod.detect_current_model("grok", self.cfg), "grok-build")
+
+    def test_switch_grok_xai_accepts_explicit_builtin_model(self):
+        self.init_grok_config()
+        self.write_json(self.cfg.grok_auth, {"auth_mode": "session"})
+
+        self.mod.switch_grok("xai", self.cfg, {}, model="grok-4.5")
+
+        text = self.cfg.grok_config.read_text(encoding="utf-8")
+        self.assertIn('default = "grok-4.5"', text)
+        self.assertEqual(self.mod.detect_provider("grok", self.cfg), "xai")
+        self.assertEqual(self.mod.detect_current_model("grok", self.cfg), "grok-4.5")
 
     def test_switch_gemini_provider_gemini_balance_updates_balance_env(self):
         self.init_gemini_balance_env()
@@ -1281,6 +1352,12 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.mod.validate_model_for_tool("cc", "claude-opus-4-8", "flames")
         self.mod.validate_model_for_tool("cc", "gpt-5.4", "flames")
         self.mod.validate_model_for_tool("cc", "deepseek-v4-pro", "flames")
+
+    def test_model_validation_allows_grok_and_gpt_for_grok_tool(self):
+        self.mod.validate_model_for_tool("grok", "grok-4.5", "flames")
+        self.mod.validate_model_for_tool("grok", "gpt-5.4", "flames")
+        with self.assertRaises(self.mod.SwitchError):
+            self.mod.validate_model_for_tool("grok", "gemini-2.5-flash", "flames")
 
     def test_model_validation_allows_cc_deepseek_models(self):
         self.mod.validate_model_for_tool("cc", "deepseek-v4-pro", "deepseek")

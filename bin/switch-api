@@ -328,6 +328,12 @@ XINGYUN_AVAILABLE_MODELS = (
 XINGYUN_DROID_MODEL = "gpt-5.4"
 XINGYUN_CODEX_MODEL = "gpt-5.4"
 
+XAI_GROK_AVAILABLE_MODELS = (
+    "grok-build",
+    "grok-4.5",
+    "grok-composer-2.5-fast",
+)
+
 # Molifang API (OpenAI-compatible; GPT-5.5 only)
 MOLIFANG_BASE_URL = "https://molifangapi.xyz"
 MOLIFANG_BASE_URL_V1 = MOLIFANG_BASE_URL + "/v1"
@@ -450,6 +456,15 @@ FLAMES_NEWAPI_BASE_URL = "https://www.flamescn.vip"
 FLAMES_NEWAPI_BASE_URL_V1 = FLAMES_NEWAPI_BASE_URL + "/v1"
 FLAMES_DEFAULT_MODEL = "gpt-5.4"
 FLAMES_CC_DEFAULT_MODEL = "claude-opus-4-8"
+FLAMES_GROK_DEFAULT_MODEL = "grok-build-0.1"
+FLAMES_GROK_AVAILABLE_MODELS = (
+    "grok-4.20-0309-non-reasoning",
+    "grok-4.20-0309-reasoning",
+    "grok-4.20-multi-agent-0309",
+    "grok-4.3",
+    "grok-4.5",
+    "grok-build-0.1",
+)
 FLAMES_CC_ALLOWED_MODELS = (
     "claude-fable-5",
     "claude-haiku-4-5-20251001",
@@ -463,7 +478,7 @@ FLAMES_CC_ALLOWED_MODELS = (
     "deepseek-v4-flash",
     "deepseek-v4-pro",
 )
-FLAMES_AVAILABLE_MODELS = FLAMES_CC_ALLOWED_MODELS
+FLAMES_AVAILABLE_MODELS = tuple(dict.fromkeys(FLAMES_CC_ALLOWED_MODELS + FLAMES_GROK_AVAILABLE_MODELS))
 FLAMES_CC_MODEL_NAMES = {
     "claude-fable-5": "Claude Fable 5",
     "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
@@ -567,6 +582,9 @@ GEMINI_CLI_KEY_MAP = {
     "gemini-balance": "gemini_balance_token",
 }
 
+GROK_MANAGED_MODEL_NAME = "switch-api-provider"
+GROK_BUILTIN_DEFAULT_MODEL = "grok-build"
+
 QUOTIO_DROID_MODEL = "gemini-3.1-pro-high"
 QUOTIO_DROID_CODEX_MODEL = "gpt-5.3-codex"
 
@@ -578,13 +596,13 @@ DROID_QUOTIO_PROFILE_TO_MODEL = {
 }
 DROID_QUOTIO_PROFILE_NAMES = tuple(DROID_QUOTIO_PROFILE_TO_MODEL.keys())
 
-TOOLS = ("cc", "openclaw", "codex", "droid", "gemini", "hermes")
-TOOLS_WITH_ALL = ("cc", "openclaw", "codex", "droid", "gemini", "hermes", "all")
+TOOLS = ("cc", "openclaw", "codex", "droid", "gemini", "hermes", "grok")
+TOOLS_WITH_ALL = ("cc", "openclaw", "codex", "droid", "gemini", "hermes", "grok", "all")
 TOOL_ALIASES = {
     "claude": "cc",
 }
-PROVIDERS = ("duck", "quotio", "quotio_local", "antigravity", "xingyun", "molifang", "flames", "deepseek", "openai", "openai_Gq80", "openai_V420", "openrouter", "aiwave", "duck_cc1", "duck_codex2cc", "icodeeasy", "gemini-balance")
-CUSTOM_OPENAI_COMPATIBLE_TOOLS = ("codex", "openclaw", "droid", "hermes")
+PROVIDERS = ("duck", "quotio", "quotio_local", "antigravity", "xingyun", "molifang", "flames", "xai", "deepseek", "openai", "openai_Gq80", "openai_V420", "openrouter", "aiwave", "duck_cc1", "duck_codex2cc", "icodeeasy", "gemini-balance")
+CUSTOM_OPENAI_COMPATIBLE_TOOLS = ("codex", "openclaw", "droid", "hermes", "grok")
 CUSTOM_OPENCLAW_APIS = ("openai-completions", "openai-responses")
 CUSTOM_HERMES_API_MODES = ("codex_responses", "chat_completions")
 MODEL_DISCOVERY_AUTH_MODES = ("bearer", "anthropic", "none")
@@ -724,6 +742,8 @@ def load_exports_from_shell_rcs(home: Path) -> None:
         "OPENAI_GQ80_API_KEY",
         "OPENAI_V420_API_KEY",
         "ICODEEASY_API_KEY",
+        "XAI_API_KEY",
+        "GROK_CODE_XAI_API_KEY",
         "CODEX_HOME",
     }
     _load_exports_from_rc_file(home / ".env", target_vars)
@@ -2074,6 +2094,17 @@ def set_codex_provider_env_key(text: str, provider_name: str, env_key_name: str)
     return text.rstrip() + block + "\n"
 
 
+def read_toml_table_string(text: str, table_name: str, key: str) -> str:
+    section_re = re.compile(
+        rf'(?ms)^\[{re.escape(table_name)}\]\s*$\n(?P<body>.*?)(?=^\[|\Z)'
+    )
+    section = section_re.search(text)
+    if not section:
+        return ""
+    body = section.group("body")
+    m = re.search(rf'^\s*{re.escape(key)}\s*=\s*"([^"]*)"\s*$', body, re.M)
+    return m.group(1).strip() if m else ""
+
 
 def set_toml_table_bool(text: str, table_name: str, key: str, value: bool) -> str:
     """Set a simple boolean key under a TOML table, creating the table if needed."""
@@ -2578,6 +2609,21 @@ def provider_model_catalog(custom_store: Dict[str, Any] | None = None) -> Dict[s
                     "provider": "custom:flames",
                     "api_mode": "codex_responses",
                 },
+                "grok": {
+                    "default_model": FLAMES_GROK_DEFAULT_MODEL,
+                    "managed_model": GROK_MANAGED_MODEL_NAME,
+                    "api_backend": "responses",
+                    "env_key": "FLAMES_API_KEY",
+                    "available_models": list(FLAMES_GROK_AVAILABLE_MODELS),
+                },
+            },
+            "xai": {
+                "available_models": list(XAI_GROK_AVAILABLE_MODELS),
+                "base_url": "https://cli-chat-proxy.grok.com/v1",
+                "grok": {
+                    "default_model": GROK_BUILTIN_DEFAULT_MODEL,
+                    "auth_modes": ["session", "XAI_API_KEY", "GROK_CODE_XAI_API_KEY"],
+                },
             },
             "deepseek": {
                 "available_models": list(DEEPSEEK_AVAILABLE_MODELS),
@@ -2660,8 +2706,9 @@ def provider_model_catalog(custom_store: Dict[str, Any] | None = None) -> Dict[s
                 "available_models": list(anthropic_cfg.get("available_models") or []),
                 "model_discovery": dict(anthropic_cfg.get("model_discovery") or {}),
             }
-        if openai_cfg is not None and "codex" in spec["tools"]:
+        if openai_cfg is not None:
             available_models.extend(normalize_available_models(openai_cfg.get("available_models") or []))
+        if openai_cfg is not None and "codex" in spec["tools"]:
             entry["codex"] = {
                 "default_model": openai_cfg["default_model"],
                 "provider_block": name,
@@ -2685,6 +2732,13 @@ def provider_model_catalog(custom_store: Dict[str, Any] | None = None) -> Dict[s
                 "default_model": openai_cfg["default_model"],
                 "provider": f"custom:{name}",
                 "api_mode": openai_cfg["hermes_api_mode"],
+            }
+        if openai_cfg is not None and "grok" in spec["tools"]:
+            entry["grok"] = {
+                "default_model": openai_cfg["default_model"],
+                "managed_model": GROK_MANAGED_MODEL_NAME,
+                "api_backend": "responses" if openai_cfg["codex_wire_api"] == "responses" else "chat_completions",
+                "env_key": openai_cfg["env_key"],
             }
         if available_models:
             deduped: List[str] = []
@@ -3129,6 +3183,9 @@ class Config:
         self.hermes_dir = home / ".hermes"
         self.hermes_config = self.hermes_dir / "config.yaml"
         self.hermes_profiles_dir = self.hermes_dir / "profiles"
+        self.grok_dir = home / ".grok"
+        self.grok_config = self.grok_dir / "config.toml"
+        self.grok_auth = self.grok_dir / "auth.json"
         self.switch_dir = home / ".config/switch-api"
         self.cred_file = self.switch_dir / "credentials.json"
         self.custom_providers_file = self.switch_dir / "custom-providers.json"
@@ -3381,6 +3438,22 @@ def detect_provider(tool: str, cfg: Config) -> str:
             return custom_name
         return provider or "unknown"
 
+    if tool == "grok":
+        if not cfg.grok_config.exists():
+            return "no-config"
+        text = read_text(cfg.grok_config)
+        selected = read_toml_table_string(text, "models", "default") or GROK_BUILTIN_DEFAULT_MODEL
+        model_table = f"model.{selected}"
+        base_url = read_toml_table_string(text, model_table, "base_url")
+        if "flamescn.vip" in base_url:
+            return "flames"
+        custom_name = find_custom_provider_by_base_url(base_url, custom_providers, protocol="openai")
+        if custom_name and "grok" in custom_provider_enabled_tools(custom_providers[custom_name]):
+            return custom_name
+        if base_url:
+            return f"unknown({base_url})"
+        return "xai"
+
     if tool == "droid":
         # Check customModels first (OpenRouter / aiwave / duck_cc1 use this)
         factory_settings = cfg.home / ".factory/settings.json"
@@ -3452,6 +3525,8 @@ def show_status(cfg: Config) -> None:
             icon = "🧩"
         elif p == "flames":
             icon = "🔥"
+        elif p == "xai":
+            icon = "⚡"
         elif p == "deepseek":
             icon = "🧠"
         elif p == "openai" or p.startswith("openai_"):
@@ -3485,6 +3560,7 @@ def show_status(cfg: Config) -> None:
     print("  🔑 = OpenAI 官方 (api.openai.com via proxy) — Gq80/V420 = 账号标识")
     print("  🧩 = Molifang API (molifangapi.xyz)")
     print("  🔥 = Flames NewAPI (www.flamescn.vip)")
+    print("  ⚡ = xAI Official (grok.com / cli-chat-proxy.grok.com)")
     print("  🧠 = DeepSeek (api.deepseek.com/anthropic)")
     print("  🌐 = OpenRouter (openrouter.ai)")
     print("  🌊 = AI Wave (api.ai-wave.org)")
@@ -3500,7 +3576,8 @@ def show_status(cfg: Config) -> None:
 FAMILY_TOOLS = {
     "claude": ("cc", "openclaw"),
     "gemini": ("openclaw", "droid", "gemini", "hermes"),
-    "gpt":    ("codex", "droid", "openclaw", "hermes"),
+    "gpt":    ("codex", "droid", "openclaw", "hermes", "grok"),
+    "grok":   ("grok",),
     "deepseek": ("cc",),
     "openrouter": ("openclaw", "codex", "droid"),
 }
@@ -3515,7 +3592,7 @@ ALL_KNOWN_PROFILES = frozenset(
 
 
 def model_family(model: str) -> str:
-    """Return 'claude', 'gemini', 'gpt', 'deepseek', or 'other'."""
+    """Return 'claude', 'gemini', 'gpt', 'grok', 'deepseek', or 'other'."""
     m = model.split("/")[-1]  # strip provider prefix like quotio/
     if m.startswith("claude-") or m.startswith("claude_"):
         return "claude"
@@ -3523,6 +3600,8 @@ def model_family(model: str) -> str:
         return "gemini"
     if m.startswith("gpt-") or m.startswith("gpt_") or m.startswith("o1") or m.startswith("o3") or m.startswith("o4"):
         return "gpt"
+    if m.startswith("grok-") or m.startswith("grok_"):
+        return "grok"
     if m.startswith("deepseek-") or m.startswith("deepseek_"):
         return "deepseek"
     # OpenRouter model IDs contain "/" (e.g. stepfun/step-3.5-flash:free)
@@ -3574,6 +3653,8 @@ def get_provider_models(provider: str, custom_store: Dict[str, Any] | None = Non
         models = AIWAVE_CODEX_AVAILABLE_MODELS + AIWAVE_GEMINI_AVAILABLE_MODELS
     elif provider == "flames":
         models = FLAMES_AVAILABLE_MODELS
+    elif provider == "xai":
+        models = XAI_GROK_AVAILABLE_MODELS
     elif provider == "deepseek":
         models = DEEPSEEK_AVAILABLE_MODELS
     elif provider == "icodeeasy":
@@ -3588,6 +3669,7 @@ def get_provider_models(provider: str, custom_store: Dict[str, Any] | None = Non
         "claude": [],
         "gemini": [],
         "gpt": [],
+        "grok": [],
         "deepseek": [],
         "openrouter": [],
         "other": [],
@@ -3613,6 +3695,8 @@ def model_in_provider(model: str, provider: str) -> bool:
         return m in AIWAVE_CODEX_AVAILABLE_MODELS or m in AIWAVE_GEMINI_AVAILABLE_MODELS
     if provider == "flames":
         return m in FLAMES_AVAILABLE_MODELS
+    if provider == "xai":
+        return m in XAI_GROK_AVAILABLE_MODELS
     if provider == "deepseek":
         return m in DEEPSEEK_AVAILABLE_MODELS
     if provider == "icodeeasy":
@@ -3654,6 +3738,7 @@ def cmd_list_models(
         "molifang",
         "aiwave",
         "flames",
+        "xai",
         "deepseek",
         "icodeeasy",
         "duck_codex2cc",
@@ -3672,6 +3757,7 @@ def cmd_list_models(
             "molifang": "Molifang API",
             "aiwave": "AI Wave",
             "flames": "Flames NewAPI",
+            "xai": "xAI Official",
             "deepseek": "DeepSeek (Anthropic)",
             "icodeeasy": "iCodeEasy (统一网关)",
             "duck_codex2cc": "Duck CodeX→CC (CC-only)",
@@ -3682,7 +3768,8 @@ def cmd_list_models(
         sections = [
             ("Claude", "claude", "cc, openclaw"),
             ("Gemini", "gemini", "openclaw, droid, gemini, hermes"),
-            ("OpenAI/GPT", "gpt", "codex, droid, hermes"),
+            ("OpenAI/GPT", "gpt", "codex, droid, hermes, grok"),
+            ("Grok", "grok", "grok"),
             ("DeepSeek", "deepseek", "cc"),
             ("OpenRouter (Free)", "openrouter", "openclaw, codex, droid"),
             ("其他", "other", "—"),
@@ -3759,6 +3846,14 @@ def detect_current_model(tool: str, cfg: Config) -> str:
         if isinstance(model_cfg, dict):
             return str(model_cfg.get("default") or "?")
         return str(model_cfg or "?")
+
+    if tool == "grok":
+        if not cfg.grok_config.exists():
+            return "?"
+        text = read_text(cfg.grok_config)
+        selected = read_toml_table_string(text, "models", "default") or GROK_BUILTIN_DEFAULT_MODEL
+        model = read_toml_table_string(text, f"model.{selected}", "model")
+        return model or selected or "?"
 
     return "?"
 
@@ -3917,7 +4012,7 @@ def cmd_check(cfg: Config, keys: Dict[str, str], online: bool = False) -> None:
     for tool in TOOLS:
         prov = detect_provider(tool, cfg)
         model = detect_current_model(tool, cfg)
-        icon = {"duck": "🦆", "quotio": "🔗", "antigravity": "🚀", "xingyun": "☁️", "molifang": "🧩", "aiwave": "🌊", "flames": "🔥", "deepseek": "🧠", "openai": "🔑", "openrouter": "🌐", "icodeeasy": "🧊"}.get(prov, "🛠" if prov in custom_providers else ("🔑" if prov.startswith("openai_") else "❓"))
+        icon = {"duck": "🦆", "quotio": "🔗", "antigravity": "🚀", "xingyun": "☁️", "molifang": "🧩", "aiwave": "🌊", "flames": "🔥", "xai": "⚡", "deepseek": "🧠", "openai": "🔑", "openrouter": "🌐", "icodeeasy": "🧊"}.get(prov, "🛠" if prov in custom_providers else ("🔑" if prov.startswith("openai_") else "❓"))
 
         # Truncate model for display
         model_display = model if len(model) <= 32 else model[:29] + "..."
@@ -3927,7 +4022,7 @@ def cmd_check(cfg: Config, keys: Dict[str, str], online: bool = False) -> None:
             bare_model = model[len("openrouter/"):]
         else:
             bare_model = model.split("/")[-1]
-        if prov in ("quotio", "antigravity", "duck", "openrouter", "icodeeasy", "molifang", "flames", "aiwave"):
+        if prov in ("quotio", "antigravity", "duck", "openrouter", "icodeeasy", "molifang", "flames", "xai", "aiwave"):
             in_catalog = model_in_provider(bare_model, prov)
             status = "✅" if in_catalog else "⚠️"
         elif prov in custom_providers:
@@ -5648,6 +5743,79 @@ def switch_custom_hermes_provider(
     ok(f"Hermes[{scope}] → {provider_name} / {target_model}")
 
 
+def switch_custom_grok_provider(spec: Dict[str, Any], cfg: Config, store: Dict[str, str], model: str = "") -> None:
+    provider_name = spec["name"]
+    info(f"Switching Grok → {provider_name}")
+    api_key = ensure_key(spec["env_key"], resolve_store_secret(store, spec["env_key"]), f"required for Grok {provider_name}")
+    sync_shared_shell_env(cfg, {spec["env_key"]: api_key})
+
+    target_model = model or spec["default_model"]
+    text = cfg.grok_config.read_text(encoding="utf-8", errors="ignore") if cfg.grok_config.exists() else ""
+    table_name = f"model.{GROK_MANAGED_MODEL_NAME}"
+
+    text = set_toml_table_string(text, "models", "default", GROK_MANAGED_MODEL_NAME)
+    text = set_toml_table_string(text, table_name, "model", target_model)
+    text = set_toml_table_string(text, table_name, "base_url", spec["base_url"])
+    text = set_toml_table_string(text, table_name, "name", f"{provider_name} {target_model}")
+    text = set_toml_table_string(text, table_name, "description", f"Managed by switch-api ({provider_name})")
+    text = set_toml_table_string(
+        text,
+        table_name,
+        "api_backend",
+        "responses" if spec["codex_wire_api"] == "responses" else "chat_completions",
+    )
+    text = set_toml_table_string(text, table_name, "env_key", spec["env_key"])
+
+    if cfg.grok_config.exists():
+        backup(cfg.grok_config)
+    cfg.grok_config.parent.mkdir(parents=True, exist_ok=True)
+    write_text(cfg.grok_config, text)
+    ok(f"Grok → {provider_name} / {target_model}")
+
+
+def switch_grok(provider: str, cfg: Config, keys: Dict[str, str], model: str = "") -> None:
+    info(f"Switching Grok → {provider}")
+    if provider == "xai":
+        if not cfg.grok_auth.exists() and not os.environ.get("XAI_API_KEY", "").strip() and not os.environ.get("GROK_CODE_XAI_API_KEY", "").strip():
+            raise SwitchError(
+                "Grok 官方直连需要已有登录态 (~/.grok/auth.json) 或 XAI_API_KEY/GROK_CODE_XAI_API_KEY"
+            )
+
+        target_model = model or GROK_BUILTIN_DEFAULT_MODEL
+        text = cfg.grok_config.read_text(encoding="utf-8", errors="ignore") if cfg.grok_config.exists() else ""
+        text = set_toml_table_string(text, "models", "default", target_model)
+        if cfg.grok_config.exists():
+            backup(cfg.grok_config)
+        cfg.grok_config.parent.mkdir(parents=True, exist_ok=True)
+        write_text(cfg.grok_config, text)
+        ok(f"Grok → {provider} / {target_model}")
+        return
+
+    if provider != "flames":
+        raise SwitchError(f"Grok provider not supported yet: {provider}")
+
+    flames_key = ensure_key("FLAMES_API_KEY", keys["flames"], "required for Grok flames")
+    sync_shared_shell_env(cfg, {"FLAMES_API_KEY": flames_key})
+
+    target_model = model or FLAMES_GROK_DEFAULT_MODEL
+    text = cfg.grok_config.read_text(encoding="utf-8", errors="ignore") if cfg.grok_config.exists() else ""
+    table_name = f"model.{GROK_MANAGED_MODEL_NAME}"
+
+    text = set_toml_table_string(text, "models", "default", GROK_MANAGED_MODEL_NAME)
+    text = set_toml_table_string(text, table_name, "model", target_model)
+    text = set_toml_table_string(text, table_name, "base_url", FLAMES_NEWAPI_BASE_URL_V1)
+    text = set_toml_table_string(text, table_name, "name", f"Flames {target_model}")
+    text = set_toml_table_string(text, table_name, "description", "Managed by switch-api (Flames NewAPI)")
+    text = set_toml_table_string(text, table_name, "api_backend", "responses")
+    text = set_toml_table_string(text, table_name, "env_key", "FLAMES_API_KEY")
+
+    if cfg.grok_config.exists():
+        backup(cfg.grok_config)
+    cfg.grok_config.parent.mkdir(parents=True, exist_ok=True)
+    write_text(cfg.grok_config, text)
+    ok(f"Grok → {provider} / {target_model}")
+
+
 def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = "") -> None:
     info(f"Switching Codex → {provider}")
     codex_backup(cfg, cfg.cx_config)
@@ -6554,6 +6722,7 @@ def usage() -> None:
     print("       switch-api provider import ./providers.bundle.json")
     print("       switch-api cc myrelay")
     print("       switch-api codex myrelay")
+    print("       switch-api grok myrelay")
     print("       switch-api myrelay              # switch enabled tools for custom provider")
     print("  3) single tool switch:")
     print("       switch-api cc duck")
@@ -6572,6 +6741,8 @@ def usage() -> None:
     print("       switch-api openclaw flames --agent lingxi")
     print("       switch-api openclaw flames --all-agents")
     print("       switch-api codex openai")
+    print("       switch-api grok flames")
+    print("       switch-api grok xai             # Grok 切回官方直连")
     print("       switch-api openclaw openai oauth   # OpenClaw 切到 OpenAI OAuth")
     print("       switch-api openclaw openai key     # OpenClaw 切到 OpenAI API Key")
     print("       switch-api droid quotio")
@@ -6610,10 +6781,15 @@ def usage() -> None:
     print("       switch-api hermes molifang      # Hermes → Molifang gpt-5.5")
     print()
     print("  6.5) Flames NewAPI (OpenAI-compatible relay):")
-    print("       switch-api flames              # cc+openclaw+codex+gemini+hermes → Flames")
+    print("       switch-api flames              # cc+openclaw+codex+gemini+hermes+grok → Flames")
     print("       switch-api flames --all-agents # OpenClaw 多 agent 全量同步")
     print("       switch-api codex flames        # Codex → flames_newapi + FLAMES_API_KEY")
     print("       switch-api openclaw flames     # OpenClaw → flames/gpt-5.4")
+    print("       switch-api grok flames         # Grok → Flames / grok-build-0.1")
+    print()
+    print("  6.6) xAI Official (Grok 官方直连):")
+    print("       switch-api grok xai            # Grok → 官方直连 / grok-build")
+    print("       switch-api xai                 # 仅切 Grok")
     print()
     print("  7) iCodeEasy (统一网关: CC + OpenClaw + Codex + Gemini):")
     print("       switch-api icodeeasy             # cc+openclaw+codex+gemini → iCodeEasy")
@@ -6636,7 +6812,7 @@ def usage() -> None:
     print("  switch-api check [--online]            # 检查当前模型状态")
     print("  switch-api codex-account use <name>    # 切换 accounts/auth.json_* 或官方账号目录")
     print("  switch-api key set <ENV_KEY> <VALUE>   # 写入 credentials.json + ~/.env，并确保 shell source ~/.env")
-    print("  switch-api provider add-openai ...     # 注册自定义 OpenAI-compatible provider（codex/openclaw/droid/hermes）")
+    print("  switch-api provider add-openai ...     # 注册自定义 OpenAI-compatible provider（codex/openclaw/droid/hermes/grok）")
     print("  switch-api provider add-anthropic ...  # 注册自定义 Anthropic-compatible provider（cc）")
     print("  switch-api provider sync-models ...    # 同步 custom provider 的 /models 列表到 provider-models.json")
     print("  switch-api provider export ...         # 导出 provider bundle（默认不带 secrets）")
@@ -6759,7 +6935,7 @@ def parse_provider_add_openai_args(args: List[str]) -> Dict[str, Any]:
     if len(args) < 4:
         raise SwitchError(
             "Usage: switch-api provider add-openai <name> <base_url> <env_key> <default_model> "
-            "[--tools codex,openclaw,droid,hermes] "
+            "[--tools codex,openclaw,droid,hermes,grok] "
             "[--openclaw-api openai-completions|openai-responses] "
             "[--hermes-api-mode codex_responses|chat_completions] "
             "[--models-url URL] [--models-auth bearer,anthropic,none] [--no-model-discovery] "
@@ -7401,11 +7577,14 @@ def main() -> int:
     if provider == "molifang" and not keys["molifang"]:
         raise SwitchError(f"{MOLIFANG_ENV_KEY} is not set! Edit ~/.env and run: source ~/.zshrc")
 
-    if provider == "flames" and tool not in ("cc", "codex", "openclaw", "gemini", "hermes", "all"):
-        raise SwitchError(f"Provider 'flames' is supported for cc/codex/openclaw/gemini/hermes, not {tool}")
+    if provider == "flames" and tool not in ("cc", "codex", "openclaw", "gemini", "hermes", "grok", "all"):
+        raise SwitchError(f"Provider 'flames' is supported for cc/codex/openclaw/gemini/hermes/grok, not {tool}")
 
     if provider == "flames" and not keys["flames"]:
         raise SwitchError("FLAMES_API_KEY is not set! Edit ~/.env and run: source ~/.zshrc")
+
+    if provider == "xai" and tool not in ("grok", "all"):
+        raise SwitchError("Provider 'xai' is only supported with Grok")
 
     if provider == "deepseek" and tool not in ("cc",):
         raise SwitchError(f"Provider 'deepseek' is CC-only, not {tool}")
@@ -7448,6 +7627,8 @@ def main() -> int:
             info(f"Pre-flight skipped for custom provider {provider}（无内置探测契约）")
         elif provider == "aiwave":
             info("Pre-flight skipped for AI Wave（不同工具走不同 key/protocol 路径）")
+        elif provider == "xai":
+            info("Pre-flight skipped for xAI official（Grok 本地登录态 / XAI_API_KEY 决定可用性）")
         elif provider == "deepseek":
             info("Pre-flight skipped for DeepSeek（Anthropic 兼容 messages 链路）")
         else:
@@ -7494,6 +7675,8 @@ def main() -> int:
                 profile_name=hermes_profile_name,
                 all_profiles=hermes_all_profiles,
             )
+        elif tool == "grok":
+            switch_custom_grok_provider(custom_spec, cfg, store, model=model)
         elif tool == "all":
             info(
                 f"Custom provider {provider} supports "
@@ -7524,6 +7707,8 @@ def main() -> int:
                     profile_name=hermes_profile_name,
                     all_profiles=hermes_all_profiles,
                 )
+            if "grok" in custom_spec["tools"]:
+                switch_custom_grok_provider(custom_spec, cfg, store, model=model)
         else:
             raise SwitchError(f"Unsupported custom provider tool: {tool}")
     elif tool == "cc":
@@ -7545,6 +7730,8 @@ def main() -> int:
             profile_name=hermes_profile_name,
             all_profiles=hermes_all_profiles,
         )
+    elif tool == "grok":
+        switch_grok(provider, cfg, keys, model=model)
     elif tool == "all":
         if provider == "openrouter":
             warn("OpenRouter is OpenAI-compatible — skipping cc and gemini (not compatible)")
@@ -7573,7 +7760,7 @@ def main() -> int:
                 all_profiles=hermes_all_profiles,
             )
         elif provider == "flames":
-            info("Flames supports cc/openclaw/codex/gemini/hermes — switching those")
+            info("Flames supports cc/openclaw/codex/gemini/hermes/grok — switching those")
             switch_cc(provider, cfg, keys, model=model)
             switch_openclaw(provider, cfg, keys, "", model=model, agent_id=openclaw_agent_id, all_agents=openclaw_all_agents)
             switch_codex(provider, cfg, keys, model=model)
@@ -7586,6 +7773,10 @@ def main() -> int:
                 profile_name=hermes_profile_name,
                 all_profiles=hermes_all_profiles,
             )
+            switch_grok(provider, cfg, keys, model=model)
+        elif provider == "xai":
+            info("xAI official is Grok-only — switching Grok only")
+            switch_grok(provider, cfg, keys, model=model)
         elif provider == "deepseek":
             info("DeepSeek is CC-only — switching Claude Code only")
             switch_cc(provider, cfg, keys, model=model)

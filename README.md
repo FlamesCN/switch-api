@@ -6,6 +6,7 @@ Unified API provider switcher across:
 - Droid (`droid`)
 - Gemini CLI (`gemini`)
 - Hermes (`hermes`)
+- Grok (`grok`)
 
 ## Supported Providers
 
@@ -16,7 +17,8 @@ Unified API provider switcher across:
 | `antigravity` | 🚀 | all | Antigravity-tools (tools.ancientechoes.ai) |
 | `xingyun` | ☁️ | openclaw, codex, droid | Xingyun GPT (ai.xingyungept.cn) |
 | `molifang` | 🧩 | openclaw, codex, droid, hermes | Molifang API (molifangapi.xyz) — OpenAI GPT-5.5 only |
-| `flames` | 🔥 | cc, openclaw, codex, hermes | Flames NewAPI (www.flamescn.vip) |
+| `flames` | 🔥 | cc, openclaw, codex, gemini, hermes, grok | Flames NewAPI (www.flamescn.vip) |
+| `xai` | ⚡ | grok | xAI Official / Grok 官方直连 |
 | `deepseek` | 🧠 | cc | DeepSeek Official Anthropic API (api.deepseek.com/anthropic) |
 | `quotio_local` | 🔗 | codex, droid | Quotio Local (本地 app, 127.0.0.1:8317) |
 | `openrouter` | 🌐 | openclaw, codex, droid | OpenRouter (openrouter.ai) — free models |
@@ -80,6 +82,7 @@ switch-api codex myrelay
 switch-api openclaw myrelay
 switch-api droid myrelay
 switch-api hermes myrelay
+switch-api grok myrelay
 switch-api myrelay                   # 切换该 custom provider 启用的全部工具
 ```
 
@@ -89,6 +92,7 @@ switch-api myrelay                   # 切换该 custom provider 启用的全部
   - `openclaw`
   - `droid`
   - `hermes`
+  - `grok`
 - `provider add-anthropic` 面向 **Anthropic-compatible** 网关，支持工具：
   - `cc`
 - custom provider 现在支持自动探测 `/v1/models` 并缓存到：
@@ -137,7 +141,8 @@ switch-api quotio                    # 全部 → Quotio
 switch-api antigravity               # 全部 → Antigravity
 switch-api xingyun                   # openclaw+codex+droid → Xingyun GPT
 switch-api molifang                  # openclaw+codex+droid+hermes → Molifang / gpt-5.5
-switch-api flames                    # cc+openclaw+codex+hermes → Flames NewAPI
+switch-api flames                    # cc+openclaw+codex+gemini+hermes+grok → Flames NewAPI
+switch-api xai                       # grok → xAI 官方直连
 switch-api deepseek                  # cc → DeepSeek Official
 switch-api aiwave                    # openclaw+codex+droid+gemini+hermes → AI Wave
 switch-api icodeeasy                 # cc+openclaw+codex+gemini → iCodeEasy
@@ -168,6 +173,8 @@ switch-api openclaw flames --all-agents    # 同步切换所有 OpenClaw agent
 switch-api codex openai                    # OpenAI 官方 OAuth
 switch-api codex openai_V420               # flames_newapi + OPENAI_V420_API_KEY
 switch-api codex flames                    # flames_newapi + FLAMES_API_KEY
+switch-api grok flames                     # Grok → Flames / grok-build-0.1
+switch-api grok xai                        # Grok → xAI 官方直连 / grok-build
 switch-api openclaw aiwave [model]
 switch-api droid quotio [profile]
 switch-api hermes flames
