@@ -1087,6 +1087,61 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assert_shell_rc_sources_env(self.cfg.bashrc)
         self.assert_shell_rc_sources_env(self.cfg.zshrc)
 
+    def test_switch_grok_flames_is_idempotent_and_keeps_valid_toml(self):
+        import tomllib
+
+        self.init_grok_config()
+        keys = {"flames": "dummy"}
+
+        self.mod.switch_grok("flames", self.cfg, keys, model="grok-4.5")
+        first = self.cfg.grok_config.read_text(encoding="utf-8")
+        self.mod.switch_grok("flames", self.cfg, keys, model="grok-4.5")
+        second = self.cfg.grok_config.read_text(encoding="utf-8")
+
+        self.assertEqual(second, first)
+        self.assertEqual(second.count("[model.switch-api-provider]"), 1)
+        parsed = tomllib.loads(second)
+        self.assertEqual(parsed["models"]["default"], "switch-api-provider")
+        self.assertEqual(parsed["model"]["switch-api-provider"]["model"], "grok-4.5")
+
+    def test_switch_grok_flames_repairs_legacy_duplicate_managed_table(self):
+        import tomllib
+
+        self.init_grok_config(
+            (
+                "[models]\n"
+                'default = "switch-api-provider"[model.switch-api-provider]\n'
+                'model = "grok-build-0.1"\n'
+                'base_url = "https://www.flamescn.vip/v1"\n\n'
+                'default = "switch-api-provider"\n'
+                "[model.switch-api-provider]\n"
+                'model = "grok-build-0.1"\n'
+                'base_url = "https://www.flamescn.vip/v1"\n'
+            )
+        )
+
+        self.mod.switch_grok("flames", self.cfg, {"flames": "dummy"})
+
+        text = self.cfg.grok_config.read_text(encoding="utf-8")
+        self.assertEqual(text.count("[model.switch-api-provider]"), 1)
+        self.assertEqual(tomllib.loads(text)["models"]["default"], "switch-api-provider")
+
+    def test_skip_redundant_switch_checks_provider_and_explicit_model(self):
+        self.init_grok_config(
+            (
+                "[models]\n"
+                'default = "switch-api-provider"\n\n'
+                "[model.switch-api-provider]\n"
+                'model = "grok-4.5"\n'
+                'base_url = "https://www.flamescn.vip/v1"\n'
+            )
+        )
+
+        self.assertTrue(self.mod.skip_redundant_switch("grok", "flames", self.cfg))
+        self.assertTrue(self.mod.skip_redundant_switch("grok", "flames", self.cfg, "grok-4.5"))
+        self.assertFalse(self.mod.skip_redundant_switch("grok", "flames", self.cfg, "grok-build-0.1"))
+        self.assertFalse(self.mod.skip_redundant_switch("grok", "xai", self.cfg))
+
     def test_switch_grok_xai_restores_builtin_direct_mode(self):
         self.init_grok_config(
             (

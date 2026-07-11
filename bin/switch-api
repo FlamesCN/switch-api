@@ -2096,13 +2096,13 @@ def set_codex_provider_env_key(text: str, provider_name: str, env_key_name: str)
 
 def read_toml_table_string(text: str, table_name: str, key: str) -> str:
     section_re = re.compile(
-        rf'(?ms)^\[{re.escape(table_name)}\]\s*$\n(?P<body>.*?)(?=^\[|\Z)'
+        rf'(?ms)^\[{re.escape(table_name)}\][ \t]*$\n(?P<body>.*?)(?=^\[|\Z)'
     )
     section = section_re.search(text)
     if not section:
         return ""
     body = section.group("body")
-    m = re.search(rf'^\s*{re.escape(key)}\s*=\s*"([^"]*)"\s*$', body, re.M)
+    m = re.search(rf'^[ \t]*{re.escape(key)}[ \t]*=[ \t]*"([^"]*)"[ \t]*$', body, re.M)
     return m.group(1).strip() if m else ""
 
 
@@ -2110,14 +2110,14 @@ def set_toml_table_bool(text: str, table_name: str, key: str, value: bool) -> st
     """Set a simple boolean key under a TOML table, creating the table if needed."""
     rendered = "true" if value else "false"
     section_re = re.compile(
-        rf'(?ms)^(?P<header>\[{re.escape(table_name)}\]\s*$\n)(?P<body>.*?)(?=^\[|\Z)'
+        rf'(?ms)^(?P<header>\[{re.escape(table_name)}\][ \t]*$\n)(?P<body>.*?)(?=^\[|\Z)'
     )
     section = section_re.search(text)
     if section:
         body = section.group("body")
-        if re.search(rf'^\s*{re.escape(key)}\s*=\s*(true|false)\s*$', body, re.M):
+        if re.search(rf'^[ \t]*{re.escape(key)}[ \t]*=[ \t]*(true|false)[ \t]*$', body, re.M):
             body = re.sub(
-                rf'^\s*{re.escape(key)}\s*=\s*(true|false)\s*$',
+                rf'^[ \t]*{re.escape(key)}[ \t]*=[ \t]*(true|false)[ \t]*$',
                 f'{key} = {rendered}',
                 body,
                 count=1,
@@ -2136,14 +2136,14 @@ def set_toml_table_string(text: str, table_name: str, key: str, value: str) -> s
     """Set a simple string key under a TOML table, creating the table if needed."""
     rendered = json.dumps(value)
     section_re = re.compile(
-        rf'(?ms)^(?P<header>\[{re.escape(table_name)}\]\s*$\n)(?P<body>.*?)(?=^\[|\Z)'
+        rf'(?ms)^(?P<header>\[{re.escape(table_name)}\][ \t]*$\n)(?P<body>.*?)(?=^\[|\Z)'
     )
     section = section_re.search(text)
     if section:
         body = section.group("body")
-        if re.search(rf'^\s*{re.escape(key)}\s*=\s*"[^"]*"\s*$', body, re.M):
+        if re.search(rf'^[ \t]*{re.escape(key)}[ \t]*=[ \t]*"[^"]*"[ \t]*$', body, re.M):
             body = re.sub(
-                rf'^\s*{re.escape(key)}\s*=\s*"[^"]*"\s*$',
+                rf'^[ \t]*{re.escape(key)}[ \t]*=[ \t]*"[^"]*"[ \t]*$',
                 f"{key} = {rendered}",
                 body,
                 count=1,
@@ -3858,6 +3858,40 @@ def detect_current_model(tool: str, cfg: Config) -> str:
     return "?"
 
 
+def skip_redundant_switch(tool: str, provider: str, cfg: Config, model: str = "") -> bool:
+    """Skip config writes when the requested provider/model is already active."""
+    try:
+        current_provider = detect_provider(tool, cfg)
+        current_model = detect_current_model(tool, cfg)
+    except Exception:
+        return False
+    if current_provider != provider or (model and current_model != model):
+        return False
+    if tool == "grok":
+        try:
+            import tomllib
+
+            tomllib.loads(read_text(cfg.grok_config))
+        except Exception:
+            return False
+    if tool == "codex" and provider == "openai":
+        text = read_text(cfg.cx_config) if cfg.cx_config.exists() else ""
+        if re.search(r'^\s*model_provider\s*=\s*"', text, re.M):
+            return False
+    target = f"{provider} / {current_model}" if current_model not in ("", "?") else provider
+    info(f"{tool} already uses {target}; skipping")
+    return True
+
+
+def repair_grok_config_text(text: str) -> str:
+    """Recover the Grok config shape produced by older non-idempotent writes."""
+    text = re.sub(r'("[^"\n]*")(\[model\.)', r'\1\n\2', text)
+    headers = list(re.finditer(r'(?m)^\[model\.switch-api-provider\][ \t]*$', text))
+    if len(headers) > 1:
+        text = text[: headers[1].start()].rstrip() + "\n"
+    return text
+
+
 def probe_model_curl(provider: str, model: str, keys: Dict[str, str]) -> Tuple[bool, str]:
     """Online verify a model by sending a minimal chat completion via curl."""
     endpoint_map = {
@@ -4099,6 +4133,8 @@ def validate_model_for_tool(
 
 # ----------------------------- switchers -----------------------------
 def switch_cc(provider: str, cfg: Config, keys: Dict[str, str], model: str = "") -> None:
+    if skip_redundant_switch("cc", provider, cfg, model):
+        return
     info(f"Switching Claude Code → {provider}")
     backup(cfg.cc_settings)
 
@@ -4786,6 +4822,8 @@ def custom_openai_models_payload_for_models_json(spec: Dict[str, Any], target_mo
 
 def switch_custom_cc_provider(spec: Dict[str, Any], cfg: Config, store: Dict[str, str], model: str = "") -> None:
     provider_name = spec["name"]
+    if skip_redundant_switch("cc", provider_name, cfg, model):
+        return
     anthropic_cfg = spec.get("anthropic") if isinstance(spec.get("anthropic"), dict) else None
     if anthropic_cfg is None:
         raise SwitchError(f"Custom provider '{provider_name}' has no anthropic config for Claude Code")
@@ -5565,6 +5603,8 @@ def switch_openclaw(
                 raise SwitchError(f"Config file not found: {agent_cfg.oc_models}")
             warn(f"Skipping stale OpenClaw agent '{target_agent_id}' (missing {agent_cfg.oc_models})")
             continue
+        if len(target_agent_ids) == 1 and skip_redundant_switch("openclaw", provider, agent_cfg, model):
+            continue
         _switch_openclaw_single_agent(provider, agent_cfg, keys, profile, model=model)
 
 
@@ -5597,6 +5637,8 @@ def switch_custom_openclaw_provider(
             if agent_id.strip():
                 raise SwitchError(f"Config file not found: {agent_cfg.oc_models}")
             warn(f"Skipping stale OpenClaw agent '{target_agent_id}' (missing {agent_cfg.oc_models})")
+            continue
+        if len(target_agent_ids) == 1 and skip_redundant_switch("openclaw", provider_name, agent_cfg, model):
             continue
 
         backup(agent_cfg.oc_config)
@@ -5647,6 +5689,8 @@ def switch_custom_openclaw_provider(
 
 def switch_custom_codex_provider(spec: Dict[str, Any], cfg: Config, store: Dict[str, str], model: str = "") -> None:
     provider_name = spec["name"]
+    if skip_redundant_switch("codex", provider_name, cfg, model):
+        return
     info(f"Switching Codex → {provider_name}")
     codex_backup(cfg, cfg.cx_config)
 
@@ -5683,6 +5727,8 @@ def switch_custom_codex_provider(spec: Dict[str, Any], cfg: Config, store: Dict[
 
 def switch_custom_droid_provider(spec: Dict[str, Any], cfg: Config, store: Dict[str, str], model: str = "") -> None:
     provider_name = spec["name"]
+    if skip_redundant_switch("droid", provider_name, cfg, model):
+        return
     info(f"Switching Droid → {provider_name}")
     api_key = ensure_key(spec["env_key"], resolve_store_secret(store, spec["env_key"]), f"required for Droid {provider_name}")
     target_model = model or spec["default_model"]
@@ -5709,6 +5755,8 @@ def switch_custom_hermes_provider(
     all_profiles: bool = False,
 ) -> None:
     provider_name = spec["name"]
+    if not profile_name and not all_profiles and skip_redundant_switch("hermes", provider_name, cfg, model):
+        return
     info(f"Switching Hermes → {provider_name}")
     api_key = ensure_key(spec["env_key"], resolve_store_secret(store, spec["env_key"]), f"required for Hermes {provider_name}")
     target_model = model or spec["default_model"]
@@ -5745,12 +5793,15 @@ def switch_custom_hermes_provider(
 
 def switch_custom_grok_provider(spec: Dict[str, Any], cfg: Config, store: Dict[str, str], model: str = "") -> None:
     provider_name = spec["name"]
+    if skip_redundant_switch("grok", provider_name, cfg, model):
+        return
     info(f"Switching Grok → {provider_name}")
     api_key = ensure_key(spec["env_key"], resolve_store_secret(store, spec["env_key"]), f"required for Grok {provider_name}")
     sync_shared_shell_env(cfg, {spec["env_key"]: api_key})
 
     target_model = model or spec["default_model"]
     text = cfg.grok_config.read_text(encoding="utf-8", errors="ignore") if cfg.grok_config.exists() else ""
+    text = repair_grok_config_text(text)
     table_name = f"model.{GROK_MANAGED_MODEL_NAME}"
 
     text = set_toml_table_string(text, "models", "default", GROK_MANAGED_MODEL_NAME)
@@ -5774,6 +5825,8 @@ def switch_custom_grok_provider(spec: Dict[str, Any], cfg: Config, store: Dict[s
 
 
 def switch_grok(provider: str, cfg: Config, keys: Dict[str, str], model: str = "") -> None:
+    if skip_redundant_switch("grok", provider, cfg, model):
+        return
     info(f"Switching Grok → {provider}")
     if provider == "xai":
         if not cfg.grok_auth.exists() and not os.environ.get("XAI_API_KEY", "").strip() and not os.environ.get("GROK_CODE_XAI_API_KEY", "").strip():
@@ -5783,6 +5836,7 @@ def switch_grok(provider: str, cfg: Config, keys: Dict[str, str], model: str = "
 
         target_model = model or GROK_BUILTIN_DEFAULT_MODEL
         text = cfg.grok_config.read_text(encoding="utf-8", errors="ignore") if cfg.grok_config.exists() else ""
+        text = repair_grok_config_text(text)
         text = set_toml_table_string(text, "models", "default", target_model)
         if cfg.grok_config.exists():
             backup(cfg.grok_config)
@@ -5799,6 +5853,7 @@ def switch_grok(provider: str, cfg: Config, keys: Dict[str, str], model: str = "
 
     target_model = model or FLAMES_GROK_DEFAULT_MODEL
     text = cfg.grok_config.read_text(encoding="utf-8", errors="ignore") if cfg.grok_config.exists() else ""
+    text = repair_grok_config_text(text)
     table_name = f"model.{GROK_MANAGED_MODEL_NAME}"
 
     text = set_toml_table_string(text, "models", "default", GROK_MANAGED_MODEL_NAME)
@@ -5817,6 +5872,8 @@ def switch_grok(provider: str, cfg: Config, keys: Dict[str, str], model: str = "
 
 
 def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = "") -> None:
+    if skip_redundant_switch("codex", provider, cfg, model):
+        return
     info(f"Switching Codex → {provider}")
     codex_backup(cfg, cfg.cx_config)
 
@@ -6355,6 +6412,8 @@ def update_gemini_balance_env(provider: str, cfg: Config, keys: Dict[str, str], 
 def switch_gemini_cli(provider: str, cfg: Config, keys: Dict[str, str], model: str = "") -> None:
     """Switch Gemini CLI to a different provider.
     Also updates ~/.env GEMINI_API_KEY (shared with Droid)."""
+    if skip_redundant_switch("gemini", provider, cfg, model):
+        return
     info(f"Switching Gemini CLI → {provider}")
     key_slot = GEMINI_CLI_KEY_MAP.get(provider)
     if not key_slot:
@@ -6413,6 +6472,8 @@ def switch_hermes(
     profile_name: str = "",
     all_profiles: bool = False,
 ) -> None:
+    if not profile_name and not all_profiles and skip_redundant_switch("hermes", provider, cfg, model):
+        return
     info(f"Switching Hermes → {provider}")
 
     if provider == "molifang":
@@ -6474,6 +6535,8 @@ def switch_hermes(
 
 
 def switch_droid(provider: str, cfg: Config, keys: Dict[str, str], profile: str = "", model: str = "") -> None:
+    if skip_redundant_switch("droid", provider, cfg, model):
+        return
     p = profile.lower() if profile else "default"
     info(f"Switching Droid → {provider}" + (f" (profile: {p})" if p != "default" else ""))
 
