@@ -839,7 +839,8 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.init_grok_config()
         self.mod.switch_custom_grok_provider(spec, self.cfg, {"MY_RELAY_API_KEY": "dummy"}, model="gpt-5.4")
         grok_text = self.cfg.grok_config.read_text(encoding="utf-8")
-        self.assertIn('default = "switch-api-provider"', grok_text)
+        self.assertIn('default = "gpt-5.4"', grok_text)
+        self.assertIn('[model."gpt-5.4"]', grok_text)
         self.assertIn('model = "gpt-5.4"', grok_text)
         self.assertIn('base_url = "https://relay.example.com/v1"', grok_text)
         self.assertIn('env_key = "MY_RELAY_API_KEY"', grok_text)
@@ -1076,7 +1077,8 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.mod.switch_grok("flames", self.cfg, {"flames": "dummy"}, model="grok-4.5")
 
         text = self.cfg.grok_config.read_text(encoding="utf-8")
-        self.assertIn('default = "switch-api-provider"', text)
+        self.assertIn('default = "grok-4.5"', text)
+        self.assertIn('[model."grok-4.5"]', text)
         self.assertIn('model = "grok-4.5"', text)
         self.assertIn('base_url = "https://www.flamescn.vip/v1"', text)
         self.assertIn('api_backend = "responses"', text)
@@ -1086,6 +1088,75 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertEqual((self.home / ".env").read_text(encoding="utf-8"), 'export FLAMES_API_KEY="dummy"\n')
         self.assert_shell_rc_sources_env(self.cfg.bashrc)
         self.assert_shell_rc_sources_env(self.cfg.zshrc)
+
+    def test_switch_grok_flames_without_explicit_model_prefers_discovered_grok(self):
+        self.init_grok_config()
+
+        with patch.object(
+            self.mod,
+            "fetch_remote_model_catalog",
+            return_value=(["gpt-5.4", "grok-4.5"], "bearer", ""),
+        ):
+            self.mod.switch_grok("flames", self.cfg, {"flames": "dummy"})
+
+        text = self.cfg.grok_config.read_text(encoding="utf-8")
+        self.assertIn('model = "grok-4.5"', text)
+        self.assertEqual(self.mod.detect_current_model("grok", self.cfg), "grok-4.5")
+
+    def test_switch_grok_flames_stashes_cached_xai_login(self):
+        self.init_grok_config()
+        self.write_json(self.cfg.grok_auth, {"auth_mode": "session", "access_token": "secret"})
+
+        self.mod.switch_grok("flames", self.cfg, {"flames": "dummy"}, model="grok-4.5")
+
+        self.assertFalse(self.cfg.grok_auth.exists())
+        self.assertTrue(self.cfg.grok_auth_relay_backup.exists())
+        self.assertEqual(
+            json.loads(self.cfg.grok_auth_relay_backup.read_text(encoding="utf-8"))["access_token"],
+            "secret",
+        )
+
+    def test_switch_grok_flames_stashes_login_even_when_route_is_already_active(self):
+        self.init_grok_config(
+            (
+                "[models]\n"
+                'default = "grok-4.5"\n\n'
+                '[model."grok-4.5"]\n'
+                'model = "grok-4.5"\n'
+                'base_url = "https://www.flamescn.vip/v1"\n'
+                'description = "Managed by switch-api (Flames NewAPI)"\n'
+                'env_key = "FLAMES_API_KEY"\n'
+                'api_backend = "responses"\n'
+            )
+        )
+        self.write_json(self.cfg.grok_auth, {"auth_mode": "session", "access_token": "secret"})
+
+        self.mod.switch_grok("flames", self.cfg, {"flames": "dummy"}, model="grok-4.5")
+
+        self.assertFalse(self.cfg.grok_auth.exists())
+        self.assertTrue(self.cfg.grok_auth_relay_backup.exists())
+
+    def test_switch_grok_flames_refreshes_legacy_model_when_provider_already_matches(self):
+        self.init_grok_config(
+            (
+                "[models]\n"
+                'default = "switch-api-provider"\n\n'
+                "[model.switch-api-provider]\n"
+                'model = "grok-build-0.1"\n'
+                'base_url = "https://www.flamescn.vip/v1"\n'
+                'env_key = "FLAMES_API_KEY"\n'
+                'api_backend = "responses"\n'
+            )
+        )
+
+        with patch.object(
+            self.mod,
+            "fetch_remote_model_catalog",
+            return_value=(["grok-4.5"], "bearer", ""),
+        ):
+            self.mod.switch_grok("flames", self.cfg, {"flames": "dummy"})
+
+        self.assertEqual(self.mod.detect_current_model("grok", self.cfg), "grok-4.5")
 
     def test_switch_grok_flames_is_idempotent_and_keeps_valid_toml(self):
         import tomllib
@@ -1099,10 +1170,10 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         second = self.cfg.grok_config.read_text(encoding="utf-8")
 
         self.assertEqual(second, first)
-        self.assertEqual(second.count("[model.switch-api-provider]"), 1)
+        self.assertEqual(second.count('[model."grok-4.5"]'), 1)
         parsed = tomllib.loads(second)
-        self.assertEqual(parsed["models"]["default"], "switch-api-provider")
-        self.assertEqual(parsed["model"]["switch-api-provider"]["model"], "grok-4.5")
+        self.assertEqual(parsed["models"]["default"], "grok-4.5")
+        self.assertEqual(parsed["model"]["grok-4.5"]["model"], "grok-4.5")
 
     def test_switch_grok_flames_repairs_legacy_duplicate_managed_table(self):
         import tomllib
@@ -1120,11 +1191,23 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
             )
         )
 
-        self.mod.switch_grok("flames", self.cfg, {"flames": "dummy"})
+        with patch.object(
+            self.mod,
+            "fetch_remote_model_catalog",
+            return_value=(["gpt-5.4", "grok-4.5"], "bearer", ""),
+        ):
+            self.mod.switch_grok("flames", self.cfg, {"flames": "dummy"})
 
         text = self.cfg.grok_config.read_text(encoding="utf-8")
-        self.assertEqual(text.count("[model.switch-api-provider]"), 1)
-        self.assertEqual(tomllib.loads(text)["models"]["default"], "switch-api-provider")
+        self.assertNotIn("[model.switch-api-provider]", text)
+        self.assertEqual(text.count('[model."grok-4.5"]'), 1)
+        self.assertEqual(tomllib.loads(text)["models"]["default"], "grok-4.5")
+
+    def test_build_model_discovery_headers_use_browser_user_agent(self):
+        headers = self.mod.build_model_discovery_headers("secret", "bearer")
+
+        self.assertEqual(headers["User-Agent"], self.mod.HTTP_USER_AGENT)
+        self.assertEqual(headers["Authorization"], "Bearer secret")
 
     def test_skip_redundant_switch_checks_provider_and_explicit_model(self):
         self.init_grok_config(
@@ -1163,6 +1246,47 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertIn('default = "grok-build"', text)
         self.assertEqual(self.mod.detect_provider("grok", self.cfg), "xai")
         self.assertEqual(self.mod.detect_current_model("grok", self.cfg), "grok-build")
+
+    def test_switch_grok_xai_removes_actual_model_relay_override(self):
+        self.init_grok_config(
+            (
+                "[models]\n"
+                'default = "grok-4.5"\n\n'
+                '[model."grok-4.5"]\n'
+                'model = "grok-4.5"\n'
+                'base_url = "https://www.flamescn.vip/v1"\n'
+                'description = "Managed by switch-api (Flames NewAPI)"\n'
+                'env_key = "FLAMES_API_KEY"\n'
+                'api_backend = "responses"\n'
+            )
+        )
+        self.write_json(self.cfg.grok_auth, {"auth_mode": "session"})
+
+        self.mod.switch_grok("xai", self.cfg, {}, model="")
+
+        text = self.cfg.grok_config.read_text(encoding="utf-8")
+        self.assertNotIn('[model."grok-4.5"]', text)
+        self.assertIn('default = "grok-build"', text)
+        self.assertEqual(self.mod.detect_provider("grok", self.cfg), "xai")
+
+    def test_switch_grok_xai_restores_stashed_login(self):
+        self.init_grok_config(
+            (
+                "[models]\n"
+                'default = "grok-4.5"\n\n'
+                '[model."grok-4.5"]\n'
+                'model = "grok-4.5"\n'
+                'base_url = "https://www.flamescn.vip/v1"\n'
+                'description = "Managed by switch-api (Flames NewAPI)"\n'
+            )
+        )
+        self.write_json(self.cfg.grok_auth_relay_backup, {"auth_mode": "session", "access_token": "secret"})
+
+        self.mod.switch_grok("xai", self.cfg, {}, model="")
+
+        self.assertTrue(self.cfg.grok_auth.exists())
+        self.assertFalse(self.cfg.grok_auth_relay_backup.exists())
+        self.assertEqual(json.loads(self.cfg.grok_auth.read_text(encoding="utf-8"))["access_token"], "secret")
 
     def test_switch_grok_xai_accepts_explicit_builtin_model(self):
         self.init_grok_config()

@@ -39,16 +39,17 @@
   - `openclaw` 当前通过自定义 provider `api: anthropic-messages` 接入，仍以 Claude 模型为主
   - `codex` 走 OpenAI Responses 兼容入口（`model_provider = "icodeeasy"`）
   - `gemini` 走 Gemini `v1beta` 兼容入口
-  - 实际可用模型以服务端鉴权结果为准；`switch-api` 当前默认模型：`claude-opus-4-8` / `gpt-5.4` / `gemini-3.5-flash`
+  - 实际可用模型以服务端鉴权结果为准；`switch-api` 当前默认模型：`claude-opus-4-8` / `gpt-5.4`
 - **flames** — Flames NewAPI `https://www.flamescn.vip/v1`，支持 **Claude Code + Codex + OpenClaw + Gemini + Hermes + Grok**
   - `cc` 走 Anthropic 兼容入口，默认 `claude-opus-4-8`，也支持 `claude-fable-5` / `claude-haiku-4-5-20251001` / `claude-sonnet-5` / `claude-opus-4-6` / `claude-opus-4-7` / `gpt-5.4` / `gpt-5.3-codex` / `deepseek-v4-flash` / `deepseek-v4-pro`
   - `codex` 复用内部 provider block：`model_provider = "flames_newapi"`
   - `env_key` 固定切回 `FLAMES_API_KEY`
   - `openclaw` 通过自定义 provider `flames/...` 接入，默认模型 `gpt-5.4`
-  - `gemini` 通过 `GOOGLE_GEMINI_BASE_URL=https://www.flamescn.vip` 接入，默认模型 `gemini-3.5-flash`
-  - `grok` 通过 `~/.grok/config.toml` 的 managed model 接入，默认模型 `grok-build-0.1`
+  - `gemini` 通过 `GOOGLE_GEMINI_BASE_URL=https://www.flamescn.vip` 接入，默认模型仍按内置值写入；实际可用性取决于当前 key 的 `/v1/models`
+  - `grok` 会直接覆盖实际模型 ID（例如 `[model."grok-4.5"]`），让新会话和恢复的旧会话都走中转；未显式指定模型时，会优先从当前 key 的 `/v1/models` 里挑可用的 `grok-*`，fallback 为 `grok-4.5`
+  - Grok 的缓存登录态会抢先触发官方 `grok-build` 请求；切到 relay 时会将 `~/.grok/auth.json` 暂存为 `auth.json.switch-api-xai`
 - **xai** — xAI 官方直连 `https://cli-chat-proxy.grok.com/v1`，支持 **Grok**
-  - `grok xai` 会把默认模型切回 `grok-build`
+  - `grok xai` 会把默认模型切回 `grok-build`，并恢复暂存的 `~/.grok/auth.json`
   - 鉴权依赖 `~/.grok/auth.json` 登录态，或 `XAI_API_KEY` / `GROK_CODE_XAI_API_KEY`
 - **deepseek** — DeepSeek 官方 `https://api.deepseek.com/anthropic`，支持 **Claude Code**
   - `cc` 直连 Anthropic 兼容 `messages` 接口
@@ -285,9 +286,9 @@ switch-api codex openai_Gq80                # flames_newapi + OPENAI_GQ80_API_KE
 switch-api codex openai_V420                # flames_newapi + OPENAI_V420_API_KEY
 
 # ─── 只切 Grok CLI ─────────────────────────────
-switch-api grok flames                      # Flames / grok-build-0.1
+switch-api grok flames                      # Flames / 自动选 grok-*；暂存 xAI 登录态
 switch-api grok flames grok-4.5
-switch-api grok xai                         # xAI 官方直连 / grok-build
+switch-api grok xai                         # xAI 官方直连 / grok-build；恢复登录态
 switch-api grok xai grok-4.5
 
 # ─── 只切 Droid ────────────────────────────────
@@ -597,7 +598,7 @@ OpenClaw 走 OpenAI 时会额外显示认证模式后缀，避免把 OAuth 和 A
 
 > **关键限制**：
 > `flames` 在 `cc` 下通过 Anthropic 兼容网关暴露自定义模型，目前内置支持 `gpt-5.4` / `gpt-5.3-codex` / `deepseek-v4-flash` / `deepseek-v4-pro`。
-> `flames` 的 `grok` 通过 `~/.grok/config.toml` 中的 managed model 指向 `https://www.flamescn.vip/v1`。
+> `flames` 的 `grok` 通过 `~/.grok/config.toml` 中的实际模型覆盖指向 `https://www.flamescn.vip/v1`；切换期间会暂存官方 `auth.json`，避免登录态优先触发官方额度检查。
 > `xai` 只用于 Grok 官方直连，依赖 `~/.grok/auth.json` 或 `XAI_API_KEY` / `GROK_CODE_XAI_API_KEY`。
 > `icodeeasy` 现在可用于 `cc` / `openclaw` / `codex` / `gemini`，但 `openclaw` 当前仍走 Anthropic `messages` 链路，所以只支持 Claude 模型。
 > `duck_cc1` 和 `duck_codex2cc` 仍然只能用于 Claude Code。
@@ -731,6 +732,7 @@ switch-api openclaw openai key
 ~/.factory/settings.json                      Droid customModels（codex profile）
 ~/.grok/config.toml                           Grok CLI 模型路由配置
 ~/.grok/auth.json                             Grok CLI 官方登录态 / session 凭据
+~/.grok/auth.json.switch-api-xai              Grok 使用 relay 时暂存的官方登录态
 ~/.config/switch-api/credentials.json         Provider 密钥快照
 ~/.config/switch-api/custom-providers.json    自定义 provider 注册表（OpenAI-compatible + Anthropic-compatible）
 ~/.config/switch-api/provider-models.json     Provider 模型目录

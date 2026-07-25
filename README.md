@@ -173,8 +173,8 @@ switch-api openclaw flames --all-agents    # 同步切换所有 OpenClaw agent
 switch-api codex openai                    # OpenAI 官方 OAuth
 switch-api codex openai_V420               # flames_newapi + OPENAI_V420_API_KEY
 switch-api codex flames                    # flames_newapi + FLAMES_API_KEY
-switch-api grok flames                     # Grok → Flames / grok-build-0.1
-switch-api grok xai                        # Grok → xAI 官方直连 / grok-build
+switch-api grok flames                     # Grok → Flames；暂存官方登录态，优先当前 key 可用的 grok-*
+switch-api grok xai                        # Grok → xAI 官方直连 / grok-build；恢复官方登录态
 switch-api openclaw aiwave [model]
 switch-api droid quotio [profile]
 switch-api hermes flames

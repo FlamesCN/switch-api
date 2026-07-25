@@ -456,14 +456,14 @@ FLAMES_NEWAPI_BASE_URL = "https://www.flamescn.vip"
 FLAMES_NEWAPI_BASE_URL_V1 = FLAMES_NEWAPI_BASE_URL + "/v1"
 FLAMES_DEFAULT_MODEL = "gpt-5.4"
 FLAMES_CC_DEFAULT_MODEL = "claude-opus-4-8"
-FLAMES_GROK_DEFAULT_MODEL = "grok-build-0.1"
+FLAMES_GROK_DEFAULT_MODEL = "grok-4.5"
 FLAMES_GROK_AVAILABLE_MODELS = (
+    "grok-4.5",
+    "grok-build-0.1",
     "grok-4.20-0309-non-reasoning",
     "grok-4.20-0309-reasoning",
     "grok-4.20-multi-agent-0309",
     "grok-4.3",
-    "grok-4.5",
-    "grok-build-0.1",
 )
 FLAMES_CC_ALLOWED_MODELS = (
     "claude-fable-5",
@@ -619,6 +619,10 @@ OPENCLAW_CLAUDE_PROVIDERS = ("duck", "quotio", "antigravity", "icodeeasy")
 OPENCLAW_GEMINI_PROFILES = frozenset(("gemini", "gemini3", "gemini-3", "gemini3-pro-high"))
 
 APP_VERSION = "2.0.8"
+HTTP_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+)
 
 RED = "\033[0;31m"
 GREEN = "\033[0;32m"
@@ -1490,7 +1494,7 @@ def resolve_store_secret(store: Dict[str, str], env_key: str) -> str:
 
 
 def build_model_discovery_headers(api_key: str, auth_mode: str) -> Dict[str, str]:
-    headers: Dict[str, str] = {"User-Agent": "switch-api/" + APP_VERSION}
+    headers: Dict[str, str] = {"User-Agent": HTTP_USER_AGENT}
     if auth_mode == "bearer":
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
@@ -1566,6 +1570,65 @@ def fetch_remote_model_catalog(
     return [], "", last_error
 
 
+def pick_preferred_model(
+    models: Iterable[str],
+    preferred: Iterable[str],
+    *,
+    family: str = "",
+) -> str:
+    available: List[str] = []
+    for item in models:
+        model_id = str(item or "").strip()
+        if model_id and model_id not in available:
+            available.append(model_id)
+
+    for candidate in preferred:
+        preferred_id = str(candidate or "").strip()
+        if preferred_id and preferred_id in available:
+            return preferred_id
+
+    if family:
+        for model_id in available:
+            if model_family(model_id) == family:
+                return model_id
+
+    return ""
+
+
+def resolve_flames_grok_model(requested_model: str, api_key: str) -> Tuple[str, str]:
+    requested = (requested_model or "").strip()
+    if requested:
+        return requested, ""
+
+    models, auth_mode, error_text = fetch_remote_model_catalog(
+        derive_model_discovery_url(FLAMES_NEWAPI_BASE_URL_V1),
+        api_key,
+        ("bearer",),
+        timeout=8,
+    )
+    discovered = pick_preferred_model(models, FLAMES_GROK_AVAILABLE_MODELS, family="grok")
+    if discovered:
+        if discovered == FLAMES_GROK_DEFAULT_MODEL:
+            return discovered, ""
+        return discovered, (
+            f"Flames /models discovered Grok default {discovered}"
+            + (f" via {auth_mode}" if auth_mode else "")
+        )
+
+    if models:
+        return FLAMES_GROK_DEFAULT_MODEL, (
+            f"Flames /models returned no grok-* model; fallback to {FLAMES_GROK_DEFAULT_MODEL}"
+        )
+
+    if error_text:
+        return FLAMES_GROK_DEFAULT_MODEL, (
+            f"Flames /models discovery failed ({error_text[:120]}); "
+            f"fallback to {FLAMES_GROK_DEFAULT_MODEL}"
+        )
+
+    return FLAMES_GROK_DEFAULT_MODEL, ""
+
+
 def perform_json_http_request(
     method: str,
     url: str,
@@ -1579,6 +1642,7 @@ def perform_json_http_request(
 
     body_bytes = None
     req_headers = dict(headers)
+    req_headers.setdefault("User-Agent", HTTP_USER_AGENT)
     if payload is not None:
         req_headers.setdefault("Content-Type", "application/json")
         body_bytes = json.dumps(payload).encode("utf-8")
@@ -2104,6 +2168,13 @@ def read_toml_table_string(text: str, table_name: str, key: str) -> str:
     body = section.group("body")
     m = re.search(rf'^[ \t]*{re.escape(key)}[ \t]*=[ \t]*"([^"]*)"[ \t]*$', body, re.M)
     return m.group(1).strip() if m else ""
+
+
+def grok_model_table_name(model_id: str) -> str:
+    """Return the TOML table path for a Grok model ID."""
+    if re.fullmatch(r"[A-Za-z0-9_-]+", model_id):
+        return f"model.{model_id}"
+    return f"model.{json.dumps(model_id)}"
 
 
 def set_toml_table_bool(text: str, table_name: str, key: str, value: bool) -> str:
@@ -3186,6 +3257,7 @@ class Config:
         self.grok_dir = home / ".grok"
         self.grok_config = self.grok_dir / "config.toml"
         self.grok_auth = self.grok_dir / "auth.json"
+        self.grok_auth_relay_backup = self.grok_dir / "auth.json.switch-api-xai"
         self.switch_dir = home / ".config/switch-api"
         self.cred_file = self.switch_dir / "credentials.json"
         self.custom_providers_file = self.switch_dir / "custom-providers.json"
@@ -3443,7 +3515,7 @@ def detect_provider(tool: str, cfg: Config) -> str:
             return "no-config"
         text = read_text(cfg.grok_config)
         selected = read_toml_table_string(text, "models", "default") or GROK_BUILTIN_DEFAULT_MODEL
-        model_table = f"model.{selected}"
+        model_table = grok_model_table_name(selected)
         base_url = read_toml_table_string(text, model_table, "base_url")
         if "flamescn.vip" in base_url:
             return "flames"
@@ -3852,7 +3924,7 @@ def detect_current_model(tool: str, cfg: Config) -> str:
             return "?"
         text = read_text(cfg.grok_config)
         selected = read_toml_table_string(text, "models", "default") or GROK_BUILTIN_DEFAULT_MODEL
-        model = read_toml_table_string(text, f"model.{selected}", "model")
+        model = read_toml_table_string(text, grok_model_table_name(selected), "model")
         return model or selected or "?"
 
     return "?"
@@ -3890,6 +3962,43 @@ def repair_grok_config_text(text: str) -> str:
     if len(headers) > 1:
         text = text[: headers[1].start()].rstrip() + "\n"
     return text
+
+
+def remove_switch_api_managed_grok_tables(text: str) -> str:
+    """Remove relay model tables previously written by switch-api."""
+    text = repair_grok_config_text(text)
+    section_re = re.compile(r"(?ms)^\[(?P<table>model\.[^\]\n]+)\][ \t]*$\n(?P<body>.*?)(?=^\[|\Z)")
+    managed_marker = re.compile(
+        r'^description[ \t]*=[ \t]*"Managed by switch-api \([^"\n]+\)"[ \t]*$',
+        re.M,
+    )
+    spans: List[Tuple[int, int]] = []
+    for section in section_re.finditer(text):
+        if section.group("table") == f"model.{GROK_MANAGED_MODEL_NAME}" or managed_marker.search(section.group("body")):
+            spans.append((section.start(), section.end()))
+    for start, end in reversed(spans):
+        text = text[:start].rstrip() + "\n\n" + text[end:].lstrip("\n")
+    return text.rstrip() + "\n"
+
+
+def stash_grok_auth_for_relay(cfg: Config) -> bool:
+    """Keep Grok's cached xAI login from taking precedence over relay credentials."""
+    if not cfg.grok_auth.exists():
+        return False
+    if cfg.grok_auth_relay_backup.exists():
+        backup(cfg.grok_auth_relay_backup)
+    cfg.grok_auth.replace(cfg.grok_auth_relay_backup)
+    info(f"Saved xAI login state → {cfg.grok_auth_relay_backup}")
+    return True
+
+
+def restore_grok_auth_for_xai(cfg: Config) -> bool:
+    """Restore the xAI login state saved while Grok used a relay."""
+    if cfg.grok_auth.exists() or not cfg.grok_auth_relay_backup.exists():
+        return False
+    cfg.grok_auth_relay_backup.replace(cfg.grok_auth)
+    info(f"Restored xAI login state → {cfg.grok_auth}")
+    return True
 
 
 def probe_model_curl(provider: str, model: str, keys: Dict[str, str]) -> Tuple[bool, str]:
@@ -5793,18 +5902,20 @@ def switch_custom_hermes_provider(
 
 def switch_custom_grok_provider(spec: Dict[str, Any], cfg: Config, store: Dict[str, str], model: str = "") -> None:
     provider_name = spec["name"]
-    if skip_redundant_switch("grok", provider_name, cfg, model):
+    api_key = ensure_key(spec["env_key"], resolve_store_secret(store, spec["env_key"]), f"required for Grok {provider_name}")
+    target_model = model or spec["default_model"]
+    stash_grok_auth_for_relay(cfg)
+    text = cfg.grok_config.read_text(encoding="utf-8", errors="ignore") if cfg.grok_config.exists() else ""
+    selected = read_toml_table_string(text, "models", "default") or GROK_BUILTIN_DEFAULT_MODEL
+    if selected == target_model and skip_redundant_switch("grok", provider_name, cfg, target_model):
         return
     info(f"Switching Grok → {provider_name}")
-    api_key = ensure_key(spec["env_key"], resolve_store_secret(store, spec["env_key"]), f"required for Grok {provider_name}")
     sync_shared_shell_env(cfg, {spec["env_key"]: api_key})
 
-    target_model = model or spec["default_model"]
-    text = cfg.grok_config.read_text(encoding="utf-8", errors="ignore") if cfg.grok_config.exists() else ""
-    text = repair_grok_config_text(text)
-    table_name = f"model.{GROK_MANAGED_MODEL_NAME}"
+    text = remove_switch_api_managed_grok_tables(text)
+    table_name = grok_model_table_name(target_model)
 
-    text = set_toml_table_string(text, "models", "default", GROK_MANAGED_MODEL_NAME)
+    text = set_toml_table_string(text, "models", "default", target_model)
     text = set_toml_table_string(text, table_name, "model", target_model)
     text = set_toml_table_string(text, table_name, "base_url", spec["base_url"])
     text = set_toml_table_string(text, table_name, "name", f"{provider_name} {target_model}")
@@ -5825,10 +5936,11 @@ def switch_custom_grok_provider(spec: Dict[str, Any], cfg: Config, store: Dict[s
 
 
 def switch_grok(provider: str, cfg: Config, keys: Dict[str, str], model: str = "") -> None:
-    if skip_redundant_switch("grok", provider, cfg, model):
-        return
-    info(f"Switching Grok → {provider}")
     if provider == "xai":
+        restore_grok_auth_for_xai(cfg)
+        if skip_redundant_switch("grok", provider, cfg, model):
+            return
+        info(f"Switching Grok → {provider}")
         if not cfg.grok_auth.exists() and not os.environ.get("XAI_API_KEY", "").strip() and not os.environ.get("GROK_CODE_XAI_API_KEY", "").strip():
             raise SwitchError(
                 "Grok 官方直连需要已有登录态 (~/.grok/auth.json) 或 XAI_API_KEY/GROK_CODE_XAI_API_KEY"
@@ -5836,7 +5948,7 @@ def switch_grok(provider: str, cfg: Config, keys: Dict[str, str], model: str = "
 
         target_model = model or GROK_BUILTIN_DEFAULT_MODEL
         text = cfg.grok_config.read_text(encoding="utf-8", errors="ignore") if cfg.grok_config.exists() else ""
-        text = repair_grok_config_text(text)
+        text = remove_switch_api_managed_grok_tables(text)
         text = set_toml_table_string(text, "models", "default", target_model)
         if cfg.grok_config.exists():
             backup(cfg.grok_config)
@@ -5849,14 +5961,20 @@ def switch_grok(provider: str, cfg: Config, keys: Dict[str, str], model: str = "
         raise SwitchError(f"Grok provider not supported yet: {provider}")
 
     flames_key = ensure_key("FLAMES_API_KEY", keys["flames"], "required for Grok flames")
-    sync_shared_shell_env(cfg, {"FLAMES_API_KEY": flames_key})
-
-    target_model = model or FLAMES_GROK_DEFAULT_MODEL
+    target_model, reason = resolve_flames_grok_model(model, flames_key)
+    stash_grok_auth_for_relay(cfg)
     text = cfg.grok_config.read_text(encoding="utf-8", errors="ignore") if cfg.grok_config.exists() else ""
-    text = repair_grok_config_text(text)
-    table_name = f"model.{GROK_MANAGED_MODEL_NAME}"
+    selected = read_toml_table_string(text, "models", "default") or GROK_BUILTIN_DEFAULT_MODEL
+    if selected == target_model and skip_redundant_switch("grok", provider, cfg, target_model):
+        return
+    info(f"Switching Grok → {provider}")
+    sync_shared_shell_env(cfg, {"FLAMES_API_KEY": flames_key})
+    if reason:
+        info(reason)
+    text = remove_switch_api_managed_grok_tables(text)
+    table_name = grok_model_table_name(target_model)
 
-    text = set_toml_table_string(text, "models", "default", GROK_MANAGED_MODEL_NAME)
+    text = set_toml_table_string(text, "models", "default", target_model)
     text = set_toml_table_string(text, table_name, "model", target_model)
     text = set_toml_table_string(text, table_name, "base_url", FLAMES_NEWAPI_BASE_URL_V1)
     text = set_toml_table_string(text, table_name, "name", f"Flames {target_model}")
