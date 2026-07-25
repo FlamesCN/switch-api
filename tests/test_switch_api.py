@@ -541,9 +541,22 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
 
         text = self.cfg.cx_config.read_text(encoding="utf-8")
         self.assertIsNotNone(re.search(r'^\s*model_provider\s*=\s*"flames_newapi"\s*$', text, re.M))
-        self.assertIn('model = "gpt-5.4"', text)
+        self.assertIn('model = "gpt-5.6"', text)
         self.assertIn('env_key = "FLAMES_API_KEY"', text)
         self.assertEqual(self.mod.detect_provider("codex", self.cfg), "flames")
+
+    def test_switch_codex_flames_accepts_kimi_k3_with_existing_key_slot(self):
+        self.mod.switch_codex(
+            "flames",
+            self.cfg,
+            {"flames": "dummy"},
+            model="moonshotai/kimi-k3",
+        )
+
+        text = self.cfg.cx_config.read_text(encoding="utf-8")
+        self.assertIn('model_provider = "flames_newapi"', text)
+        self.assertIn('model = "moonshotai/kimi-k3"', text)
+        self.assertIn('env_key = "FLAMES_API_KEY"', text)
 
     def test_switch_cc_flames_writes_custom_model_env_and_detects_flames(self):
         self.init_cc_settings(
@@ -582,6 +595,25 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertEqual(data["model"], "claude-sonnet-5")
         self.assertEqual(env["ANTHROPIC_CUSTOM_MODEL_OPTION"], "claude-sonnet-5")
         self.assertEqual(env["ANTHROPIC_CUSTOM_MODEL_OPTION_NAME"], "Claude Sonnet 5")
+
+    def test_switch_cc_flames_kimi_k3_pins_main_helper_and_subagent_models(self):
+        self.init_cc_settings(model="claude-sonnet-4-6")
+
+        self.mod.switch_cc(
+            "flames",
+            self.cfg,
+            {"flames": "dummy"},
+            model="moonshotai/kimi-k3",
+        )
+
+        data = json.loads(self.cfg.cc_settings.read_text(encoding="utf-8"))
+        env = data["env"]
+        self.assertEqual(data["model"], "moonshotai/kimi-k3")
+        self.assertEqual(env["ANTHROPIC_BASE_URL"], "https://www.flamescn.vip")
+        self.assertEqual(env["ANTHROPIC_AUTH_TOKEN"], "dummy")
+        self.assertEqual(env["ANTHROPIC_CUSTOM_MODEL_OPTION_NAME"], "Kimi K3")
+        for alias_key in self.mod.CC_MODEL_ALIAS_ENV_KEYS:
+            self.assertEqual(env[alias_key], "moonshotai/kimi-k3")
 
     def test_switch_cc_flames_defaults_to_claude_opus_48(self):
         self.init_cc_settings(
@@ -1529,6 +1561,7 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.mod.validate_model_for_tool("cc", "claude-sonnet-5", "flames")
         self.mod.validate_model_for_tool("cc", "claude-sonnet-4-6", "flames")
         self.mod.validate_model_for_tool("cc", "claude-opus-4-8", "flames")
+        self.mod.validate_model_for_tool("cc", "moonshotai/kimi-k3", "flames")
         self.mod.validate_model_for_tool("cc", "gpt-5.4", "flames")
         self.mod.validate_model_for_tool("cc", "deepseek-v4-pro", "flames")
 
@@ -1540,6 +1573,9 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
 
     def test_model_validation_allows_cc_deepseek_models(self):
         self.mod.validate_model_for_tool("cc", "deepseek-v4-pro", "deepseek")
+
+    def test_model_validation_allows_codex_flames_kimi_k3(self):
+        self.mod.validate_model_for_tool("codex", "moonshotai/kimi-k3", "flames")
 
     def test_model_in_provider_accepts_icodeeasy_gpt_and_gemini(self):
         self.assertTrue(self.mod.model_in_provider("gpt-5.4", "icodeeasy"))
@@ -1555,7 +1591,23 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertTrue(self.mod.model_in_provider("claude-sonnet-5", "flames"))
         self.assertTrue(self.mod.model_in_provider("claude-sonnet-4-6", "flames"))
         self.assertTrue(self.mod.model_in_provider("claude-opus-4-8", "flames"))
+        self.assertTrue(self.mod.model_in_provider("moonshotai/kimi-k3", "flames"))
         self.assertTrue(self.mod.model_in_provider("deepseek-v4-pro", "flames"))
+
+    @patch("subprocess.run")
+    def test_probe_model_curl_preserves_flames_namespaced_model(self, run):
+        run.return_value.stdout = '{"choices": []}\n200'
+
+        ok, reason = self.mod.probe_model_curl(
+            "flames",
+            "moonshotai/kimi-k3",
+            {"flames": "dummy"},
+        )
+
+        self.assertTrue(ok, reason)
+        command = run.call_args.args[0]
+        payload = json.loads(command[command.index("-d") + 1])
+        self.assertEqual(payload["model"], "moonshotai/kimi-k3")
 
     def test_model_in_provider_accepts_deepseek_provider_models(self):
         self.assertTrue(self.mod.model_in_provider("deepseek-v4-pro", "deepseek"))

@@ -41,8 +41,9 @@
   - `gemini` 走 Gemini `v1beta` 兼容入口
   - 实际可用模型以服务端鉴权结果为准；`switch-api` 当前默认模型：`claude-opus-4-8` / `gpt-5.4`
 - **flames** — Flames NewAPI `https://www.flamescn.vip/v1`，支持 **Claude Code + Codex + OpenClaw + Gemini + Hermes + Grok**
-  - `cc` 走 Anthropic 兼容入口，默认 `claude-opus-4-8`，也支持 `claude-fable-5` / `claude-haiku-4-5-20251001` / `claude-sonnet-5` / `claude-opus-4-6` / `claude-opus-4-7` / `gpt-5.4` / `gpt-5.3-codex` / `deepseek-v4-flash` / `deepseek-v4-pro`
-  - `codex` 复用内部 provider block：`model_provider = "flames_newapi"`
+  - `cc` 走 Anthropic 兼容入口，默认 `claude-opus-4-8`，也支持 `moonshotai/kimi-k3` / `gpt-5.6` / `gpt-5.4` / `gpt-5.3-codex` / `deepseek-v4-flash` / `deepseek-v4-pro` 及内置 Claude 模型
+  - `cc flames moonshotai/kimi-k3` 会同时固定主模型、Opus/Sonnet/Haiku/Fable、small-fast 与 subagent 槽，避免内部调用回落到 Claude
+  - `codex` 复用内部 provider block：`model_provider = "flames_newapi"`，默认 `gpt-5.6`；显式指定 `moonshotai/kimi-k3` 时仍复用相同的 `FLAMES_API_KEY`
   - `env_key` 固定切回 `FLAMES_API_KEY`
   - `openclaw` 通过自定义 provider `flames/...` 接入，默认模型 `gpt-5.4`
   - `gemini` 通过 `GOOGLE_GEMINI_BASE_URL=https://www.flamescn.vip` 接入，默认模型仍按内置值写入；实际可用性取决于当前 key 的 `/v1/models`
@@ -138,7 +139,11 @@
 - `gemini-2.5-flash`（Gemini CLI 默认）
 
 **OpenAI/GPT 系列：**
-- `gpt-5.4`（Codex 默认）
+- `gpt-5.6`（Codex 默认）
+- `gpt-5.4`
+
+**Kimi 系列：**
+- `moonshotai/kimi-k3`（Codex 与 Claude Code）
 
 ## 工具说明
 
@@ -280,7 +285,9 @@ switch-api codex duck
 switch-api codex quotio
 switch-api codex antigravity
 switch-api codex icodeeasy                 # iCodeEasy / gpt-5.4
-switch-api codex flames                     # flames_newapi + FLAMES_API_KEY
+switch-api codex flames                     # flames_newapi / gpt-5.6 + FLAMES_API_KEY
+switch-api codex flames moonshotai/kimi-k3 # 相同 FLAMES_API_KEY，切到 K3
+switch-api cc flames moonshotai/kimi-k3    # Anthropic /v1/messages，主模型与 helper/subagent 均用 K3
 switch-api codex openai                     # 官方 ChatGPT OAuth
 switch-api codex openai_Gq80                # flames_newapi + OPENAI_GQ80_API_KEY
 switch-api codex openai_V420                # flames_newapi + OPENAI_V420_API_KEY
@@ -597,7 +604,7 @@ OpenClaw 走 OpenAI 时会额外显示认证模式后缀，避免把 OAuth 和 A
 | duck_cc1 | Anthropic 原生 only | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
 > **关键限制**：
-> `flames` 在 `cc` 下通过 Anthropic 兼容网关暴露自定义模型，目前内置支持 `gpt-5.4` / `gpt-5.3-codex` / `deepseek-v4-flash` / `deepseek-v4-pro`。
+> `flames` 在 `cc` 下通过 Anthropic 兼容网关暴露自定义模型，目前内置支持 `moonshotai/kimi-k3` / `gpt-5.6` / `gpt-5.4` / `gpt-5.3-codex` / `deepseek-v4-flash` / `deepseek-v4-pro`。
 > `flames` 的 `grok` 通过 `~/.grok/config.toml` 中的实际模型覆盖指向 `https://www.flamescn.vip/v1`；切换期间会暂存官方 `auth.json`，避免登录态优先触发官方额度检查。
 > `xai` 只用于 Grok 官方直连，依赖 `~/.grok/auth.json` 或 `XAI_API_KEY` / `GROK_CODE_XAI_API_KEY`。
 > `icodeeasy` 现在可用于 `cc` / `openclaw` / `codex` / `gemini`，但 `openclaw` 当前仍走 Anthropic `messages` 链路，所以只支持 Claude 模型。

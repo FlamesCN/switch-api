@@ -455,7 +455,11 @@ OPENAI_BASE_URL_V1 = "https://api.openai.com/v1"
 FLAMES_NEWAPI_BASE_URL = "https://www.flamescn.vip"
 FLAMES_NEWAPI_BASE_URL_V1 = FLAMES_NEWAPI_BASE_URL + "/v1"
 FLAMES_DEFAULT_MODEL = "gpt-5.4"
+FLAMES_CODEX_DEFAULT_MODEL = "gpt-5.6"
 FLAMES_CC_DEFAULT_MODEL = "claude-opus-4-8"
+FLAMES_KIMI_AVAILABLE_MODELS = (
+    "moonshotai/kimi-k3",
+)
 FLAMES_GROK_DEFAULT_MODEL = "grok-4.5"
 FLAMES_GROK_AVAILABLE_MODELS = (
     "grok-4.5",
@@ -473,6 +477,8 @@ FLAMES_CC_ALLOWED_MODELS = (
     "claude-opus-4-6",
     "claude-opus-4-7",
     "claude-opus-4-8",
+    *FLAMES_KIMI_AVAILABLE_MODELS,
+    "gpt-5.6",
     "gpt-5.4",
     "gpt-5.3-codex",
     "deepseek-v4-flash",
@@ -487,11 +493,22 @@ FLAMES_CC_MODEL_NAMES = {
     "claude-opus-4-6": "Claude Opus 4.6",
     "claude-opus-4-7": "Claude Opus 4.7",
     "claude-opus-4-8": "Claude Opus 4.8",
+    "moonshotai/kimi-k3": "Kimi K3",
+    "gpt-5.6": "Codex GPT-5.6",
     "gpt-5.4": "Codex GPT-5.4",
     "gpt-5.3-codex": "Codex GPT-5.3 Codex",
     "deepseek-v4-flash": "DeepSeek V4 Flash",
     "deepseek-v4-pro": "DeepSeek V4 Pro",
 }
+CC_MODEL_ALIAS_ENV_KEYS = (
+    "ANTHROPIC_MODEL",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+    "ANTHROPIC_DEFAULT_FABLE_MODEL",
+    "ANTHROPIC_SMALL_FAST_MODEL",
+    "CLAUDE_CODE_SUBAGENT_MODEL",
+)
 DEEPSEEK_BASE_URL = "https://api.deepseek.com/anthropic"
 DEEPSEEK_CC_DEFAULT_MODEL = "deepseek-v4-pro"
 DEEPSEEK_AVAILABLE_MODELS = (
@@ -2664,15 +2681,15 @@ def provider_model_catalog(custom_store: Dict[str, Any] | None = None) -> Dict[s
                 "base_url": FLAMES_NEWAPI_BASE_URL_V1,
                 "claude_code": {
                     "allowed": list(FLAMES_CC_ALLOWED_MODELS),
-                    "default_model": FLAMES_DEFAULT_MODEL,
-                    "note": "Claude Code 走 Anthropic 兼容链路，通过 custom model env 支持 GPT/DeepSeek",
+                    "default_model": FLAMES_CC_DEFAULT_MODEL,
+                    "note": "Claude Code 走 Anthropic 兼容链路，通过 custom model env 支持 Claude/Kimi/GPT/DeepSeek",
                 },
                 "openclaw": {
                     "default_model": f"flames/{FLAMES_DEFAULT_MODEL}",
                     "note": "OpenAI-compatible relay backed by FLAMES_API_KEY",
                 },
                 "codex": {
-                    "default_model": FLAMES_DEFAULT_MODEL,
+                    "default_model": FLAMES_CODEX_DEFAULT_MODEL,
                     "provider_block": "flames_newapi",
                 },
                 "hermes": {
@@ -3105,13 +3122,7 @@ def clear_cc_custom_model_env(env: Dict[str, str]) -> None:
 
 
 def clear_cc_model_alias_env(env: Dict[str, str]) -> None:
-    for key in (
-        "ANTHROPIC_MODEL",
-        "ANTHROPIC_DEFAULT_OPUS_MODEL",
-        "ANTHROPIC_DEFAULT_SONNET_MODEL",
-        "ANTHROPIC_DEFAULT_HAIKU_MODEL",
-        "CLAUDE_CODE_SUBAGENT_MODEL",
-    ):
+    for key in CC_MODEL_ALIAS_ENV_KEYS:
         env.pop(key, None)
 
 
@@ -3650,6 +3661,7 @@ FAMILY_TOOLS = {
     "gemini": ("openclaw", "droid", "gemini", "hermes"),
     "gpt":    ("codex", "droid", "openclaw", "hermes", "grok"),
     "grok":   ("grok",),
+    "kimi":   ("cc", "codex"),
     "deepseek": ("cc",),
     "openrouter": ("openclaw", "codex", "droid"),
 }
@@ -3664,7 +3676,7 @@ ALL_KNOWN_PROFILES = frozenset(
 
 
 def model_family(model: str) -> str:
-    """Return 'claude', 'gemini', 'gpt', 'grok', 'deepseek', or 'other'."""
+    """Return the normalized model family used for tool compatibility."""
     m = model.split("/")[-1]  # strip provider prefix like quotio/
     if m.startswith("claude-") or m.startswith("claude_"):
         return "claude"
@@ -3674,6 +3686,8 @@ def model_family(model: str) -> str:
         return "gpt"
     if m.startswith("grok-") or m.startswith("grok_"):
         return "grok"
+    if m.startswith("kimi-") or m.startswith("kimi_"):
+        return "kimi"
     if m.startswith("deepseek-") or m.startswith("deepseek_"):
         return "deepseek"
     # OpenRouter model IDs contain "/" (e.g. stepfun/step-3.5-flash:free)
@@ -3742,6 +3756,7 @@ def get_provider_models(provider: str, custom_store: Dict[str, Any] | None = Non
         "gemini": [],
         "gpt": [],
         "grok": [],
+        "kimi": [],
         "deepseek": [],
         "openrouter": [],
         "other": [],
@@ -3766,7 +3781,7 @@ def model_in_provider(model: str, provider: str) -> bool:
     if provider == "aiwave":
         return m in AIWAVE_CODEX_AVAILABLE_MODELS or m in AIWAVE_GEMINI_AVAILABLE_MODELS
     if provider == "flames":
-        return m in FLAMES_AVAILABLE_MODELS
+        return model in FLAMES_AVAILABLE_MODELS or m in FLAMES_AVAILABLE_MODELS
     if provider == "xai":
         return m in XAI_GROK_AVAILABLE_MODELS
     if provider == "deepseek":
@@ -3842,6 +3857,7 @@ def cmd_list_models(
             ("Gemini", "gemini", "openclaw, droid, gemini, hermes"),
             ("OpenAI/GPT", "gpt", "codex, droid, hermes, grok"),
             ("Grok", "grok", "grok"),
+            ("Kimi", "kimi", "cc, codex"),
             ("DeepSeek", "deepseek", "cc"),
             ("OpenRouter (Free)", "openrouter", "openclaw, codex, droid"),
             ("其他", "other", "—"),
@@ -4066,6 +4082,7 @@ def probe_model_curl(provider: str, model: str, keys: Dict[str, str]) -> Tuple[b
         return False, "no API key"
 
     bare_model = model.split("/")[-1]
+    request_model = model if provider == "flames" else bare_model
     if provider == "icodeeasy":
         if fam == "claude":
             payload = json.dumps({
@@ -4113,7 +4130,7 @@ def probe_model_curl(provider: str, model: str, keys: Dict[str, str]) -> Tuple[b
                "--max-time", "10"]
     else:
         payload = json.dumps({
-            "model": bare_model,
+            "model": request_model,
             "messages": [{"role": "user", "content": "hi"}],
             "max_tokens": 1,
         })
@@ -4165,8 +4182,9 @@ def cmd_check(cfg: Config, keys: Dict[str, str], online: bool = False) -> None:
             bare_model = model[len("openrouter/"):]
         else:
             bare_model = model.split("/")[-1]
+        catalog_model = model if prov == "flames" else bare_model
         if prov in ("quotio", "antigravity", "duck", "openrouter", "icodeeasy", "molifang", "flames", "xai", "aiwave"):
-            in_catalog = model_in_provider(bare_model, prov)
+            in_catalog = model_in_provider(catalog_model, prov)
             status = "✅" if in_catalog else "⚠️"
         elif prov in custom_providers:
             status = "—"
@@ -4174,7 +4192,7 @@ def cmd_check(cfg: Config, keys: Dict[str, str], online: bool = False) -> None:
             status = "—"
 
         if online and prov in ("quotio", "antigravity", "duck", "molifang", "flames", "deepseek", "openai", "icodeeasy"):
-            ok, reason = probe_model_curl(prov, bare_model, keys)
+            ok, reason = probe_model_curl(prov, catalog_model, keys)
             if ok:
                 status = "✅ online"
             else:
@@ -4232,10 +4250,10 @@ def validate_model_for_tool(
         raise SwitchError("Provider 'flames' 在 Hermes 当前只支持 gpt-* 模型。")
 
     if not force and provider not in ("openai", "openrouter", "quotio_local") and provider not in OPENAI_NAMED_PROVIDERS:
-        bare = model.split("/")[-1]
-        if not model_in_provider(bare, provider):
+        catalog_model = model if provider == "flames" else model.split("/")[-1]
+        if not model_in_provider(catalog_model, provider):
             raise SwitchError(
-                f"Model '{bare}' not found in {provider} catalog.\n"
+                f"Model '{catalog_model}' not found in {provider} catalog.\n"
                 f"  Run: switch-api list {provider}\n"
                 f"  Or use --force to skip this check."
             )
@@ -4312,6 +4330,10 @@ def switch_cc(provider: str, cfg: Config, keys: Dict[str, str], model: str = "")
             target_model, target_model
         )
         env["ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION"] = "Flames NewAPI custom model relay"
+        if model_family(target_model) == "kimi":
+            for alias_key in CC_MODEL_ALIAS_ENV_KEYS:
+                env[alias_key] = target_model
+            info("Flames Claude Code Kimi aliases → " + target_model)
         if reason:
             warn(reason)
         info("Flames Claude Code custom models: " + ", ".join(FLAMES_CC_ALLOWED_MODELS))
@@ -6230,7 +6252,7 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
         info(f"Codex → iCodeEasy / {target_model_i} (ICODEEASY_API_KEY)")
 
     if provider == "flames":
-        target_model_f = model or FLAMES_DEFAULT_MODEL
+        target_model_f = model or FLAMES_CODEX_DEFAULT_MODEL
 
         model_match_f = re.search(r'^\s*model\s*=\s*"([^"]+)"\s*$', text, flags=re.M)
         if model_match_f:
@@ -6964,7 +6986,9 @@ def usage() -> None:
     print("  6.5) Flames NewAPI (OpenAI-compatible relay):")
     print("       switch-api flames              # cc+openclaw+codex+gemini+hermes+grok → Flames")
     print("       switch-api flames --all-agents # OpenClaw 多 agent 全量同步")
-    print("       switch-api codex flames        # Codex → flames_newapi + FLAMES_API_KEY")
+    print("       switch-api codex flames        # Codex → flames_newapi / gpt-5.6 + FLAMES_API_KEY")
+    print("       switch-api codex flames moonshotai/kimi-k3")
+    print("       switch-api cc flames moonshotai/kimi-k3")
     print("       switch-api openclaw flames     # OpenClaw → flames/gpt-5.4")
     print("       switch-api grok flames         # Grok → Flames / grok-build-0.1")
     print()
