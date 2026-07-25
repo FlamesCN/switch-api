@@ -187,6 +187,8 @@ switch-api gemini duck
 switch-api gemini icodeeasy
 ```
 
+切到 Codex K3 时会生成受管的 `model_catalog_json`，补齐 1M context、推理档位和工具能力元数据；该目录在 Codex 启动时加载，因此切换后请新开 Codex 会话。
+
 Hermes profile rules:
 - `switch-api hermes <provider>` 只改根 `~/.hermes/config.yaml`
 - `switch-api --profile <name> hermes <provider>` 只改该 profile

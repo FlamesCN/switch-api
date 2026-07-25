@@ -460,6 +460,10 @@ FLAMES_CC_DEFAULT_MODEL = "claude-opus-4-8"
 FLAMES_KIMI_AVAILABLE_MODELS = (
     "moonshotai/kimi-k3",
 )
+FLAMES_KIMI_CODEX_MODEL = FLAMES_KIMI_AVAILABLE_MODELS[0]
+FLAMES_KIMI_CONTEXT_WINDOW = 1_048_576
+FLAMES_KIMI_CODEX_CATALOG_FILENAME = "switch-api-flames-kimi-k3.json"
+FLAMES_KIMI_CODEX_CATALOG_STATE_FILENAME = "codex-model-catalog-state.json"
 FLAMES_GROK_DEFAULT_MODEL = "grok-4.5"
 FLAMES_GROK_AVAILABLE_MODELS = (
     "grok-4.5",
@@ -2115,6 +2119,28 @@ def set_codex_model_provider(text: str, provider: str) -> str:
     return line + "\n" + text
 
 
+def read_codex_top_level_string(text: str, key: str) -> str:
+    match = re.search(
+        rf'^\s*{re.escape(key)}\s*=\s*"([^"]*)"\s*$',
+        text,
+        re.M,
+    )
+    return match.group(1).strip() if match else ""
+
+
+def set_codex_top_level_string(text: str, key: str, value: str) -> str:
+    line = f"{key} = {json.dumps(value)}"
+    pattern = rf'^\s*{re.escape(key)}\s*=\s*"[^"]*"\s*$'
+    if re.search(pattern, text, re.M):
+        return re.sub(pattern, line, text, count=1, flags=re.M)
+    return line + "\n" + text
+
+
+def remove_codex_top_level_string(text: str, key: str) -> str:
+    pattern = rf'^\s*{re.escape(key)}\s*=\s*"[^"]*"\s*\n?'
+    return re.sub(pattern, "", text, count=1, flags=re.M)
+
+
 def comment_codex_model_provider(text: str) -> str:
     m = re.search(r'^(?P<indent>\s*)model_provider\s*=\s*"(?P<provider>[^"]+)"\s*$', text, re.M)
     if not m:
@@ -3256,6 +3282,9 @@ class Config:
         self.oc_agent_id = resolve_openclaw_default_agent_id(home)
         configure_openclaw_agent_paths(self, self.oc_agent_id)
         self.cx_config = self.codex_home / "config.toml"
+        self.codex_kimi_catalog = (
+            self.codex_home / "model-catalogs" / FLAMES_KIMI_CODEX_CATALOG_FILENAME
+        )
         self.factory_settings = home / ".factory/settings.json"
         self.gemini_env = home / ".gemini/.env"
         self.gemini_balance_env = home / "tools/gemini-balance/.env"
@@ -3270,6 +3299,9 @@ class Config:
         self.grok_auth = self.grok_dir / "auth.json"
         self.grok_auth_relay_backup = self.grok_dir / "auth.json.switch-api-xai"
         self.switch_dir = home / ".config/switch-api"
+        self.codex_catalog_state = (
+            self.switch_dir / FLAMES_KIMI_CODEX_CATALOG_STATE_FILENAME
+        )
         self.cred_file = self.switch_dir / "credentials.json"
         self.custom_providers_file = self.switch_dir / "custom-providers.json"
         self.provider_models_file = self.switch_dir / "provider-models.json"
@@ -3946,6 +3978,145 @@ def detect_current_model(tool: str, cfg: Config) -> str:
     return "?"
 
 
+def load_codex_bundled_catalog() -> Dict[str, Any]:
+    try:
+        result = subprocess.run(
+            ["codex", "debug", "models", "--bundled"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    except Exception as ex:
+        raise SwitchError(f"Failed to read the bundled Codex model catalog: {ex}") from ex
+
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip()
+        raise SwitchError(
+            "Failed to read the bundled Codex model catalog"
+            + (f": {detail}" if detail else "")
+        )
+    try:
+        catalog = json.loads(result.stdout)
+    except Exception as ex:
+        raise SwitchError(f"Failed to parse the bundled Codex model catalog: {ex}") from ex
+    if not isinstance(catalog, dict) or not isinstance(catalog.get("models"), list):
+        raise SwitchError("Bundled Codex model catalog has an unsupported format")
+    return catalog
+
+
+def build_flames_kimi_codex_catalog() -> Dict[str, Any]:
+    catalog = load_codex_bundled_catalog()
+    models = [model for model in catalog["models"] if isinstance(model, dict)]
+    template = next(
+        (model for model in models if model.get("slug") == "gpt-5.4"),
+        models[0] if models else None,
+    )
+    if not template or not isinstance(template.get("base_instructions"), str):
+        raise SwitchError("Bundled Codex model catalog has no usable instruction template")
+
+    descriptions = {
+        "low": "Fast responses with lighter reasoning",
+        "medium": "Balances speed and reasoning depth for everyday tasks",
+        "high": "Greater reasoning depth for complex problems",
+        "xhigh": "Extra high reasoning depth for complex problems",
+        "max": "Maximum reasoning depth for the hardest problems",
+    }
+    kimi_model = {
+        "slug": FLAMES_KIMI_CODEX_MODEL,
+        "display_name": "Kimi K3",
+        "description": "Kimi K3 via Flames NewAPI and OpenRouter.",
+        "default_reasoning_level": "high",
+        "supported_reasoning_levels": [
+            {"effort": effort, "description": description}
+            for effort, description in descriptions.items()
+        ],
+        "shell_type": "shell_command",
+        "visibility": "list",
+        "supported_in_api": True,
+        "priority": 0,
+        "additional_speed_tiers": [],
+        "service_tiers": [],
+        "default_service_tier": None,
+        "availability_nux": None,
+        "upgrade": None,
+        "base_instructions": template["base_instructions"],
+        "model_messages": None,
+        "include_skills_usage_instructions": False,
+        "supports_reasoning_summary_parameter": True,
+        "default_reasoning_summary": "auto",
+        "support_verbosity": False,
+        "default_verbosity": None,
+        "apply_patch_tool_type": "freeform",
+        "web_search_tool_type": "text",
+        "truncation_policy": {"mode": "tokens", "limit": 10_000},
+        "supports_parallel_tool_calls": True,
+        "supports_image_detail_original": False,
+        "context_window": FLAMES_KIMI_CONTEXT_WINDOW,
+        "max_context_window": FLAMES_KIMI_CONTEXT_WINDOW,
+        "auto_compact_token_limit": None,
+        "comp_hash": None,
+        "effective_context_window_percent": 95,
+        "experimental_supported_tools": [],
+        "input_modalities": ["text", "image"],
+        "supports_search_tool": False,
+        "use_responses_lite": False,
+        "auto_review_model_override": None,
+        "tool_mode": None,
+        "multi_agent_version": None,
+    }
+    catalog["models"] = [
+        model for model in models if model.get("slug") != FLAMES_KIMI_CODEX_MODEL
+    ] + [kimi_model]
+    return catalog
+
+
+def codex_kimi_catalog_is_ready(cfg: Config, text: str) -> bool:
+    configured_path = read_codex_top_level_string(text, "model_catalog_json")
+    if configured_path != str(cfg.codex_kimi_catalog) or not cfg.codex_kimi_catalog.exists():
+        return False
+    try:
+        catalog = load_json(cfg.codex_kimi_catalog)
+    except SwitchError:
+        return False
+    return any(
+        isinstance(model, dict) and model.get("slug") == FLAMES_KIMI_CODEX_MODEL
+        for model in catalog.get("models", [])
+    )
+
+
+def activate_flames_kimi_codex_catalog(cfg: Config, text: str) -> str:
+    managed_path = str(cfg.codex_kimi_catalog)
+    current_path = read_codex_top_level_string(text, "model_catalog_json")
+    if current_path != managed_path:
+        cfg.switch_dir.mkdir(parents=True, exist_ok=True)
+        save_json(
+            cfg.codex_catalog_state,
+            {"previous_model_catalog_json": current_path or None},
+        )
+
+    cfg.codex_kimi_catalog.parent.mkdir(parents=True, exist_ok=True)
+    save_json(cfg.codex_kimi_catalog, build_flames_kimi_codex_catalog())
+    info(f"Codex Kimi metadata catalog → {cfg.codex_kimi_catalog}")
+    return set_codex_top_level_string(text, "model_catalog_json", managed_path)
+
+
+def restore_codex_model_catalog(cfg: Config, text: str) -> str:
+    managed_path = str(cfg.codex_kimi_catalog)
+    if read_codex_top_level_string(text, "model_catalog_json") != managed_path:
+        return text
+
+    previous_path = ""
+    if cfg.codex_catalog_state.exists():
+        try:
+            state = load_json(cfg.codex_catalog_state)
+            previous_path = str(state.get("previous_model_catalog_json") or "").strip()
+        except SwitchError:
+            previous_path = ""
+    if previous_path:
+        return set_codex_top_level_string(text, "model_catalog_json", previous_path)
+    return remove_codex_top_level_string(text, "model_catalog_json")
+
+
 def skip_redundant_switch(tool: str, provider: str, cfg: Config, model: str = "") -> bool:
     """Skip config writes when the requested provider/model is already active."""
     try:
@@ -3955,6 +4126,14 @@ def skip_redundant_switch(tool: str, provider: str, cfg: Config, model: str = ""
         return False
     if current_provider != provider or (model and current_model != model):
         return False
+    if tool == "codex" and provider == "flames":
+        target_model = model or FLAMES_CODEX_DEFAULT_MODEL
+        if current_model != target_model:
+            return False
+        if target_model == FLAMES_KIMI_CODEX_MODEL:
+            text = read_text(cfg.cx_config) if cfg.cx_config.exists() else ""
+            if not codex_kimi_catalog_is_ready(cfg, text):
+                return False
     if tool == "grok":
         try:
             import tomllib
@@ -5830,6 +6009,7 @@ def switch_custom_codex_provider(spec: Dict[str, Any], cfg: Config, store: Dict[
 
     target_model = model or spec["default_model"]
     text = read_text(cfg.cx_config)
+    text = restore_codex_model_catalog(cfg, text)
     text = set_codex_model_provider(text, provider_name)
 
     model_match = re.search(r'^\s*model\s*=\s*"([^"]+)"\s*$', text, flags=re.M)
@@ -6018,6 +6198,7 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
     codex_backup(cfg, cfg.cx_config)
 
     text = read_text(cfg.cx_config)
+    text = restore_codex_model_catalog(cfg, text)
     if provider == "openai":
         text = comment_codex_model_provider(text)
         write_text(cfg.cx_config, text)
@@ -6267,6 +6448,8 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
             text = f'model = "{target_model_f}"\n' + text
 
         text = set_codex_provider_env_key(text, "flames_newapi", "FLAMES_API_KEY")
+        if target_model_f == FLAMES_KIMI_CODEX_MODEL:
+            text = activate_flames_kimi_codex_catalog(cfg, text)
         info(f"Codex → flames_newapi / {target_model_f} (FLAMES_API_KEY)")
 
     if provider == "openrouter":
