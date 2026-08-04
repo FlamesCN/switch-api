@@ -54,10 +54,11 @@
 - **xai** — xAI 官方直连 `https://cli-chat-proxy.grok.com/v1`，支持 **Grok**
   - `grok xai` 会把默认模型切回 `grok-build`，并恢复暂存的 `~/.grok/auth.json`
   - 鉴权依赖 `~/.grok/auth.json` 登录态，或 `XAI_API_KEY` / `GROK_CODE_XAI_API_KEY`
-- **deepseek** — DeepSeek 官方 `https://api.deepseek.com/anthropic`，支持 **Claude Code**
+- **deepseek** — DeepSeek 官方，支持 **Claude Code + Codex**
   - `cc` 直连 Anthropic 兼容 `messages` 接口
   - 默认模型 `deepseek-v4-pro`
   - 可切换 `deepseek-v4-flash` / `deepseek-v4-pro`
+  - `codex` 直连 `https://api.deepseek.com` 的 Responses API，当前仅支持 `deepseek-v4-flash`
 - **duck_codex2cc** — Duck CodeX→CC 映射 key，**CC-only**
   - 在 CC 中用 Claude 模型名，duck 后端自动映射到 GPT codex 模型
   - `claude-opus-4-6` → `gpt-5.3-codex-xhigh`
@@ -246,7 +247,7 @@ switch-api aiwave             # openclaw+codex+droid+gemini+hermes → AI Wave
 switch-api icodeeasy           # cc+openclaw+codex+gemini → iCodeEasy
 switch-api flames              # cc+openclaw+codex+gemini+hermes+grok → Flames NewAPI
 switch-api xai                 # grok → xAI 官方直连
-switch-api deepseek            # cc → DeepSeek Official
+switch-api deepseek            # cc + codex → DeepSeek Official
 switch-api all duck            # 同上（完整写法）
 switch-api all quotio
 switch-api all antigravity
@@ -286,6 +287,8 @@ switch-api openclaw openai oauth            # OpenClaw → OpenAI OAuth (openai-
 switch-api codex duck
 switch-api codex quotio
 switch-api codex antigravity
+switch-api codex deepseek                  # DeepSeek / deepseek-v4-flash
+switch-api codex deepseek deepseek-v4-flash
 switch-api codex icodeeasy                 # iCodeEasy / gpt-5.4
 switch-api codex flames                     # flames_newapi / gpt-5.6 + FLAMES_API_KEY
 switch-api codex flames moonshotai/kimi-k3 # 相同 FLAMES_API_KEY，切到 K3
@@ -596,7 +599,7 @@ OpenClaw 走 OpenAI 时会额外显示认证模式后缀，避免把 OAuth 和 A
 | quotio | OpenAI + Anthropic + Gemini | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
 | antigravity | OpenAI + Anthropic + Gemini | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ |
 | **icodeeasy** | **Anthropic + OpenAI + Gemini** | ✅ | ✅* | ✅ | ❌ | ✅ | ❌ | ❌ |
-| deepseek | Anthropic | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| deepseek | Anthropic + OpenAI Responses | ✅ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **duck_codex2cc** | **Anthropic 原生 (映射)** | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | openai | OpenAI | ❌ | ✅* | ✅ | ✅ | ❌ | ❌ | ❌ |
 | openrouter | OpenAI | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
@@ -607,6 +610,7 @@ OpenClaw 走 OpenAI 时会额外显示认证模式后缀，避免把 OAuth 和 A
 
 > **关键限制**：
 > `flames` 在 `cc` 下通过 Anthropic 兼容网关暴露自定义模型，目前内置支持 `moonshotai/kimi-k3` / `gpt-5.6` / `gpt-5.4` / `gpt-5.3-codex` / `deepseek-v4-flash` / `deepseek-v4-pro`。
+> `deepseek` 的 Codex 路径使用官方 `https://api.deepseek.com` Responses API，当前仅支持 `deepseek-v4-flash`；切换时会生成含官方 1M context 和工具元数据的受管 catalog，切回其他 provider 时恢复原 catalog。
 > `flames` 的 `grok` 通过 `~/.grok/config.toml` 中的实际模型覆盖指向 `https://www.flamescn.vip/v1`；切换期间会暂存官方 `auth.json`，避免登录态优先触发官方额度检查。
 > `xai` 只用于 Grok 官方直连，依赖 `~/.grok/auth.json` 或 `XAI_API_KEY` / `GROK_CODE_XAI_API_KEY`。
 > `icodeeasy` 现在可用于 `cc` / `openclaw` / `codex` / `gemini`，但 `openclaw` 当前仍走 Anthropic `messages` 链路，所以只支持 Claude 模型。
@@ -665,7 +669,7 @@ switch-api openclaw openai key
 
 - **cc** (Claude Code): 默认 `claude-*`；`flames` 下也支持 `gpt-*` / `deepseek-v4-*`；自定义 Anthropic-compatible provider 不做内置 family 限制
 - **openclaw**: `claude-*` + `gemini-*` + 部分 `gpt-*`（取决于 provider）
-- **codex**: 仅 `gpt-*` 模型 — 切 Claude/Gemini 时 codex 保持不动
+- **codex**: 默认 `gpt-*` 模型；DeepSeek 官方 provider 支持 `deepseek-v4-flash`
 - **droid**: `gemini-*`（默认）+ `gpt-*`（codex profile）
 - **gemini**: 仅 `gemini-*`
 - **hermes**: `gpt-*` / `gemini-*`（取决于 provider）

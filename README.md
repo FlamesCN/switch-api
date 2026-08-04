@@ -19,7 +19,7 @@ Unified API provider switcher across:
 | `molifang` | 🧩 | openclaw, codex, droid, hermes | Molifang API (molifangapi.xyz) — OpenAI GPT-5.5 only |
 | `flames` | 🔥 | cc, openclaw, codex, gemini, hermes, grok | Flames NewAPI (www.flamescn.vip) |
 | `xai` | ⚡ | grok | xAI Official / Grok 官方直连 |
-| `deepseek` | 🧠 | cc | DeepSeek Official Anthropic API (api.deepseek.com/anthropic) |
+| `deepseek` | 🧠 | cc, codex | DeepSeek Official Anthropic + Responses API (api.deepseek.com) |
 | `quotio_local` | 🔗 | codex, droid | Quotio Local (本地 app, 127.0.0.1:8317) |
 | `openrouter` | 🌐 | openclaw, codex, droid | OpenRouter (openrouter.ai) — free models |
 | `openai` | 🔑 | openclaw, codex, droid | OpenAI 官方 (api.openai.com via proxy) |
@@ -143,7 +143,7 @@ switch-api xingyun                   # openclaw+codex+droid → Xingyun GPT
 switch-api molifang                  # openclaw+codex+droid+hermes → Molifang / gpt-5.5
 switch-api flames                    # cc+openclaw+codex+gemini+hermes+grok → Flames NewAPI
 switch-api xai                       # grok → xAI 官方直连
-switch-api deepseek                  # cc → DeepSeek Official
+switch-api deepseek                  # cc + codex → DeepSeek Official
 switch-api aiwave                    # openclaw+codex+droid+gemini+hermes → AI Wave
 switch-api icodeeasy                 # cc+openclaw+codex+gemini → iCodeEasy
 switch-api openrouter                # openclaw+codex+droid → OpenRouter (free)
@@ -156,6 +156,8 @@ switch-api claude deepseek              # `claude` 是 `cc` 的别名
 switch-api cc icodeeasy
 switch-api cc deepseek [model]
 switch-api cc deepseek deepseek-v4-pro
+switch-api codex deepseek                 # Codex → DeepSeek V4 Flash
+switch-api codex deepseek deepseek-v4-flash
 switch-api cc flames [model]
 switch-api cc flames claude-opus-4-8
 switch-api cc flames moonshotai/kimi-k3       # K3 主模型及 helper/subagent 均走 Flames

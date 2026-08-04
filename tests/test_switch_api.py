@@ -618,6 +618,55 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertIn(f'model_catalog_json = "{original_catalog}"', text)
         self.assertNotIn(str(self.cfg.codex_kimi_catalog), text)
 
+    @patch("subprocess.run")
+    def test_switch_codex_deepseek_writes_responses_provider_and_catalog(self, run):
+        self.mock_codex_bundled_catalog(run)
+
+        self.mod.switch_codex("deepseek", self.cfg, {"deepseek": "dummy"}, model="")
+
+        text = self.cfg.cx_config.read_text(encoding="utf-8")
+        self.assertIn('model_provider = "deepseek"', text)
+        self.assertIn('model = "deepseek-v4-flash"', text)
+        self.assertIn('[model_providers.deepseek]', text)
+        self.assertIn('base_url = "https://api.deepseek.com"', text)
+        self.assertIn('wire_api = "responses"', text)
+        self.assertIn('env_key = "DEEPSEEK_API_KEY"', text)
+        self.assertIn(
+            f'model_catalog_json = "{self.cfg.codex_deepseek_catalog}"',
+            text,
+        )
+        self.assertEqual(self.mod.detect_provider("codex", self.cfg), "deepseek")
+        self.assertEqual(
+            (self.home / ".env").read_text(encoding="utf-8"),
+            'export DEEPSEEK_API_KEY="dummy"\n',
+        )
+
+        catalog = json.loads(self.cfg.codex_deepseek_catalog.read_text(encoding="utf-8"))
+        deepseek = next(
+            model for model in catalog["models"] if model["slug"] == "deepseek-v4-flash"
+        )
+        self.assertEqual(deepseek["context_window"], 1_048_576)
+        self.assertEqual(deepseek["input_modalities"], ["text"])
+        self.assertEqual(deepseek["supported_reasoning_levels"][-1]["effort"], "max")
+        self.assertEqual(deepseek["base_instructions"], "You are Codex.")
+
+    @patch("subprocess.run")
+    def test_switch_codex_restores_previous_catalog_after_deepseek(self, run):
+        self.mock_codex_bundled_catalog(run)
+        original_catalog = "/tmp/custom-codex-models.json"
+        original_text = self.cfg.cx_config.read_text(encoding="utf-8")
+        self.cfg.cx_config.write_text(
+            f'model_catalog_json = "{original_catalog}"\n' + original_text,
+            encoding="utf-8",
+        )
+
+        self.mod.switch_codex("deepseek", self.cfg, {"deepseek": "dummy"}, model="")
+        self.mod.switch_codex("flames", self.cfg, {"flames": "dummy"}, model="")
+
+        text = self.cfg.cx_config.read_text(encoding="utf-8")
+        self.assertIn(f'model_catalog_json = "{original_catalog}"', text)
+        self.assertNotIn(str(self.cfg.codex_deepseek_catalog), text)
+
     def test_switch_cc_flames_writes_custom_model_env_and_detects_flames(self):
         self.init_cc_settings(
             model="claude-sonnet-4-6",
@@ -1633,6 +1682,11 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
 
     def test_model_validation_allows_cc_deepseek_models(self):
         self.mod.validate_model_for_tool("cc", "deepseek-v4-pro", "deepseek")
+
+    def test_model_validation_allows_only_v4_flash_for_codex_deepseek(self):
+        self.mod.validate_model_for_tool("codex", "deepseek-v4-flash", "deepseek")
+        with self.assertRaises(self.mod.SwitchError):
+            self.mod.validate_model_for_tool("codex", "deepseek-v4-pro", "deepseek")
 
     def test_model_validation_allows_codex_flames_kimi_k3(self):
         self.mod.validate_model_for_tool("codex", "moonshotai/kimi-k3", "flames")

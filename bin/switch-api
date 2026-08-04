@@ -514,11 +514,15 @@ CC_MODEL_ALIAS_ENV_KEYS = (
     "CLAUDE_CODE_SUBAGENT_MODEL",
 )
 DEEPSEEK_BASE_URL = "https://api.deepseek.com/anthropic"
+DEEPSEEK_CODEX_BASE_URL = "https://api.deepseek.com"
 DEEPSEEK_CC_DEFAULT_MODEL = "deepseek-v4-pro"
 DEEPSEEK_AVAILABLE_MODELS = (
     "deepseek-v4-flash",
     "deepseek-v4-pro",
 )
+DEEPSEEK_CODEX_DEFAULT_MODEL = "deepseek-v4-flash"
+DEEPSEEK_CODEX_AVAILABLE_MODELS = (DEEPSEEK_CODEX_DEFAULT_MODEL,)
+DEEPSEEK_CODEX_CATALOG_FILENAME = "switch-api-deepseek.json"
 DEEPSEEK_CC_MODEL_NAMES = {
     "deepseek-v4-flash": "DeepSeek V4 Flash",
     "deepseek-v4-pro": "DeepSeek V4 Pro",
@@ -3285,6 +3289,9 @@ class Config:
         self.codex_kimi_catalog = (
             self.codex_home / "model-catalogs" / FLAMES_KIMI_CODEX_CATALOG_FILENAME
         )
+        self.codex_deepseek_catalog = (
+            self.codex_home / "model-catalogs" / DEEPSEEK_CODEX_CATALOG_FILENAME
+        )
         self.factory_settings = home / ".factory/settings.json"
         self.gemini_env = home / ".gemini/.env"
         self.gemini_balance_env = home / "tools/gemini-balance/.env"
@@ -3476,6 +3483,8 @@ def detect_provider(tool: str, cfg: Config) -> str:
             return "quotio"
         if provider == "duckcoding":
             return "duck"
+        if provider == "deepseek":
+            return "deepseek"
         if provider == "quotio-local":
             return "quotio_local"
         if provider == "icodeeasy":
@@ -3676,7 +3685,7 @@ def show_status(cfg: Config) -> None:
     print("  🧩 = Molifang API (molifangapi.xyz)")
     print("  🔥 = Flames NewAPI (www.flamescn.vip)")
     print("  ⚡ = xAI Official (grok.com / cli-chat-proxy.grok.com)")
-    print("  🧠 = DeepSeek (api.deepseek.com/anthropic)")
+    print("  🧠 = DeepSeek (api.deepseek.com/anthropic + Responses)")
     print("  🌐 = OpenRouter (openrouter.ai)")
     print("  🌊 = AI Wave (api.ai-wave.org)")
     print("  🧊 = iCodeEasy (api.icodeeasy.cc)")
@@ -3877,7 +3886,7 @@ def cmd_list_models(
             "aiwave": "AI Wave",
             "flames": "Flames NewAPI",
             "xai": "xAI Official",
-            "deepseek": "DeepSeek (Anthropic)",
+            "deepseek": "DeepSeek (Anthropic + Responses)",
             "icodeeasy": "iCodeEasy (统一网关)",
             "duck_codex2cc": "Duck CodeX→CC (CC-only)",
             "openrouter": "OpenRouter (Free)",
@@ -3890,7 +3899,7 @@ def cmd_list_models(
             ("OpenAI/GPT", "gpt", "codex, droid, hermes, grok"),
             ("Grok", "grok", "grok"),
             ("Kimi", "kimi", "cc, codex"),
-            ("DeepSeek", "deepseek", "cc"),
+            ("DeepSeek", "deepseek", "cc, codex"),
             ("OpenRouter (Free)", "openrouter", "openclaw, codex, droid"),
             ("其他", "other", "—"),
         ]
@@ -4070,6 +4079,67 @@ def build_flames_kimi_codex_catalog() -> Dict[str, Any]:
     return catalog
 
 
+def build_deepseek_codex_catalog() -> Dict[str, Any]:
+    """Build the official DeepSeek V4-Flash Codex catalog on top of bundled models."""
+    catalog = load_codex_bundled_catalog()
+    models = [model for model in catalog["models"] if isinstance(model, dict)]
+    template = next(
+        (model for model in models if model.get("slug") == "gpt-5.4"),
+        models[0] if models else None,
+    )
+    if not template or not isinstance(template.get("base_instructions"), str):
+        raise SwitchError("Bundled Codex model catalog has no usable instruction template")
+
+    deepseek_model = {
+        "slug": DEEPSEEK_CODEX_DEFAULT_MODEL,
+        "prefer_websockets": False,
+        "support_verbosity": True,
+        "default_verbosity": "low",
+        "apply_patch_tool_type": "freeform",
+        "web_search_tool_type": "text",
+        "input_modalities": ["text"],
+        "supports_image_detail_original": False,
+        "truncation_policy": {"mode": "tokens", "limit": 10_000},
+        "supports_parallel_tool_calls": True,
+        "tool_mode": None,
+        "multi_agent_version": "v2",
+        "use_responses_lite": False,
+        "include_skills_usage_instructions": False,
+        "auto_review_model_override": None,
+        "context_window": 1_048_576,
+        "max_context_window": 1_048_576,
+        "effective_context_window_percent": 95,
+        "auto_compact_token_limit": None,
+        "comp_hash": "3000",
+        "reasoning_summary_format": "experimental",
+        "default_reasoning_summary": "none",
+        "display_name": "DeepSeek-V4-Flash",
+        "description": "Latest frontier agentic coding model.",
+        "default_reasoning_level": "high",
+        "supported_reasoning_levels": [
+            {"effort": "low", "description": "Fast responses with lighter reasoning"},
+            {"effort": "high", "description": "Extra high reasoning depth for complex problems"},
+            {"effort": "max", "description": "Maximum reasoning depth for the hardest problems"},
+        ],
+        "shell_type": "shell_command",
+        "visibility": "list",
+        "minimal_client_version": "0.144.0",
+        "supported_in_api": True,
+        "availability_nux": None,
+        "upgrade": None,
+        "priority": 1,
+        "base_instructions": template["base_instructions"],
+        "model_messages": {"instructions_template": template["base_instructions"]},
+    }
+    # Preserve any schema fields newly required by the installed Codex version.
+    for key, value in template.items():
+        deepseek_model.setdefault(key, value)
+    catalog["models"] = [
+        model for model in models if model.get("slug") != DEEPSEEK_CODEX_DEFAULT_MODEL
+    ] + [deepseek_model]
+    return catalog
+
+
 def codex_kimi_catalog_is_ready(cfg: Config, text: str) -> bool:
     configured_path = read_codex_top_level_string(text, "model_catalog_json")
     if configured_path != str(cfg.codex_kimi_catalog) or not cfg.codex_kimi_catalog.exists():
@@ -4080,6 +4150,20 @@ def codex_kimi_catalog_is_ready(cfg: Config, text: str) -> bool:
         return False
     return any(
         isinstance(model, dict) and model.get("slug") == FLAMES_KIMI_CODEX_MODEL
+        for model in catalog.get("models", [])
+    )
+
+
+def codex_deepseek_catalog_is_ready(cfg: Config, text: str) -> bool:
+    configured_path = read_codex_top_level_string(text, "model_catalog_json")
+    if configured_path != str(cfg.codex_deepseek_catalog) or not cfg.codex_deepseek_catalog.exists():
+        return False
+    try:
+        catalog = load_json(cfg.codex_deepseek_catalog)
+    except SwitchError:
+        return False
+    return any(
+        isinstance(model, dict) and model.get("slug") == DEEPSEEK_CODEX_DEFAULT_MODEL
         for model in catalog.get("models", [])
     )
 
@@ -4100,9 +4184,28 @@ def activate_flames_kimi_codex_catalog(cfg: Config, text: str) -> str:
     return set_codex_top_level_string(text, "model_catalog_json", managed_path)
 
 
+def activate_deepseek_codex_catalog(cfg: Config, text: str) -> str:
+    managed_path = str(cfg.codex_deepseek_catalog)
+    current_path = read_codex_top_level_string(text, "model_catalog_json")
+    if current_path != managed_path:
+        cfg.switch_dir.mkdir(parents=True, exist_ok=True)
+        save_json(
+            cfg.codex_catalog_state,
+            {"previous_model_catalog_json": current_path or None},
+        )
+
+    cfg.codex_deepseek_catalog.parent.mkdir(parents=True, exist_ok=True)
+    save_json(cfg.codex_deepseek_catalog, build_deepseek_codex_catalog())
+    info(f"Codex DeepSeek metadata catalog → {cfg.codex_deepseek_catalog}")
+    return set_codex_top_level_string(text, "model_catalog_json", managed_path)
+
+
 def restore_codex_model_catalog(cfg: Config, text: str) -> str:
-    managed_path = str(cfg.codex_kimi_catalog)
-    if read_codex_top_level_string(text, "model_catalog_json") != managed_path:
+    managed_paths = {
+        str(cfg.codex_kimi_catalog),
+        str(cfg.codex_deepseek_catalog),
+    }
+    if read_codex_top_level_string(text, "model_catalog_json") not in managed_paths:
         return text
 
     previous_path = ""
@@ -4134,6 +4237,13 @@ def skip_redundant_switch(tool: str, provider: str, cfg: Config, model: str = ""
             text = read_text(cfg.cx_config) if cfg.cx_config.exists() else ""
             if not codex_kimi_catalog_is_ready(cfg, text):
                 return False
+    if tool == "codex" and provider == "deepseek":
+        target_model = model or DEEPSEEK_CODEX_DEFAULT_MODEL
+        if current_model != target_model:
+            return False
+        text = read_text(cfg.cx_config) if cfg.cx_config.exists() else ""
+        if not codex_deepseek_catalog_is_ready(cfg, text):
+            return False
     if tool == "grok":
         try:
             import tomllib
@@ -4407,6 +4517,8 @@ def validate_model_for_tool(
     compatible = FAMILY_TOOLS.get(fam, ())
     if provider == "flames" and tool == "cc" and fam == "gpt":
         compatible = tuple(dict.fromkeys((*compatible, "cc")))
+    if provider == "deepseek" and tool == "codex" and fam == "deepseek":
+        compatible = tuple(dict.fromkeys((*compatible, "codex")))
 
     if tool not in compatible:
         raise SwitchError(
@@ -4418,6 +4530,12 @@ def validate_model_for_tool(
         raise SwitchError(
             "Provider 'icodeeasy' 当前在 OpenClaw 中仍走 anthropic-messages 链路，"
             "只支持 claude-* 模型。"
+        )
+
+    if provider == "deepseek" and tool == "codex" and model not in DEEPSEEK_CODEX_AVAILABLE_MODELS:
+        raise SwitchError(
+            "DeepSeek Codex currently supports deepseek-v4-flash only; "
+            "deepseek-v4-pro is not available through the Responses API yet."
         )
 
     if provider == "aiwave" and tool in ("openclaw", "gemini", "hermes") and fam != "gemini":
@@ -6222,6 +6340,7 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
         "antigravity": "antigravity",
         "xingyun": "xingyun",
         "molifang": "molifang",
+        "deepseek": "deepseek",
         "icodeeasy": "icodeeasy",
         "flames": "flames_newapi",
         "openrouter": "openrouter",
@@ -6229,6 +6348,41 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
     }
     model_provider = provider_map[provider]
     text = set_codex_model_provider(text, model_provider)
+
+    if provider == "deepseek":
+        target_model_d = model or DEEPSEEK_CODEX_DEFAULT_MODEL
+        if target_model_d not in DEEPSEEK_CODEX_AVAILABLE_MODELS:
+            raise SwitchError(
+                "DeepSeek Codex currently supports deepseek-v4-flash only; "
+                "deepseek-v4-pro is not available through the Responses API yet."
+            )
+
+        deepseek_key = ensure_key(
+            "DEEPSEEK_API_KEY",
+            keys.get("deepseek", ""),
+            "required for Codex DeepSeek provider",
+        )
+        sync_env_key_to_shell_files(cfg, "DEEPSEEK_API_KEY", deepseek_key)
+
+        model_match_d = re.search(r'^\s*model\s*=\s*"([^"]+)"\s*$', text, flags=re.M)
+        if model_match_d:
+            text = re.sub(
+                r'^\s*model\s*=\s*"[^"]+"\s*$',
+                f'model = "{target_model_d}"',
+                text,
+                count=1,
+                flags=re.M,
+            )
+        else:
+            text = f'model = "{target_model_d}"\n' + text
+
+        table_name = "model_providers.deepseek"
+        text = set_toml_table_string(text, table_name, "name", "DeepSeek")
+        text = set_toml_table_string(text, table_name, "base_url", DEEPSEEK_CODEX_BASE_URL)
+        text = set_toml_table_string(text, table_name, "wire_api", "responses")
+        text = set_toml_table_string(text, table_name, "env_key", "DEEPSEEK_API_KEY")
+        text = activate_deepseek_codex_catalog(cfg, text)
+        info(f"Codex → DeepSeek / {target_model_d} (DEEPSEEK_API_KEY)")
 
     if provider == "quotio":
         # model safety mapping for known unsupported 4.5-series Claude names
@@ -7118,6 +7272,7 @@ def usage() -> None:
     print("       switch-api openclaw antigravity")
     print("       switch-api openclaw antigravity gemini3")
     print("       switch-api codex duck")
+    print("       switch-api codex deepseek       # DeepSeek V4 Flash via Responses API")
     print("       switch-api codex flames")
     print("       switch-api openclaw molifang      # OpenAI-compatible GPT-5.5 only")
     print("       switch-api codex molifang")
@@ -7974,8 +8129,8 @@ def main() -> int:
     if provider == "xai" and tool not in ("grok", "all"):
         raise SwitchError("Provider 'xai' is only supported with Grok")
 
-    if provider == "deepseek" and tool not in ("cc",):
-        raise SwitchError(f"Provider 'deepseek' is CC-only, not {tool}")
+    if provider == "deepseek" and tool not in ("cc", "codex", "all"):
+        raise SwitchError(f"Provider 'deepseek' is supported for cc/codex, not {tool}")
 
     if provider == "deepseek" and not keys["deepseek"]:
         raise SwitchError("DEEPSEEK_API_KEY is not set! Edit ~/.env and run: source ~/.zshrc")
@@ -8018,7 +8173,7 @@ def main() -> int:
         elif provider == "xai":
             info("Pre-flight skipped for xAI official（Grok 本地登录态 / XAI_API_KEY 决定可用性）")
         elif provider == "deepseek":
-            info("Pre-flight skipped for DeepSeek（Anthropic 兼容 messages 链路）")
+            info("Pre-flight skipped for DeepSeek（Claude Code uses Anthropic; Codex uses Responses）")
         else:
             reachable, reason = probe_provider(provider, keys)
             if not reachable:
@@ -8166,8 +8321,9 @@ def main() -> int:
             info("xAI official is Grok-only — switching Grok only")
             switch_grok(provider, cfg, keys, model=model)
         elif provider == "deepseek":
-            info("DeepSeek is CC-only — switching Claude Code only")
+            info("DeepSeek supports Claude Code and Codex — switching both")
             switch_cc(provider, cfg, keys, model=model)
+            switch_codex(provider, cfg, keys, model=model)
         elif provider == "aiwave":
             info("AI Wave supports openclaw/codex/droid/gemini/hermes — switching those only")
             switch_openclaw(provider, cfg, keys, "", model=model, agent_id=openclaw_agent_id, all_agents=openclaw_all_agents)
