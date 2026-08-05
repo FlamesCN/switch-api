@@ -559,6 +559,21 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertIn('env_key = "FLAMES_API_KEY"', text)
         self.assertEqual(self.mod.detect_provider("codex", self.cfg), "flames")
 
+    def test_switch_codex_flames_accepts_deepseek_v4_flash(self):
+        self.mod.switch_codex(
+            "flames",
+            self.cfg,
+            {"flames": "dummy"},
+            model="deepseek-v4-flash",
+        )
+
+        text = self.cfg.cx_config.read_text(encoding="utf-8")
+        self.assertIsNotNone(re.search(r'^\s*model_provider\s*=\s*"flames_newapi"\s*$', text, re.M))
+        self.assertIn('model = "deepseek-v4-flash"', text)
+        self.assertIn('wire_api = "responses"', text)
+        self.assertIn('env_key = "FLAMES_API_KEY"', text)
+        self.assertEqual(self.mod.detect_provider("codex", self.cfg), "flames")
+
     @patch("subprocess.run")
     def test_switch_codex_flames_accepts_kimi_k3_with_existing_key_slot(self, run):
         self.mock_codex_bundled_catalog(run)
@@ -1690,6 +1705,11 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
 
     def test_model_validation_allows_codex_flames_kimi_k3(self):
         self.mod.validate_model_for_tool("codex", "moonshotai/kimi-k3", "flames")
+
+    def test_model_validation_allows_codex_flames_deepseek_v4_flash(self):
+        self.mod.validate_model_for_tool("codex", "deepseek-v4-flash", "flames")
+        with self.assertRaises(self.mod.SwitchError):
+            self.mod.validate_model_for_tool("codex", "deepseek-v4-pro", "flames")
 
     def test_model_in_provider_accepts_icodeeasy_gpt_and_gemini(self):
         self.assertTrue(self.mod.model_in_provider("gpt-5.4", "icodeeasy"))

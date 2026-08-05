@@ -643,7 +643,7 @@ CC_ONLY_PROVIDERS = ("duck_cc1", "duck_codex2cc")
 OPENCLAW_CLAUDE_PROVIDERS = ("duck", "quotio", "antigravity", "icodeeasy")
 OPENCLAW_GEMINI_PROFILES = frozenset(("gemini", "gemini3", "gemini-3", "gemini3-pro-high"))
 
-APP_VERSION = "2.0.8"
+APP_VERSION = "2.0.9"
 HTTP_USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
@@ -4517,6 +4517,8 @@ def validate_model_for_tool(
     compatible = FAMILY_TOOLS.get(fam, ())
     if provider == "flames" and tool == "cc" and fam == "gpt":
         compatible = tuple(dict.fromkeys((*compatible, "cc")))
+    if provider == "flames" and tool == "codex" and fam == "deepseek":
+        compatible = tuple(dict.fromkeys((*compatible, "codex")))
     if provider == "deepseek" and tool == "codex" and fam == "deepseek":
         compatible = tuple(dict.fromkeys((*compatible, "codex")))
 
@@ -4532,7 +4534,12 @@ def validate_model_for_tool(
             "只支持 claude-* 模型。"
         )
 
-    if provider == "deepseek" and tool == "codex" and model not in DEEPSEEK_CODEX_AVAILABLE_MODELS:
+    if (
+        provider in ("deepseek", "flames")
+        and tool == "codex"
+        and fam == "deepseek"
+        and model not in DEEPSEEK_CODEX_AVAILABLE_MODELS
+    ):
         raise SwitchError(
             "DeepSeek Codex currently supports deepseek-v4-flash only; "
             "deepseek-v4-pro is not available through the Responses API yet."
@@ -6601,6 +6608,8 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
         else:
             text = f'model = "{target_model_f}"\n' + text
 
+        if model_family(target_model_f) == "deepseek":
+            text = set_toml_table_string(text, "model_providers.flames_newapi", "wire_api", "responses")
         text = set_codex_provider_env_key(text, "flames_newapi", "FLAMES_API_KEY")
         if target_model_f == FLAMES_KIMI_CODEX_MODEL:
             text = activate_flames_kimi_codex_catalog(cfg, text)

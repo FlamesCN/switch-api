@@ -44,6 +44,7 @@
   - `cc` 走 Anthropic 兼容入口，默认 `claude-opus-4-8`，也支持 `moonshotai/kimi-k3` / `gpt-5.6` / `gpt-5.4` / `gpt-5.3-codex` / `deepseek-v4-flash` / `deepseek-v4-pro` 及内置 Claude 模型
   - `cc flames moonshotai/kimi-k3` 会同时固定主模型、Opus/Sonnet/Haiku/Fable、small-fast 与 subagent 槽，避免内部调用回落到 Claude
   - `codex` 复用内部 provider block：`model_provider = "flames_newapi"`，默认 `gpt-5.6`；显式指定 `moonshotai/kimi-k3` 时仍复用相同的 `FLAMES_API_KEY`
+  - `codex flames deepseek-v4-flash` 走 Flames NewAPI 的 DeepSeek 上游，复用 `FLAMES_API_KEY`，上游鉴权使用 new-api 渠道内配置的本地 `DEEPSEEK_API_KEY`
   - 切到 Codex K3 时会基于当前 Codex bundled catalog 生成受管的 `model_catalog_json`，补齐 1M context、推理档位、图像输入与工具调用元数据；切回其他模型时恢复原 catalog 配置
   - `model_catalog_json` 仅在 Codex 启动时加载，切换 K3 后需要新开 Codex 会话
   - `env_key` 固定切回 `FLAMES_API_KEY`
@@ -260,6 +261,7 @@ switch-api cc antigravity
 switch-api cc icodeeasy              # Claude Code → iCodeEasy
 switch-api cc deepseek               # Claude Code → DeepSeek / deepseek-v4-pro
 switch-api cc deepseek deepseek-v4-flash
+switch-api cc flames deepseek-v4-pro          # Claude Code → Flames NewAPI / DeepSeek V4 Pro
 switch-api cc flames                 # Claude Code → Flames / claude-opus-4-8
 switch-api cc duck_codex2cc          # Duck CodeX→CC (GPT codex via CC)
 
@@ -289,6 +291,7 @@ switch-api codex quotio
 switch-api codex antigravity
 switch-api codex deepseek                  # DeepSeek / deepseek-v4-flash
 switch-api codex deepseek deepseek-v4-flash
+switch-api codex flames deepseek-v4-flash     # Codex → Flames NewAPI / DeepSeek V4 Flash
 switch-api codex icodeeasy                 # iCodeEasy / gpt-5.4
 switch-api codex flames                     # flames_newapi / gpt-5.6 + FLAMES_API_KEY
 switch-api codex flames moonshotai/kimi-k3 # 相同 FLAMES_API_KEY，切到 K3
@@ -669,7 +672,7 @@ switch-api openclaw openai key
 
 - **cc** (Claude Code): 默认 `claude-*`；`flames` 下也支持 `gpt-*` / `deepseek-v4-*`；自定义 Anthropic-compatible provider 不做内置 family 限制
 - **openclaw**: `claude-*` + `gemini-*` + 部分 `gpt-*`（取决于 provider）
-- **codex**: 默认 `gpt-*` 模型；DeepSeek 官方 provider 支持 `deepseek-v4-flash`
+- **codex**: 默认 `gpt-*` 模型；DeepSeek 官方 provider 与 `flames` relay 均支持 `deepseek-v4-flash`
 - **droid**: `gemini-*`（默认）+ `gpt-*`（codex profile）
 - **gemini**: 仅 `gemini-*`
 - **hermes**: `gpt-*` / `gemini-*`（取决于 provider）

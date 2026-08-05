@@ -8,7 +8,7 @@ metadata: { "openclaw": { "emoji": "🔀", "requires": { "anyBins": ["switch-api
 
 ## 工具
 
-`switch-api`（v2.0.8）— 统一切换：
+`switch-api`（v2.0.9）— 统一切换：
 - Claude Code (`cc`, alias: `claude`)
 - OpenClaw (`openclaw`)
 - Codex (`codex`)
@@ -113,7 +113,7 @@ switch-api cc anyrouter
 
 - `cc`: 默认 `claude-*`；`flames` 下也可走 `gpt-*` / `deepseek-v4-*`
 - `openclaw`: `claude-*` + `gemini-*` + 部分 `gpt-*`
-- `codex`: `gpt-*`；DeepSeek 官方 provider 额外支持 `deepseek-v4-flash`
+- `codex`: `gpt-*`；DeepSeek 官方 provider 与 `flames` relay 均支持 `deepseek-v4-flash`
 - `droid`: `gemini-*` + `gpt-*`
 - `gemini`: `gemini-*`
 - `hermes`: `gpt-*` / `gemini-*`（取决于 provider）
@@ -130,7 +130,9 @@ switch-api <tool> <provider> <model>
 ```bash
 switch-api codex quotio gpt-5.3-codex
 switch-api codex deepseek deepseek-v4-flash
+switch-api codex flames deepseek-v4-flash
 switch-api cc deepseek deepseek-v4-pro
+switch-api cc flames deepseek-v4-pro
 switch-api openclaw quotio claude-sonnet-4-6
 ```
 
