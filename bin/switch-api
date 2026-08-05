@@ -6613,6 +6613,8 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
         text = set_codex_provider_env_key(text, "flames_newapi", "FLAMES_API_KEY")
         if target_model_f == FLAMES_KIMI_CODEX_MODEL:
             text = activate_flames_kimi_codex_catalog(cfg, text)
+        elif model_family(target_model_f) == "deepseek":
+            text = activate_deepseek_codex_catalog(cfg, text)
         info(f"Codex → flames_newapi / {target_model_f} (FLAMES_API_KEY)")
 
     if provider == "openrouter":

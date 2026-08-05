@@ -559,7 +559,10 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertIn('env_key = "FLAMES_API_KEY"', text)
         self.assertEqual(self.mod.detect_provider("codex", self.cfg), "flames")
 
-    def test_switch_codex_flames_accepts_deepseek_v4_flash(self):
+    @patch("subprocess.run")
+    def test_switch_codex_flames_accepts_deepseek_v4_flash(self, run):
+        self.mock_codex_bundled_catalog(run)
+
         self.mod.switch_codex(
             "flames",
             self.cfg,
@@ -572,7 +575,18 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertIn('model = "deepseek-v4-flash"', text)
         self.assertIn('wire_api = "responses"', text)
         self.assertIn('env_key = "FLAMES_API_KEY"', text)
+        self.assertIn(
+            f'model_catalog_json = "{self.cfg.codex_deepseek_catalog}"',
+            text,
+        )
         self.assertEqual(self.mod.detect_provider("codex", self.cfg), "flames")
+
+        catalog = json.loads(self.cfg.codex_deepseek_catalog.read_text(encoding="utf-8"))
+        deepseek = next(
+            model for model in catalog["models"] if model["slug"] == "deepseek-v4-flash"
+        )
+        self.assertEqual(deepseek["context_window"], 1_048_576)
+        self.assertEqual(deepseek["max_context_window"], 1_048_576)
 
     @patch("subprocess.run")
     def test_switch_codex_flames_accepts_kimi_k3_with_existing_key_slot(self, run):
@@ -632,6 +646,34 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertIn('model = "gpt-5.6"', text)
         self.assertIn(f'model_catalog_json = "{original_catalog}"', text)
         self.assertNotIn(str(self.cfg.codex_kimi_catalog), text)
+
+    @patch("subprocess.run")
+    def test_switch_codex_flames_default_restores_catalog_after_deepseek(self, run):
+        self.mock_codex_bundled_catalog(run)
+        original_catalog = "/tmp/custom-codex-models.json"
+        original_text = self.cfg.cx_config.read_text(encoding="utf-8")
+        self.cfg.cx_config.write_text(
+            f'model_catalog_json = "{original_catalog}"\n' + original_text,
+            encoding="utf-8",
+        )
+
+        self.mod.switch_codex(
+            "flames",
+            self.cfg,
+            {"flames": "dummy"},
+            model="deepseek-v4-flash",
+        )
+        self.mod.switch_codex(
+            "flames",
+            self.cfg,
+            {"flames": "dummy"},
+            model="",
+        )
+
+        text = self.cfg.cx_config.read_text(encoding="utf-8")
+        self.assertIn('model = "gpt-5.6"', text)
+        self.assertIn(f'model_catalog_json = "{original_catalog}"', text)
+        self.assertNotIn(str(self.cfg.codex_deepseek_catalog), text)
 
     @patch("subprocess.run")
     def test_switch_codex_deepseek_writes_responses_provider_and_catalog(self, run):
