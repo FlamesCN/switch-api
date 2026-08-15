@@ -521,7 +521,10 @@ DEEPSEEK_AVAILABLE_MODELS = (
     "deepseek-v4-pro",
 )
 DEEPSEEK_CODEX_DEFAULT_MODEL = "deepseek-v4-flash"
-DEEPSEEK_CODEX_AVAILABLE_MODELS = (DEEPSEEK_CODEX_DEFAULT_MODEL,)
+DEEPSEEK_CODEX_AVAILABLE_MODELS = (
+    "deepseek-v4-flash",
+    "deepseek-v4-pro",
+)
 DEEPSEEK_CODEX_CATALOG_FILENAME = "switch-api-deepseek.json"
 DEEPSEEK_CC_MODEL_NAMES = {
     "deepseek-v4-flash": "DeepSeek V4 Flash",
@@ -643,7 +646,7 @@ CC_ONLY_PROVIDERS = ("duck_cc1", "duck_codex2cc")
 OPENCLAW_CLAUDE_PROVIDERS = ("duck", "quotio", "antigravity", "icodeeasy")
 OPENCLAW_GEMINI_PROFILES = frozenset(("gemini", "gemini3", "gemini-3", "gemini3-pro-high"))
 
-APP_VERSION = "2.0.9"
+APP_VERSION = "2.1.0"
 HTTP_USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
@@ -3703,7 +3706,7 @@ FAMILY_TOOLS = {
     "gpt":    ("codex", "droid", "openclaw", "hermes", "grok"),
     "grok":   ("grok",),
     "kimi":   ("cc", "codex"),
-    "deepseek": ("cc",),
+    "deepseek": ("cc", "codex"),
     "openrouter": ("openclaw", "codex", "droid"),
 }
 
@@ -4079,19 +4082,14 @@ def build_flames_kimi_codex_catalog() -> Dict[str, Any]:
     return catalog
 
 
-def build_deepseek_codex_catalog() -> Dict[str, Any]:
-    """Build the official DeepSeek V4-Flash Codex catalog on top of bundled models."""
-    catalog = load_codex_bundled_catalog()
-    models = [model for model in catalog["models"] if isinstance(model, dict)]
-    template = next(
-        (model for model in models if model.get("slug") == "gpt-5.4"),
-        models[0] if models else None,
-    )
-    if not template or not isinstance(template.get("base_instructions"), str):
-        raise SwitchError("Bundled Codex model catalog has no usable instruction template")
-
+def _build_deepseek_codex_model(
+    slug: str,
+    display_name: str,
+    template: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Build a DeepSeek Codex model entry on top of a bundled template."""
     deepseek_model = {
-        "slug": DEEPSEEK_CODEX_DEFAULT_MODEL,
+        "slug": slug,
         "prefer_websockets": False,
         "support_verbosity": True,
         "default_verbosity": "low",
@@ -4113,7 +4111,7 @@ def build_deepseek_codex_catalog() -> Dict[str, Any]:
         "comp_hash": "3000",
         "reasoning_summary_format": "experimental",
         "default_reasoning_summary": "none",
-        "display_name": "DeepSeek-V4-Flash",
+        "display_name": display_name,
         "description": "Latest frontier agentic coding model.",
         "default_reasoning_level": "high",
         "supported_reasoning_levels": [
@@ -4134,9 +4132,32 @@ def build_deepseek_codex_catalog() -> Dict[str, Any]:
     # Preserve any schema fields newly required by the installed Codex version.
     for key, value in template.items():
         deepseek_model.setdefault(key, value)
+    return deepseek_model
+
+
+def build_deepseek_codex_catalog() -> Dict[str, Any]:
+    """Build the official DeepSeek V4 Flash/Pro Codex catalog on top of bundled models."""
+    catalog = load_codex_bundled_catalog()
+    models = [model for model in catalog["models"] if isinstance(model, dict)]
+    template = next(
+        (model for model in models if model.get("slug") == "gpt-5.4"),
+        models[0] if models else None,
+    )
+    if not template or not isinstance(template.get("base_instructions"), str):
+        raise SwitchError("Bundled Codex model catalog has no usable instruction template")
+
+    display_names = {
+        "deepseek-v4-flash": "DeepSeek-V4-Flash",
+        "deepseek-v4-pro": "DeepSeek-V4-Pro",
+    }
+    deepseek_models = [
+        _build_deepseek_codex_model(slug, display_names[slug], template)
+        for slug in DEEPSEEK_CODEX_AVAILABLE_MODELS
+    ]
+    managed_slugs = set(DEEPSEEK_CODEX_AVAILABLE_MODELS)
     catalog["models"] = [
-        model for model in models if model.get("slug") != DEEPSEEK_CODEX_DEFAULT_MODEL
-    ] + [deepseek_model]
+        model for model in models if model.get("slug") not in managed_slugs
+    ] + deepseek_models
     return catalog
 
 
@@ -4162,10 +4183,12 @@ def codex_deepseek_catalog_is_ready(cfg: Config, text: str) -> bool:
         catalog = load_json(cfg.codex_deepseek_catalog)
     except SwitchError:
         return False
-    return any(
-        isinstance(model, dict) and model.get("slug") == DEEPSEEK_CODEX_DEFAULT_MODEL
+    catalog_slugs = {
+        model.get("slug")
         for model in catalog.get("models", [])
-    )
+        if isinstance(model, dict)
+    }
+    return all(slug in catalog_slugs for slug in DEEPSEEK_CODEX_AVAILABLE_MODELS)
 
 
 def activate_flames_kimi_codex_catalog(cfg: Config, text: str) -> str:
@@ -4517,10 +4540,6 @@ def validate_model_for_tool(
     compatible = FAMILY_TOOLS.get(fam, ())
     if provider == "flames" and tool == "cc" and fam == "gpt":
         compatible = tuple(dict.fromkeys((*compatible, "cc")))
-    if provider == "flames" and tool == "codex" and fam == "deepseek":
-        compatible = tuple(dict.fromkeys((*compatible, "codex")))
-    if provider == "deepseek" and tool == "codex" and fam == "deepseek":
-        compatible = tuple(dict.fromkeys((*compatible, "codex")))
 
     if tool not in compatible:
         raise SwitchError(
@@ -4532,17 +4551,6 @@ def validate_model_for_tool(
         raise SwitchError(
             "Provider 'icodeeasy' 当前在 OpenClaw 中仍走 anthropic-messages 链路，"
             "只支持 claude-* 模型。"
-        )
-
-    if (
-        provider in ("deepseek", "flames")
-        and tool == "codex"
-        and fam == "deepseek"
-        and model not in DEEPSEEK_CODEX_AVAILABLE_MODELS
-    ):
-        raise SwitchError(
-            "DeepSeek Codex currently supports deepseek-v4-flash only; "
-            "deepseek-v4-pro is not available through the Responses API yet."
         )
 
     if provider == "aiwave" and tool in ("openclaw", "gemini", "hermes") and fam != "gemini":
@@ -6360,8 +6368,9 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
         target_model_d = model or DEEPSEEK_CODEX_DEFAULT_MODEL
         if target_model_d not in DEEPSEEK_CODEX_AVAILABLE_MODELS:
             raise SwitchError(
-                "DeepSeek Codex currently supports deepseek-v4-flash only; "
-                "deepseek-v4-pro is not available through the Responses API yet."
+                "DeepSeek Codex supports "
+                + ", ".join(DEEPSEEK_CODEX_AVAILABLE_MODELS)
+                + f"; requested: {target_model_d}"
             )
 
         deepseek_key = ensure_key(
@@ -7284,7 +7293,9 @@ def usage() -> None:
     print("       switch-api openclaw antigravity gemini3")
     print("       switch-api codex duck")
     print("       switch-api codex deepseek       # DeepSeek V4 Flash via Responses API")
+    print("       switch-api codex deepseek deepseek-v4-pro  # DeepSeek V4 Pro via Responses API")
     print("       switch-api codex flames")
+    print("       switch-api codex flames deepseek-v4-pro    # DeepSeek V4 Pro via Flames")
     print("       switch-api openclaw molifang      # OpenAI-compatible GPT-5.5 only")
     print("       switch-api codex molifang")
     print("       switch-api droid molifang")

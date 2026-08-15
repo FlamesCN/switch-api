@@ -158,11 +158,13 @@ switch-api cc deepseek [model]
 switch-api cc deepseek deepseek-v4-pro
 switch-api codex deepseek                 # Codex → DeepSeek V4 Flash
 switch-api codex deepseek deepseek-v4-flash
+switch-api codex deepseek deepseek-v4-pro      # Codex → DeepSeek V4 Pro (direct Responses)
 switch-api cc flames [model]
 switch-api cc flames claude-opus-4-8
 switch-api cc flames moonshotai/kimi-k3       # K3 主模型及 helper/subagent 均走 Flames
 switch-api cc flames deepseek-v4-pro          # Claude Code → Flames NewAPI / DeepSeek V4 Pro
 switch-api codex flames deepseek-v4-flash     # Codex → Flames NewAPI / DeepSeek V4 Flash
+switch-api codex flames deepseek-v4-pro       # Codex → Flames NewAPI / DeepSeek V4 Pro
 switch-api openclaw quotio [profile]
 switch-api openclaw icodeeasy [model]
 switch-api codex icodeeasy [model]
