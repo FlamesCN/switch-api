@@ -642,6 +642,26 @@ TOOL_ALIASES = {
     "claude": "cc",
 }
 PROVIDERS = ("duck", "quotio", "quotio_local", "antigravity", "xingyun", "molifang", "flames", "xai", "deepseek", "openai", "openai_Gq80", "openai_V420", "openrouter", "aiwave", "duck_cc1", "duck_codex2cc", "icodeeasy", "gemini-balance")
+BUILTIN_PROVIDER_TOOLS = {
+    "duck": ("cc", "openclaw", "codex", "droid", "gemini"),
+    "quotio": ("cc", "openclaw", "codex", "droid", "gemini"),
+    "quotio_local": ("codex", "droid"),
+    "antigravity": ("cc", "openclaw", "codex", "droid", "gemini"),
+    "xingyun": ("openclaw", "codex", "droid", "gemini"),
+    "molifang": ("openclaw", "codex", "droid", "hermes"),
+    "flames": ("cc", "openclaw", "codex", "gemini", "hermes", "grok"),
+    "xai": ("grok",),
+    "deepseek": ("cc", "codex"),
+    "openai": ("openclaw", "codex", "droid"),
+    "openai_Gq80": ("openclaw", "codex", "droid"),
+    "openai_V420": ("openclaw", "codex", "droid"),
+    "openrouter": ("openclaw", "codex", "droid"),
+    "aiwave": ("openclaw", "codex", "droid", "gemini", "hermes"),
+    "duck_cc1": ("cc",),
+    "duck_codex2cc": ("cc",),
+    "icodeeasy": ("cc", "openclaw", "codex", "gemini"),
+    "gemini-balance": ("gemini",),
+}
 CUSTOM_OPENAI_COMPATIBLE_TOOLS = ("codex", "openclaw", "droid", "hermes", "grok")
 CUSTOM_OPENCLAW_APIS = ("openai-completions", "openai-responses")
 CUSTOM_HERMES_API_MODES = ("codex_responses", "chat_completions")
@@ -1230,12 +1250,21 @@ def normalize_available_models(raw: Any) -> List[str]:
     return models
 
 
-def normalize_model_override_tools(raw: Any) -> List[str]:
+def normalize_model_override_tools(raw: Any, provider: str = "") -> List[str]:
     tools = raw if isinstance(raw, list) else ["cc", "codex"]
     normalized = [str(tool).strip() for tool in tools if str(tool).strip()]
-    invalid = [tool for tool in normalized if tool not in ("cc", "codex")]
+    if "all" in normalized:
+        normalized = list(BUILTIN_PROVIDER_TOOLS.get(provider, TOOLS))
+    invalid = [tool for tool in normalized if tool not in TOOLS]
     if invalid:
-        raise SwitchError("Model override tools must be cc and/or codex")
+        raise SwitchError("Model override tools must be one of: " + ", ".join(TOOLS))
+    unsupported = [tool for tool in normalized if provider and tool not in BUILTIN_PROVIDER_TOOLS.get(provider, ())]
+    if unsupported:
+        supported = ", ".join(BUILTIN_PROVIDER_TOOLS.get(provider, ())) or "none"
+        raise SwitchError(
+            f"Provider '{provider}' does not support model overrides for: {', '.join(unsupported)}; "
+            f"supported tools: {supported}"
+        )
     result: List[str] = []
     for tool in normalized:
         if tool not in result:
@@ -1258,7 +1287,7 @@ def load_model_overrides(cfg: "Config") -> Dict[str, Dict[str, Dict[str, Any]]]:
         raise SwitchError(f"Invalid model overrides file: {path}")
     result: Dict[str, Dict[str, Dict[str, Any]]] = {}
     for provider, models in providers.items():
-        if provider not in ("flames", "deepseek") or not isinstance(models, dict):
+        if provider not in PROVIDERS or not isinstance(models, dict):
             continue
         result[provider] = {}
         for model, spec in models.items():
@@ -1266,7 +1295,7 @@ def load_model_overrides(cfg: "Config") -> Dict[str, Dict[str, Dict[str, Any]]]:
             if not model_id or not isinstance(spec, dict):
                 continue
             result[provider][model_id] = {
-                "tools": normalize_model_override_tools(spec.get("tools")),
+                "tools": normalize_model_override_tools(spec.get("tools"), provider),
                 "vision": bool(spec.get("vision", False)),
             }
     return result
@@ -1289,12 +1318,16 @@ def save_model_overrides(cfg: "Config", overrides: Dict[str, Any]) -> None:
 def model_override_entries(cfg: "Config", provider: str = "", tool: str = "") -> Dict[str, Dict[str, Any]]:
     overrides = load_model_overrides(cfg)
     entries: Dict[str, Dict[str, Any]] = {}
-    providers = [provider] if provider else ["flames", "deepseek"]
+    providers = [provider] if provider else list(overrides)
     for name in providers:
         for model, spec in overrides.get(name, {}).items():
             if not tool or tool in spec.get("tools", []):
                 entries[model] = dict(spec)
     return entries
+
+
+def model_override_spec(cfg: "Config", provider: str, model: str) -> Dict[str, Any] | None:
+    return load_model_overrides(cfg).get(provider, {}).get(model)
 
 
 def derive_model_discovery_url(base_url: str) -> str:
@@ -3205,12 +3238,14 @@ def cmd_provider_remove(cfg: Config, name: str) -> None:
 
 
 def cmd_model_override_add(cfg: Config, provider: str, model: str, tools: List[str], vision: bool) -> None:
-    if provider not in ("flames", "deepseek"):
-        raise SwitchError("Built-in model overrides currently support only flames and deepseek")
+    if provider not in PROVIDERS:
+        raise SwitchError("Model overrides support built-in providers only: " + ", ".join(PROVIDERS))
+    if provider in custom_provider_map(load_custom_provider_store(cfg.custom_providers_file)):
+        raise SwitchError(f"{provider} is a custom provider; use provider add/sync-models instead")
     model_id = model.strip()
     if not model_id or any(char.isspace() for char in model_id):
         raise SwitchError("Model id must be non-empty and contain no whitespace")
-    normalized_tools = normalize_model_override_tools(tools)
+    normalized_tools = normalize_model_override_tools(tools, provider)
     overrides = load_model_overrides(cfg)
     overrides.setdefault(provider, {})[model_id] = {
         "tools": normalized_tools,
@@ -3874,7 +3909,11 @@ def is_model_name(s: str) -> bool:
     return True  # default: treat as model name
 
 
-def get_provider_models(provider: str, custom_store: Dict[str, Any] | None = None) -> Dict[str, Tuple[str, ...]]:
+def get_provider_models(
+    provider: str,
+    custom_store: Dict[str, Any] | None = None,
+    cfg: Config | None = None,
+) -> Dict[str, Tuple[str, ...]]:
     """Return {family: (models...)} for a provider."""
     custom_spec = custom_provider_map(custom_store or {}).get(provider)
     if custom_spec:
@@ -3917,7 +3956,10 @@ def get_provider_models(provider: str, custom_store: Dict[str, Any] | None = Non
     elif provider == "openrouter":
         models = OPENROUTER_FREE_MODELS
     else:
-        return {}
+        models = ()
+    if cfg is not None:
+        override_models = model_override_entries(cfg, provider=provider)
+        models = tuple(dict.fromkeys((*models, *override_models.keys())))
     result: Dict[str, list] = {
         "claude": [],
         "gemini": [],
@@ -3933,8 +3975,10 @@ def get_provider_models(provider: str, custom_store: Dict[str, Any] | None = Non
     return {k: tuple(v) for k, v in result.items()}
 
 
-def model_in_provider(model: str, provider: str) -> bool:
+def model_in_provider(model: str, provider: str, cfg: Config | None = None) -> bool:
     """Check if a model name is in the provider's catalog."""
+    if cfg is not None and model in model_override_entries(cfg, provider=provider):
+        return True
     if provider == "openrouter":
         # OpenRouter model IDs contain slashes (e.g. stepfun/step-3.5-flash:free)
         return model in OPENROUTER_FREE_MODELS
@@ -4001,7 +4045,7 @@ def cmd_list_models(
     ]
 
     for prov in providers:
-        catalog = get_provider_models(prov, custom_store)
+        catalog = get_provider_models(prov, custom_store, cfg=cfg)
         total = sum(len(v) for v in catalog.values())
         prov_label = {
             "quotio": "Quotio",
@@ -4638,7 +4682,7 @@ def cmd_check(cfg: Config, keys: Dict[str, str], online: bool = False) -> None:
             bare_model = model.split("/")[-1]
         catalog_model = model if prov == "flames" else bare_model
         if prov in ("quotio", "antigravity", "duck", "openrouter", "icodeeasy", "molifang", "flames", "xai", "aiwave"):
-            in_catalog = model_in_provider(catalog_model, prov)
+            in_catalog = model_in_provider(catalog_model, prov, cfg=cfg)
             status = "✅" if in_catalog else "⚠️"
         elif prov in custom_providers:
             status = "—"
@@ -4673,6 +4717,7 @@ def validate_model_for_tool(
     force: bool = False,
     *,
     custom_provider: Dict[str, Any] | None = None,
+    cfg: Config | None = None,
 ) -> None:
     """Validate model compatibility. Raises SwitchError on failure."""
     if custom_provider is not None:
@@ -4680,6 +4725,9 @@ def validate_model_for_tool(
 
     fam = model_family(model)
     compatible = FAMILY_TOOLS.get(fam, ())
+    registered = cfg is not None and model in model_override_entries(cfg, provider=provider, tool=tool)
+    if registered:
+        compatible = (tool,)
     if provider == "flames" and tool == "cc" and fam == "gpt":
         compatible = tuple(dict.fromkeys((*compatible, "cc")))
 
@@ -4703,9 +4751,9 @@ def validate_model_for_tool(
     if provider == "flames" and tool == "hermes" and fam != "gpt":
         raise SwitchError("Provider 'flames' 在 Hermes 当前只支持 gpt-* 模型。")
 
-    if not force and provider not in ("openai", "openrouter", "quotio_local") and provider not in OPENAI_NAMED_PROVIDERS:
+    if not force and not registered and provider not in ("openai", "openrouter", "quotio_local") and provider not in OPENAI_NAMED_PROVIDERS:
         catalog_model = model if provider == "flames" else model.split("/")[-1]
-        if not model_in_provider(catalog_model, provider):
+        if not model_in_provider(catalog_model, provider, cfg=cfg):
             raise SwitchError(
                 f"Model '{catalog_model}' not found in {provider} catalog.\n"
                 f"  Run: switch-api list {provider}\n"
@@ -4819,8 +4867,42 @@ def switch_cc(provider: str, cfg: Config, keys: Dict[str, str], model: str = "")
         env["CLAUDE_CODE_ATTRIBUTION_HEADER"] = "0"
         info("iCodeEasy: 统一网关（Claude/Gemini/GPT）；Claude Code 仍走 Anthropic 原生 API")
 
+    if model and model in model_override_entries(cfg, provider=provider, tool="cc"):
+        data["model"] = model
+        env.setdefault("ANTHROPIC_CUSTOM_MODEL_OPTION", model)
+        env.setdefault("ANTHROPIC_CUSTOM_MODEL_OPTION_NAME", model)
+        env.setdefault("ANTHROPIC_CUSTOM_MODEL_OPTION_DESCRIPTION", "switch-api registered model override")
+
     save_json(cfg.cc_settings, data)
     ok(f"Claude Code → {provider}")
+
+
+def append_registered_openclaw_model(
+    payload: Dict[str, Any],
+    cfg: Config,
+    provider: str,
+    model: str,
+    api: str,
+) -> None:
+    spec = model_override_entries(cfg, provider=provider, tool="openclaw").get(model)
+    models = payload.get("models")
+    already_present = isinstance(models, list) and any(
+        item.get("id") == model for item in models if isinstance(item, dict)
+    )
+    if spec is None or not isinstance(models, list) or already_present:
+        return
+    entry: Dict[str, Any] = {
+        "id": model,
+        "name": f"{model} ({provider})",
+        "reasoning": True,
+        "input": ["text", "image"] if spec.get("vision") else ["text"],
+        "contextWindow": 200000,
+        "maxTokens": 32768,
+    }
+    if any(isinstance(item, dict) and "cost" in item for item in models):
+        entry["cost"] = {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}
+        entry["api"] = api
+    models.append(entry)
 
 
 def duck_claude_models_payload() -> Dict[str, Any]:
@@ -5518,9 +5600,11 @@ def _switch_openclaw_single_agent(provider: str, cfg: Config, keys: Dict[str, st
             "DUCK_GEMINI_API_KEY/GEMINI_API_KEY", keys["duck_gemini"], "required for OpenClaw duck Gemini"
         )
         target_primary = ""
-        if model and model_family(model) == "gpt":
-            target_primary = f"duckcoding-codex/{model}"
-            info(f"OpenClaw → {target_primary} (Duck Codex via DUCKCODING_API_KEY)")
+        if model:
+            family = model_family(model)
+            target_provider = "duckcoding-codex" if family == "gpt" else "duckcoding" if family == "gemini" else "duckcoding-claude"
+            target_primary = f"{target_provider}/{model}"
+            info(f"OpenClaw → {target_primary}")
         else:
             target_primary, reason = resolve_openclaw_duck_profile(profile)
             if reason:
@@ -5533,19 +5617,23 @@ def _switch_openclaw_single_agent(provider: str, cfg: Config, keys: Dict[str, st
 
         # Claude provider (duckcoding-claude)
         dc = duck_claude_models_payload()
+        append_registered_openclaw_model(dc, cfg, provider, model, "openai-completions")
         dc["apiKey"] = duck_anthropic_key
         oc_providers["duckcoding-claude"] = dc
 
         dcm = duck_claude_models_payload_for_models_json()
+        append_registered_openclaw_model(dcm, cfg, provider, model, "openai-completions")
         dcm["apiKey"] = duck_anthropic_key
         model_providers["duckcoding-claude"] = dcm
 
         # Gemini provider (duckcoding = legacy name for Gemini)
         dg = duck_gemini_models_payload()
+        append_registered_openclaw_model(dg, cfg, provider, model, "openai-completions")
         dg["apiKey"] = duck_gemini_key
         oc_providers["duckcoding"] = dg
 
         dgm = duck_gemini_models_payload_for_models_json()
+        append_registered_openclaw_model(dgm, cfg, provider, model, "openai-completions")
         dgm["apiKey"] = duck_gemini_key
         model_providers["duckcoding"] = dgm
 
@@ -5568,14 +5656,14 @@ def _switch_openclaw_single_agent(provider: str, cfg: Config, keys: Dict[str, st
     elif provider == "quotio":
         q_key = ensure_key("QUOTIO_API_KEY", keys["quotio"], "required for OpenClaw quotio")
 
-        if model and model_family(model) == "gpt":
-            # GPT model (e.g. gpt-5.3-codex) → set as quotio primary directly
-            target_primary = f"quotio/{model}"
+        if model:
+            target_provider = "quotio-gemini" if model_family(model) == "gemini" else "quotio"
+            target_primary = f"{target_provider}/{model}"
             set_openclaw_target_primary_model(
                 oc, cfg.oc_agent_id, target_primary, use_agent_override=use_agent_override
             )
             selected_primary = target_primary
-            info(f"OpenClaw → quotio/{model} (GPT via OpenAI-completions)")
+            info(f"OpenClaw → {target_primary}")
         else:
             target_primary, reason = resolve_openclaw_quotio_profile(profile)
             set_openclaw_target_primary_model(
@@ -5599,9 +5687,11 @@ def _switch_openclaw_single_agent(provider: str, cfg: Config, keys: Dict[str, st
                 "maxTokens": 32768,
             })
         oq["apiKey"] = q_key
+        append_registered_openclaw_model(oq, cfg, provider, model, "openai-completions")
         oc_providers["quotio"] = oq
 
         qg = quotio_gemini_models_payload()
+        append_registered_openclaw_model(qg, cfg, provider, model, "google-generative-ai")
         qg["apiKey"] = q_key
         oc_providers["quotio-gemini"] = qg
 
@@ -5618,16 +5708,22 @@ def _switch_openclaw_single_agent(provider: str, cfg: Config, keys: Dict[str, st
                 "api": "openai-completions",
             })
         oqm["apiKey"] = q_key
+        append_registered_openclaw_model(oqm, cfg, provider, model, "openai-completions")
         model_providers["quotio"] = oqm
 
         qgm = quotio_gemini_models_payload_for_models_json()
+        append_registered_openclaw_model(qgm, cfg, provider, model, "google-generative-ai")
         qgm["apiKey"] = q_key
         model_providers["quotio-gemini"] = qgm
 
 
     elif provider == "antigravity":
         a_key = ensure_key("ANTIGRAVITY_API_KEY", keys["antigravity"], "required for OpenClaw antigravity")
-        target_primary, reason = resolve_openclaw_antigravity_profile(profile)
+        if model:
+            target_provider = "antigravity-gemini" if model_family(model) == "gemini" else "antigravity"
+            target_primary, reason = f"{target_provider}/{model}", ""
+        else:
+            target_primary, reason = resolve_openclaw_antigravity_profile(profile)
         set_openclaw_target_primary_model(
             oc, cfg.oc_agent_id, target_primary, use_agent_override=use_agent_override
         )
@@ -5637,18 +5733,22 @@ def _switch_openclaw_single_agent(provider: str, cfg: Config, keys: Dict[str, st
         info("Antigravity OpenClaw models: claude-opus-4-6-thinking, claude-sonnet-4-6, gemini-3.1-pro-high, ...")
 
         ao = antigravity_openai_models_payload()
+        append_registered_openclaw_model(ao, cfg, provider, model, "openai-completions")
         ao["apiKey"] = a_key
         oc_providers["antigravity"] = ao
 
         ag = antigravity_gemini_models_payload()
+        append_registered_openclaw_model(ag, cfg, provider, model, "google-generative-ai")
         ag["apiKey"] = a_key
         oc_providers["antigravity-gemini"] = ag
 
         aom = antigravity_openai_models_payload_for_models_json()
+        append_registered_openclaw_model(aom, cfg, provider, model, "openai-completions")
         aom["apiKey"] = a_key
         model_providers["antigravity"] = aom
 
         agm = antigravity_gemini_models_payload_for_models_json()
+        append_registered_openclaw_model(agm, cfg, provider, model, "google-generative-ai")
         agm["apiKey"] = a_key
         model_providers["antigravity-gemini"] = agm
 
@@ -5719,7 +5819,8 @@ def _switch_openclaw_single_agent(provider: str, cfg: Config, keys: Dict[str, st
     elif provider == "molifang":
         m_key = ensure_key(MOLIFANG_ENV_KEY, keys["molifang"], "required for OpenClaw molifang")
         target_model = model or MOLIFANG_MODEL
-        if target_model not in MOLIFANG_AVAILABLE_MODELS:
+        registered_m = target_model in model_override_entries(cfg, provider="molifang", tool="openclaw")
+        if target_model not in MOLIFANG_AVAILABLE_MODELS and not registered_m:
             raise SwitchError(f"Molifang only supports {MOLIFANG_MODEL}; requested: {target_model}")
         target_primary = f"molifang/{target_model}"
         set_openclaw_target_primary_model(
@@ -5781,7 +5882,10 @@ def _switch_openclaw_single_agent(provider: str, cfg: Config, keys: Dict[str, st
 
     elif provider == "openrouter":
         or_key = ensure_key("OPENROUTER_API_KEY", keys["openrouter"], "required for OpenClaw openrouter")
-        target_primary, reason = resolve_openclaw_openrouter_profile(profile)
+        if model:
+            target_primary, reason = f"openrouter/{model}", ""
+        else:
+            target_primary, reason = resolve_openclaw_openrouter_profile(profile)
         set_openclaw_target_primary_model(
             oc, cfg.oc_agent_id, target_primary, use_agent_override=use_agent_override
         )
@@ -5791,10 +5895,12 @@ def _switch_openclaw_single_agent(provider: str, cfg: Config, keys: Dict[str, st
         info(f"OpenRouter default: {OPENROUTER_DEFAULT_MODEL} (all free models available)")
 
         orp = openrouter_models_payload()
+        append_registered_openclaw_model(orp, cfg, provider, model, "openai-completions")
         orp["apiKey"] = or_key
         oc_providers["openrouter"] = orp
 
         orm = openrouter_models_payload_for_models_json()
+        append_registered_openclaw_model(orm, cfg, provider, model, "openai-completions")
         orm["apiKey"] = or_key
         model_providers["openrouter"] = orm
 
@@ -6476,6 +6582,8 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
     text = restore_codex_model_catalog(cfg, text)
     if provider == "openai":
         text = comment_codex_model_provider(text)
+        if model:
+            text = set_codex_top_level_string(text, "model", model)
         write_text(cfg.cx_config, text)
         ok("Codex → openai")
         info("Codex 已切到 OpenAI 官方模式（auth.json / ChatGPT OAuth）")
@@ -6485,6 +6593,8 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
         env_key_name = OPENAI_PROVIDER_ENV_KEYS[provider]
         text = set_codex_model_provider(text, "flames_newapi")
         text = set_codex_provider_env_key(text, "flames_newapi", env_key_name)
+        if model:
+            text = set_codex_top_level_string(text, "model", model)
         write_text(cfg.cx_config, text)
         ok(f"Codex → {provider}")
         info(f"Codex 通过 flames_newapi 走 key 槽位 {env_key_name}")
@@ -6505,6 +6615,8 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
     }
     model_provider = provider_map[provider]
     text = set_codex_model_provider(text, model_provider)
+    if model:
+        text = set_codex_top_level_string(text, "model", model)
 
     if provider == "deepseek":
         target_model_d = model or DEEPSEEK_CODEX_DEFAULT_MODEL
@@ -6679,7 +6791,8 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
         molifang_key = ensure_key(MOLIFANG_ENV_KEY, keys.get("molifang", ""), "required for Codex molifang")
         sync_env_key_to_shell_files(cfg, MOLIFANG_ENV_KEY, molifang_key)
         target_model_m = model or MOLIFANG_MODEL
-        if target_model_m not in MOLIFANG_AVAILABLE_MODELS:
+        registered_m = target_model_m in model_override_entries(cfg, provider="molifang", tool="codex")
+        if target_model_m not in MOLIFANG_AVAILABLE_MODELS and not registered_m:
             raise SwitchError(f"Molifang only supports {MOLIFANG_MODEL}; requested: {target_model_m}")
 
         # Molifang currently rejects the Responses image_generation tool for this key/group.
@@ -6718,7 +6831,8 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
         model_match_i = re.search(r'^\s*model\s*=\s*"([^"]+)"\s*$', text, flags=re.M)
         current_model_i = model_match_i.group(1).strip() if model_match_i else ""
         target_model_i = model or current_model_i
-        if model_family(target_model_i) != "gpt":
+        registered_i = target_model_i in model_override_entries(cfg, provider="icodeeasy", tool="codex")
+        if model_family(target_model_i) != "gpt" and not registered_i:
             target_model_i = ICODEEASY_CODEX_MODEL
 
         if model_match_i:
@@ -6772,18 +6886,19 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
 
     if provider == "openrouter":
         # Set default model to step 3.5 flash
+        target_model_or = model or OPENROUTER_DEFAULT_MODEL
         model_match_or = re.search(r'^\s*model\s*=\s*"([^"]+)"\s*$', text, flags=re.M)
         if model_match_or:
             text = re.sub(
                 r'^\s*model\s*=\s*"[^"]+"\s*$',
-                f'model = "{OPENROUTER_DEFAULT_MODEL}"',
+                f'model = "{target_model_or}"',
                 text,
                 count=1,
                 flags=re.M,
             )
         else:
-            text = f'model = "{OPENROUTER_DEFAULT_MODEL}"\n' + text
-        info(f"Codex model set to {OPENROUTER_DEFAULT_MODEL}")
+            text = f'model = "{target_model_or}"\n' + text
+        info(f"Codex model set to {target_model_or}")
 
         # ensure openrouter provider block exists
         if not re.search(r"^\[model_providers\.openrouter\]\s*$", text, flags=re.M):
@@ -7122,7 +7237,8 @@ def switch_hermes(
         base_url = MOLIFANG_BASE_URL_V1
         api_key = ensure_key(MOLIFANG_ENV_KEY, keys["molifang"], "required for Hermes molifang")
         target_model = model or MOLIFANG_MODEL
-        if target_model not in MOLIFANG_AVAILABLE_MODELS:
+        registered_m = target_model in model_override_entries(cfg, provider="molifang", tool="hermes")
+        if target_model not in MOLIFANG_AVAILABLE_MODELS and not registered_m:
             raise SwitchError(f"Molifang only supports {MOLIFANG_MODEL}; requested: {target_model}")
         api_mode = "codex_responses"
     elif provider == "flames":
@@ -7186,16 +7302,17 @@ def switch_droid(provider: str, cfg: Config, keys: Dict[str, str], profile: str 
         d_key = ensure_key(
             "DUCK_GEMINI_API_KEY/GEMINI_API_KEY", keys["duck_gemini"], "required for Droid duck"
         )
+        droid_model = model or DUCK_DROID_MODEL
         sync_shared_shell_env(
             cfg,
             {
                 "GEMINI_BASE_URL": DUCK_BASE_URL_V1,
                 "GEMINI_API_KEY": d_key,
-                "GEMINI_MODEL": DUCK_DROID_MODEL,
+                "GEMINI_MODEL": droid_model,
             },
         )
-        ok(f"Droid → duck / {DUCK_DROID_MODEL} (run 'source ~/.zshrc' or reopen shell to apply)")
-        update_gemini_cli_env(provider, cfg, keys)
+        ok(f"Droid → duck / {droid_model} (run 'source ~/.zshrc' or reopen shell to apply)")
+        update_gemini_cli_env(provider, cfg, keys, model=droid_model)
 
     elif provider == "quotio":
         q_key = ensure_key("QUOTIO_API_KEY", keys["quotio"], "required for Droid quotio")
@@ -7250,16 +7367,17 @@ def switch_droid(provider: str, cfg: Config, keys: Dict[str, str], profile: str 
     elif provider == "antigravity":
         _clear_factory_custom_models(cfg.factory_settings)
         a_key = ensure_key("ANTIGRAVITY_API_KEY", keys["antigravity"], "required for Droid antigravity")
+        droid_model = model or ANTIGRAVITY_DROID_MODEL
         sync_shared_shell_env(
             cfg,
             {
                 "GEMINI_BASE_URL": ANTIGRAVITY_BASE_URL_V1BETA,
                 "GEMINI_API_KEY": a_key,
-                "GEMINI_MODEL": ANTIGRAVITY_DROID_MODEL,
+                "GEMINI_MODEL": droid_model,
             },
         )
-        ok(f"Droid → antigravity / {ANTIGRAVITY_DROID_MODEL} (run 'source ~/.zshrc' or reopen shell to apply)")
-        update_gemini_cli_env(provider, cfg, keys)
+        ok(f"Droid → antigravity / {droid_model} (run 'source ~/.zshrc' or reopen shell to apply)")
+        update_gemini_cli_env(provider, cfg, keys, model=droid_model)
 
     elif provider == "xingyun":
         x_key = ensure_key("XINGYUN_API_KEY", keys["xingyun"], "required for Droid xingyun")
@@ -7280,7 +7398,8 @@ def switch_droid(provider: str, cfg: Config, keys: Dict[str, str], profile: str 
     elif provider == "molifang":
         m_key = ensure_key(MOLIFANG_ENV_KEY, keys["molifang"], "required for Droid molifang")
         droid_model = model or MOLIFANG_MODEL
-        if droid_model not in MOLIFANG_AVAILABLE_MODELS:
+        registered_m = droid_model in model_override_entries(cfg, provider="molifang", tool="droid")
+        if droid_model not in MOLIFANG_AVAILABLE_MODELS and not registered_m:
             raise SwitchError(f"Molifang only supports {MOLIFANG_MODEL}; requested: {droid_model}")
         _write_factory_custom_models(cfg.factory_settings, [
             {
@@ -7297,18 +7416,19 @@ def switch_droid(provider: str, cfg: Config, keys: Dict[str, str], profile: str 
 
     elif provider == "openrouter":
         or_key = ensure_key("OPENROUTER_API_KEY", keys["openrouter"], "required for Droid openrouter")
+        droid_model = model or OPENROUTER_DEFAULT_MODEL
         _write_factory_custom_models(cfg.factory_settings, [
             {
-                "model": OPENROUTER_DEFAULT_MODEL,
-                "displayName": f"OpenRouter {OPENROUTER_DEFAULT_MODEL}",
+                "model": droid_model,
+                "displayName": f"OpenRouter {droid_model}",
                 "baseUrl": OPENROUTER_BASE_URL_V1,
                 "apiKey": or_key,
                 "provider": "openai",
             }
         ])
-        ok(f"Droid → openrouter / {OPENROUTER_DEFAULT_MODEL}")
+        ok(f"Droid → openrouter / {droid_model}")
         info(f"  Written to {cfg.factory_settings}")
-        info(f"  In Droid: /model → select \"OpenRouter {OPENROUTER_DEFAULT_MODEL}\" under Custom Models")
+        info(f"  In Droid: /model → select \"OpenRouter {droid_model}\" under Custom Models")
 
     elif provider == "quotio_local":
         q_key = ensure_key("QUOTIO_API_KEY", keys["quotio"], "required for Droid quotio_local")
@@ -7388,8 +7508,8 @@ def usage() -> None:
     print("  switch-api provider import <path|-> [--replace]")
     print("  switch-api provider rm <name>")
     print("  switch-api model list")
-    print("  switch-api model add <flames|deepseek> <model> [--tools cc,codex] [--vision]")
-    print("  switch-api model rm <flames|deepseek> <model>")
+    print("  switch-api model add <provider> <model> [--tools cc,codex,...|all] [--vision]")
+    print("  switch-api model rm <provider> <model>")
     print("  switch-api <provider>")
     print("  switch-api all <provider>")
     print("  switch-api <tool> <provider>")
@@ -7428,6 +7548,9 @@ def usage() -> None:
     print("       switch-api provider export-all ./providers.bundle.json --with-secrets")
     print("       switch-api provider import ./providers.bundle.json")
     print("       switch-api model add flames deepseek-v4-flash-vision-exp --tools cc,codex --vision")
+    print("       switch-api model add xingyun gpt-next --tools codex,openclaw")
+    print("       # --tools all expands to tools supported by that built-in provider")
+    print("       # registration adds model IDs; it does not add provider protocols or credentials")
     print("       switch-api cc myrelay")
     print("       switch-api codex myrelay")
     print("       switch-api grok myrelay")
@@ -7881,7 +8004,10 @@ def parse_provider_import_args(args: List[str]) -> Dict[str, Any]:
 
 def parse_model_override_add_args(args: List[str]) -> Dict[str, Any]:
     if len(args) < 2:
-        raise SwitchError("Usage: switch-api model add <flames|deepseek> <model> [--tools cc,codex] [--vision]")
+        raise SwitchError(
+            "Usage: switch-api model add <provider> <model> "
+            "[--tools cc,codex,...|all] [--vision]"
+        )
     provider, model = args[0], args[1]
     tools = ["cc", "codex"]
     vision = False
@@ -8170,7 +8296,7 @@ def main() -> int:
         return 0
 
     if tool == "list":
-        cmd_list_models(provider, custom_store)
+        cmd_list_models(provider, custom_store, cfg=cfg)
         return 0
 
     if tool == "list-online":
@@ -8423,7 +8549,7 @@ def main() -> int:
     if profile.startswith("@model:"):
         model = profile[7:]
         profile = ""
-        validate_model_for_tool(tool, model, provider, force, custom_provider=custom_spec)
+        validate_model_for_tool(tool, model, provider, force, custom_provider=custom_spec, cfg=cfg)
 
     if custom_spec is not None:
         if tool == "cc":

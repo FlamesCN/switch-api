@@ -100,8 +100,18 @@ switch-api myrelay                   # 切换该 custom provider 启用的全部
 - custom provider 现在支持自动探测 `/v1/models` 并缓存到：
   - `~/.config/switch-api/custom-providers.json`
   - `~/.config/switch-api/provider-models.json`
+  - 内置模型登记另存于 `~/.config/switch-api/model-overrides.json`
 
-内置 `flames` / `deepseek` 的新模型可用 `switch-api model add` 持久登记，无需升级脚本；Codex DeepSeek catalog 会按登记信息动态生成。
+内置 provider 的新模型可用 `switch-api model add` 持久登记，无需升级脚本；登记信息会用于模型列表、模型级校验和各工具的显式模型配置。DeepSeek Codex catalog 也会按登记信息动态生成。
+
+```bash
+switch-api model add <provider> <model> --tools cc,codex [--vision]
+# --tools all 只展开为该 provider 已支持的工具
+switch-api model list
+switch-api model rm <provider> <model>
+```
+
+该命令只登记新模型 ID，不会新增 provider 的 API 协议、工具适配或凭据。无效的 provider/tool 组合会在登记时直接拒绝。
 
 同一个 provider 名称可以同时挂这两套配置；例如先执行：
 - `switch-api provider add-openai myrelay ...`

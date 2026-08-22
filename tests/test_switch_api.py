@@ -835,6 +835,150 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         model = next(item for item in catalog["models"] if item["slug"] == "deepseek-v4-flash-next")
         self.assertEqual(model["input_modalities"], ["text", "image"])
 
+    def test_model_override_supports_other_builtin_provider_and_tool_scope(self):
+        self.mod.cmd_model_override_add(
+            self.cfg,
+            "xingyun",
+            "gpt-next",
+            ["codex", "openclaw"],
+            False,
+        )
+
+        self.mod.validate_model_for_tool(
+            "codex",
+            "gpt-next",
+            "xingyun",
+            cfg=self.cfg,
+        )
+        with self.assertRaises(self.mod.SwitchError):
+            self.mod.validate_model_for_tool(
+                "cc",
+                "gpt-next",
+                "xingyun",
+                cfg=self.cfg,
+            )
+
+        listed = self.mod.get_provider_models("xingyun", cfg=self.cfg)
+        self.assertIn("gpt-next", listed["gpt"])
+
+    def test_model_override_all_expands_to_provider_tools(self):
+        self.mod.cmd_model_override_add(
+            self.cfg,
+            "flames",
+            "universal-next",
+            ["all"],
+            False,
+        )
+
+        entry = self.mod.model_override_spec(self.cfg, "flames", "universal-next")
+        self.assertEqual(
+            entry["tools"],
+            list(self.mod.BUILTIN_PROVIDER_TOOLS["flames"]),
+        )
+
+    def test_model_override_rejects_tool_not_supported_by_provider(self):
+        with self.assertRaisesRegex(
+            self.mod.SwitchError,
+            "does not support model overrides for: grok",
+        ):
+            self.mod.cmd_model_override_add(
+                self.cfg,
+                "deepseek",
+                "deepseek-v4-next",
+                ["grok"],
+                False,
+            )
+
+    def test_registered_model_is_listed_for_provider_without_builtin_catalog(self):
+        self.mod.cmd_model_override_add(
+            self.cfg,
+            "openai",
+            "gpt-next",
+            ["codex"],
+            False,
+        )
+
+        listed = self.mod.get_provider_models("openai", cfg=self.cfg)
+        self.assertIn("gpt-next", listed["gpt"])
+
+    def test_registered_openrouter_model_switches_codex(self):
+        self.mod.cmd_model_override_add(
+            self.cfg,
+            "openrouter",
+            "vendor/model-next",
+            ["codex"],
+            False,
+        )
+
+        self.mod.switch_codex(
+            "openrouter",
+            self.cfg,
+            {"openrouter": "dummy"},
+            model="vendor/model-next",
+        )
+        text = self.cfg.cx_config.read_text(encoding="utf-8")
+        self.assertIn('model = "vendor/model-next"', text)
+        self.assertIn('model_provider = "openrouter"', text)
+
+    def test_registered_openrouter_model_switches_droid(self):
+        self.mod.cmd_model_override_add(
+            self.cfg,
+            "openrouter",
+            "vendor/model-next",
+            ["droid"],
+            False,
+        )
+
+        self.mod.switch_droid(
+            "openrouter",
+            self.cfg,
+            {"openrouter": "dummy"},
+            model="vendor/model-next",
+        )
+        settings = json.loads(self.cfg.factory_settings.read_text(encoding="utf-8"))
+        self.assertEqual(settings["customModels"][0]["model"], "vendor/model-next")
+
+    def test_registered_openrouter_model_switches_openclaw(self):
+        self.init_openclaw_files()
+        self.mod.cmd_model_override_add(
+            self.cfg,
+            "openrouter",
+            "vendor/model-next",
+            ["openclaw"],
+            True,
+        )
+
+        self.mod.switch_openclaw(
+            "openrouter",
+            self.cfg,
+            {"openrouter": "dummy"},
+            model="vendor/model-next",
+        )
+        config = json.loads(self.cfg.oc_config.read_text(encoding="utf-8"))
+        self.assertEqual(
+            config["agents"]["defaults"]["model"]["primary"],
+            "openrouter/vendor/model-next",
+        )
+        registered = next(
+            item
+            for item in config["models"]["providers"]["openrouter"]["models"]
+            if item["id"] == "vendor/model-next"
+        )
+        self.assertEqual(registered["input"], ["text", "image"])
+
+    def test_registered_xingyun_model_switches_codex(self):
+        self.mod.cmd_model_override_add(
+            self.cfg,
+            "xingyun",
+            "gpt-next",
+            ["codex"],
+            False,
+        )
+        self.mod.switch_codex("xingyun", self.cfg, {"xingyun": "dummy"}, model="gpt-next")
+        text = self.cfg.cx_config.read_text(encoding="utf-8")
+        self.assertIn('model = "gpt-next"', text)
+        self.assertIn('model_provider = "xingyun"', text)
+
     @patch("subprocess.run")
     def test_switch_codex_restores_previous_catalog_after_deepseek(self, run):
         self.mock_codex_bundled_catalog(run)

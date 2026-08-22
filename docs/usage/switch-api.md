@@ -427,14 +427,27 @@ switch-api codex duck gpt-5.3-codex-high
 /switch openclaw openai oauth
 ```
 
-内置 `flames` / `deepseek` 的新模型可先登记，之后无需升级脚本：
+内置 provider 的新模型可先登记，之后无需升级脚本。`--tools` 可填写 `cc`、`openclaw`、`codex`、`droid`、`gemini`、`hermes`、`grok` 中的一个或多个，也可写 `all`；`all` 只展开为该 provider 已支持的工具。`--vision` 会在支持 catalog 的路径声明图像输入：
 
 ```bash
-switch-api model add flames <model> --tools cc,codex [--vision]
-switch-api model add deepseek <model> --tools cc,codex [--vision]
+switch-api model add <provider> <model> --tools cc,codex [--vision]
 switch-api model list
 switch-api model rm flames <model>
 ```
+
+登记保存在 `~/.config/switch-api/model-overrides.json`。它只扩展模型 ID，不会新增 API 协议、工具适配或凭据；不受 provider 支持的工具会在登记时直接拒绝。当前内置能力分组如下：
+
+- `duck`、`quotio`、`antigravity`：`cc,openclaw,codex,droid,gemini`
+- `xingyun`：`openclaw,codex,droid,gemini`
+- `flames`：`cc,openclaw,codex,gemini,hermes,grok`
+- `deepseek`：`cc,codex`
+- `openai`、命名 OpenAI 槽位、`openrouter`：`openclaw,codex,droid`
+- `molifang`：`openclaw,codex,droid,hermes`
+- `aiwave`：`openclaw,codex,droid,gemini,hermes`
+- `icodeeasy`：`cc,openclaw,codex,gemini`
+- `quotio_local`：`codex,droid`
+- `duck_cc1`、`duck_codex2cc`：`cc`
+- `xai`：`grok`；`gemini-balance`：`gemini`
 
 ### 只切某个工具
 
