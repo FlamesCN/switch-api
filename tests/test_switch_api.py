@@ -814,6 +814,28 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertEqual(deepseek["input_modalities"], ["text", "image"])
 
     @patch("subprocess.run")
+    def test_registered_deepseek_model_can_be_used_without_code_change(self, run):
+        self.mock_codex_bundled_catalog(run)
+        self.mod.cmd_model_override_add(
+            self.cfg,
+            "deepseek",
+            "deepseek-v4-flash-next",
+            ["codex"],
+            True,
+        )
+
+        self.mod.switch_codex(
+            "deepseek",
+            self.cfg,
+            {"deepseek": "dummy"},
+            model="deepseek-v4-flash-next",
+        )
+
+        catalog = json.loads(self.cfg.codex_deepseek_catalog.read_text(encoding="utf-8"))
+        model = next(item for item in catalog["models"] if item["slug"] == "deepseek-v4-flash-next")
+        self.assertEqual(model["input_modalities"], ["text", "image"])
+
+    @patch("subprocess.run")
     def test_switch_codex_restores_previous_catalog_after_deepseek(self, run):
         self.mock_codex_bundled_catalog(run)
         original_catalog = "/tmp/custom-codex-models.json"

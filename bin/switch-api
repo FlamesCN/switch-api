@@ -547,6 +547,7 @@ DEEPSEEK_CC_MODEL_ALIASES = {
     "ANTHROPIC_DEFAULT_HAIKU_MODEL": "deepseek-v4-flash",
     "CLAUDE_CODE_SUBAGENT_MODEL": "deepseek-v4-flash",
 }
+MODEL_OVERRIDES_FILENAME = "model-overrides.json"
 
 # OpenAI named accounts: same base URL, different keys (tag = first 4 chars of key after sk-proj-)
 OPENAI_NAMED_PROVIDERS = ("openai_Gq80", "openai_V420")
@@ -1227,6 +1228,73 @@ def normalize_available_models(raw: Any) -> List[str]:
         if value and value not in models:
             models.append(value)
     return models
+
+
+def normalize_model_override_tools(raw: Any) -> List[str]:
+    tools = raw if isinstance(raw, list) else ["cc", "codex"]
+    normalized = [str(tool).strip() for tool in tools if str(tool).strip()]
+    invalid = [tool for tool in normalized if tool not in ("cc", "codex")]
+    if invalid:
+        raise SwitchError("Model override tools must be cc and/or codex")
+    result: List[str] = []
+    for tool in normalized:
+        if tool not in result:
+            result.append(tool)
+    if not result:
+        raise SwitchError("Model override must enable at least one tool")
+    return result
+
+
+def load_model_overrides(cfg: "Config") -> Dict[str, Dict[str, Dict[str, Any]]]:
+    path = cfg.model_overrides_file
+    if not path.exists():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as ex:
+        raise SwitchError(f"Failed to parse model overrides: {path}: {ex}")
+    providers = raw.get("providers") if isinstance(raw, dict) else None
+    if not isinstance(providers, dict):
+        raise SwitchError(f"Invalid model overrides file: {path}")
+    result: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    for provider, models in providers.items():
+        if provider not in ("flames", "deepseek") or not isinstance(models, dict):
+            continue
+        result[provider] = {}
+        for model, spec in models.items():
+            model_id = str(model).strip()
+            if not model_id or not isinstance(spec, dict):
+                continue
+            result[provider][model_id] = {
+                "tools": normalize_model_override_tools(spec.get("tools")),
+                "vision": bool(spec.get("vision", False)),
+            }
+    return result
+
+
+def save_model_overrides(cfg: "Config", overrides: Dict[str, Any]) -> None:
+    cfg.model_overrides_file.parent.mkdir(parents=True, exist_ok=True)
+    tmp = cfg.model_overrides_file.with_suffix(".tmp")
+    tmp.write_text(
+        json.dumps({"providers": overrides}, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    try:
+        tmp.chmod(0o600)
+    except Exception:
+        pass
+    os.replace(tmp, cfg.model_overrides_file)
+
+
+def model_override_entries(cfg: "Config", provider: str = "", tool: str = "") -> Dict[str, Dict[str, Any]]:
+    overrides = load_model_overrides(cfg)
+    entries: Dict[str, Dict[str, Any]] = {}
+    providers = [provider] if provider else ["flames", "deepseek"]
+    for name in providers:
+        for model, spec in overrides.get(name, {}).items():
+            if not tool or tool in spec.get("tools", []):
+                entries[model] = dict(spec)
+    return entries
 
 
 def derive_model_discovery_url(base_url: str) -> str:
@@ -3136,6 +3204,49 @@ def cmd_provider_remove(cfg: Config, name: str) -> None:
     ok(f"Removed custom provider → {provider_name}")
 
 
+def cmd_model_override_add(cfg: Config, provider: str, model: str, tools: List[str], vision: bool) -> None:
+    if provider not in ("flames", "deepseek"):
+        raise SwitchError("Built-in model overrides currently support only flames and deepseek")
+    model_id = model.strip()
+    if not model_id or any(char.isspace() for char in model_id):
+        raise SwitchError("Model id must be non-empty and contain no whitespace")
+    normalized_tools = normalize_model_override_tools(tools)
+    overrides = load_model_overrides(cfg)
+    overrides.setdefault(provider, {})[model_id] = {
+        "tools": normalized_tools,
+        "vision": bool(vision),
+    }
+    save_model_overrides(cfg, overrides)
+    ok(f"Registered model override → {provider}/{model_id}")
+    info(f"tools={','.join(normalized_tools)} vision={'on' if vision else 'off'}")
+
+
+def cmd_model_override_remove(cfg: Config, provider: str, model: str) -> None:
+    overrides = load_model_overrides(cfg)
+    models = overrides.get(provider, {})
+    if model not in models:
+        raise SwitchError(f"Model override not found: {provider}/{model}")
+    del models[model]
+    if not models:
+        overrides.pop(provider, None)
+    save_model_overrides(cfg, overrides)
+    ok(f"Removed model override → {provider}/{model}")
+
+
+def cmd_model_override_list(cfg: Config) -> None:
+    entries = load_model_overrides(cfg)
+    if not entries:
+        print("No built-in model overrides registered.")
+        return
+    print("Built-in model overrides:")
+    for provider in sorted(entries):
+        for model, spec in sorted(entries[provider].items()):
+            print(
+                f"  {provider:<9} {model:<40} "
+                f"tools={','.join(spec['tools'])} vision={'on' if spec['vision'] else 'off'}"
+            )
+
+
 def resolve_cc_model_for_quotio(current_model: str) -> Tuple[str, str]:
     m = (current_model or "").strip()
     if not m:
@@ -3326,6 +3437,7 @@ class Config:
         self.cred_file = self.switch_dir / "credentials.json"
         self.custom_providers_file = self.switch_dir / "custom-providers.json"
         self.provider_models_file = self.switch_dir / "provider-models.json"
+        self.model_overrides_file = self.switch_dir / MODEL_OVERRIDES_FILENAME
         self.codex_accounts_file = self.switch_dir / "codex-accounts.json"
 
 
@@ -4097,9 +4209,10 @@ def _build_deepseek_codex_model(
     slug: str,
     display_name: str,
     template: Dict[str, Any],
+    vision: bool = False,
 ) -> Dict[str, Any]:
     """Build a DeepSeek Codex model entry on top of a bundled template."""
-    is_vision_model = slug.endswith("-vision-exp")
+    is_vision_model = vision or slug.endswith("-vision-exp")
     deepseek_model = {
         "slug": slug,
         "prefer_websockets": False,
@@ -4147,7 +4260,7 @@ def _build_deepseek_codex_model(
     return deepseek_model
 
 
-def build_deepseek_codex_catalog() -> Dict[str, Any]:
+def build_deepseek_codex_catalog(cfg: Config | None = None) -> Dict[str, Any]:
     """Build the official DeepSeek V4 Flash/Pro Codex catalog on top of bundled models."""
     catalog = load_codex_bundled_catalog()
     models = [model for model in catalog["models"] if isinstance(model, dict)]
@@ -4158,16 +4271,26 @@ def build_deepseek_codex_catalog() -> Dict[str, Any]:
     if not template or not isinstance(template.get("base_instructions"), str):
         raise SwitchError("Bundled Codex model catalog has no usable instruction template")
 
+    override_entries = model_override_entries(cfg, tool="codex") if cfg else {}
+    managed_models = list(DEEPSEEK_CODEX_AVAILABLE_MODELS)
+    for model_id in override_entries:
+        if model_id not in managed_models and model_family(model_id) == "deepseek":
+            managed_models.append(model_id)
     display_names = {
         "deepseek-v4-flash": "DeepSeek-V4-Flash",
         "deepseek-v4-flash-vision-exp": "DeepSeek-V4-Flash Vision (Experimental)",
         "deepseek-v4-pro": "DeepSeek-V4-Pro",
     }
     deepseek_models = [
-        _build_deepseek_codex_model(slug, display_names[slug], template)
-        for slug in DEEPSEEK_CODEX_AVAILABLE_MODELS
+        _build_deepseek_codex_model(
+            slug,
+            display_names.get(slug, slug),
+            template,
+            vision=bool(override_entries.get(slug, {}).get("vision", False)),
+        )
+        for slug in managed_models
     ]
-    managed_slugs = set(DEEPSEEK_CODEX_AVAILABLE_MODELS)
+    managed_slugs = set(managed_models)
     catalog["models"] = [
         model for model in models if model.get("slug") not in managed_slugs
     ] + deepseek_models
@@ -4201,7 +4324,13 @@ def codex_deepseek_catalog_is_ready(cfg: Config, text: str) -> bool:
         for model in catalog.get("models", [])
         if isinstance(model, dict)
     }
-    return all(slug in catalog_slugs for slug in DEEPSEEK_CODEX_AVAILABLE_MODELS)
+    required = set(DEEPSEEK_CODEX_AVAILABLE_MODELS)
+    required.update(
+        model
+        for model, spec in model_override_entries(cfg, provider="deepseek", tool="codex").items()
+        if model_family(model) == "deepseek"
+    )
+    return required.issubset(catalog_slugs)
 
 
 def activate_flames_kimi_codex_catalog(cfg: Config, text: str) -> str:
@@ -4231,7 +4360,7 @@ def activate_deepseek_codex_catalog(cfg: Config, text: str) -> str:
         )
 
     cfg.codex_deepseek_catalog.parent.mkdir(parents=True, exist_ok=True)
-    save_json(cfg.codex_deepseek_catalog, build_deepseek_codex_catalog())
+    save_json(cfg.codex_deepseek_catalog, build_deepseek_codex_catalog(cfg))
     info(f"Codex DeepSeek metadata catalog → {cfg.codex_deepseek_catalog}")
     return set_codex_top_level_string(text, "model_catalog_json", managed_path)
 
@@ -6379,11 +6508,13 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
 
     if provider == "deepseek":
         target_model_d = model or DEEPSEEK_CODEX_DEFAULT_MODEL
-        if target_model_d not in DEEPSEEK_CODEX_AVAILABLE_MODELS:
+        registered = model_override_entries(cfg, provider="deepseek", tool="codex")
+        if target_model_d not in DEEPSEEK_CODEX_AVAILABLE_MODELS and target_model_d not in registered:
             raise SwitchError(
                 "DeepSeek Codex supports "
                 + ", ".join(DEEPSEEK_CODEX_AVAILABLE_MODELS)
-                + f"; requested: {target_model_d}"
+                + "; or registered overrides; requested: "
+                + target_model_d
             )
 
         deepseek_key = ensure_key(
@@ -7256,6 +7387,9 @@ def usage() -> None:
     print("  switch-api provider export-all [path|-] [--with-secrets]")
     print("  switch-api provider import <path|-> [--replace]")
     print("  switch-api provider rm <name>")
+    print("  switch-api model list")
+    print("  switch-api model add <flames|deepseek> <model> [--tools cc,codex] [--vision]")
+    print("  switch-api model rm <flames|deepseek> <model>")
     print("  switch-api <provider>")
     print("  switch-api all <provider>")
     print("  switch-api <tool> <provider>")
@@ -7293,6 +7427,7 @@ def usage() -> None:
     print("       switch-api provider export myrelay ./myrelay.provider.json")
     print("       switch-api provider export-all ./providers.bundle.json --with-secrets")
     print("       switch-api provider import ./providers.bundle.json")
+    print("       switch-api model add flames deepseek-v4-flash-vision-exp --tools cc,codex --vision")
     print("       switch-api cc myrelay")
     print("       switch-api codex myrelay")
     print("       switch-api grok myrelay")
@@ -7744,6 +7879,33 @@ def parse_provider_import_args(args: List[str]) -> Dict[str, Any]:
     return {"path": source, "replace": replace}
 
 
+def parse_model_override_add_args(args: List[str]) -> Dict[str, Any]:
+    if len(args) < 2:
+        raise SwitchError("Usage: switch-api model add <flames|deepseek> <model> [--tools cc,codex] [--vision]")
+    provider, model = args[0], args[1]
+    tools = ["cc", "codex"]
+    vision = False
+    idx = 2
+    while idx < len(args):
+        arg = args[idx]
+        if arg == "--vision":
+            vision = True
+            idx += 1
+            continue
+        if arg.startswith("--tools="):
+            tools = [part.strip() for part in arg.split("=", 1)[1].split(",") if part.strip()]
+            idx += 1
+            continue
+        if arg == "--tools":
+            if idx + 1 >= len(args):
+                raise SwitchError("Missing value for --tools")
+            tools = [part.strip() for part in args[idx + 1].split(",") if part.strip()]
+            idx += 2
+            continue
+        raise SwitchError(f"Unknown model add option: {arg}")
+    return {"provider": provider, "model": model, "tools": tools, "vision": vision}
+
+
 def parse_args(argv: Iterable[str], known_providers: Iterable[str] | None = None) -> Tuple[str, str, Any]:
     """Returns (action, provider, profile_or_model).
     action can be: status, check, check-online, list, list-<provider>,
@@ -7816,6 +7978,23 @@ def parse_args(argv: Iterable[str], known_providers: Iterable[str] | None = None
                 raise SystemExit(1)
             return ("provider-import", payload["path"], payload)
         err("Usage: switch-api provider <list|sync-models|rm|add-openai|add-anthropic|export|export-all|import> ...")
+        usage()
+        raise SystemExit(1)
+
+    if args[0] == "model":
+        if len(args) == 2 and args[1] == "list":
+            return ("model-override-list", "", "")
+        if len(args) == 4 and args[1] in ("rm", "remove", "delete"):
+            return ("model-override-remove", args[2], args[3])
+        if len(args) >= 4 and args[1] == "add":
+            try:
+                payload = parse_model_override_add_args(args[2:])
+            except SwitchError as ex:
+                err(str(ex))
+                usage()
+                raise SystemExit(1)
+            return ("model-override-add", payload["provider"], payload)
+        err("Usage: switch-api model <list|add|rm> ...")
         usage()
         raise SystemExit(1)
 
@@ -8075,6 +8254,24 @@ def main() -> int:
     if tool == "provider-remove":
         cmd_provider_remove(cfg, provider)
         save_provider_model_catalog(cfg.provider_models_file, load_custom_provider_store(cfg.custom_providers_file))
+        return 0
+
+    if tool == "model-override-list":
+        cmd_model_override_list(cfg)
+        return 0
+
+    if tool == "model-override-remove":
+        cmd_model_override_remove(cfg, provider, str(profile))
+        return 0
+
+    if tool == "model-override-add":
+        cmd_model_override_add(
+            cfg,
+            provider,
+            str(profile["model"]),
+            list(profile["tools"]),
+            bool(profile["vision"]),
+        )
         return 0
 
     custom_spec = custom_provider_map(custom_store).get(provider)

@@ -67,6 +67,8 @@ switch-api provider add-anthropic myrelay https://relay.example.com/anthropic MY
 switch-api provider add-anthropic myrelay https://relay.example.com/anthropic MY_RELAY_CC_API_KEY claude-sonnet-4-6 --env CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 switch-api provider add-anthropic anyrouter https://anyrouter.top ANYROUTER_API_KEY claude-opus-4-8 --env ANTHROPIC_BETAS=context-1m-2025-08-07
 switch-api provider sync-models anyrouter
+switch-api model list
+switch-api model add flames deepseek-v4-flash-vision-exp --tools cc,codex --vision
 switch-api probe anyrouter
 switch-api doctor anyrouter
 switch-api list anyrouter --online
@@ -98,6 +100,8 @@ switch-api myrelay                   # 切换该 custom provider 启用的全部
 - custom provider 现在支持自动探测 `/v1/models` 并缓存到：
   - `~/.config/switch-api/custom-providers.json`
   - `~/.config/switch-api/provider-models.json`
+
+内置 `flames` / `deepseek` 的新模型可用 `switch-api model add` 持久登记，无需升级脚本；Codex DeepSeek catalog 会按登记信息动态生成。
 
 同一个 provider 名称可以同时挂这两套配置；例如先执行：
 - `switch-api provider add-openai myrelay ...`

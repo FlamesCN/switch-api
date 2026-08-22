@@ -427,6 +427,15 @@ switch-api codex duck gpt-5.3-codex-high
 /switch openclaw openai oauth
 ```
 
+内置 `flames` / `deepseek` 的新模型可先登记，之后无需升级脚本：
+
+```bash
+switch-api model add flames <model> --tools cc,codex [--vision]
+switch-api model add deepseek <model> --tools cc,codex [--vision]
+switch-api model list
+switch-api model rm flames <model>
+```
+
 ### 只切某个工具
 
 ```
@@ -710,6 +719,7 @@ switch-api openclaw openai key
   - 写入 `~/.env`
   - 检查 `~/.zshrc` / `~/.bashrc` 是否已加载 `~/.env`；若没有则自动补一条
 - 自定义 provider 注册表：`~/.config/switch-api/custom-providers.json`
+- 内置模型覆盖注册表：`~/.config/switch-api/model-overrides.json`
 - 当前自定义 provider 命令：
   - `switch-api provider add-openai <name> <base_url> <env_key> <default_model> [--disable-image-generation]`
   - `switch-api provider add-anthropic <name> <base_url> <env_key> <default_model> [--env KEY=VALUE ...]`
