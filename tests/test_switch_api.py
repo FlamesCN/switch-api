@@ -618,6 +618,34 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertEqual(deepseek["max_context_window"], 1_048_576)
 
     @patch("subprocess.run")
+    def test_switch_codex_flames_accepts_deepseek_v4_flash_vision(self, run):
+        self.mock_codex_bundled_catalog(run)
+
+        self.mod.switch_codex(
+            "flames",
+            self.cfg,
+            {"flames": "dummy"},
+            model="deepseek-v4-flash-vision-exp",
+        )
+
+        text = self.cfg.cx_config.read_text(encoding="utf-8")
+        self.assertIn('model = "deepseek-v4-flash-vision-exp"', text)
+        self.assertIn('wire_api = "responses"', text)
+        self.assertIn(
+            f'model_catalog_json = "{self.cfg.codex_deepseek_catalog}"',
+            text,
+        )
+
+        catalog = json.loads(self.cfg.codex_deepseek_catalog.read_text(encoding="utf-8"))
+        deepseek = next(
+            model
+            for model in catalog["models"]
+            if model["slug"] == "deepseek-v4-flash-vision-exp"
+        )
+        self.assertEqual(deepseek["input_modalities"], ["text", "image"])
+
+
+    @patch("subprocess.run")
     def test_switch_codex_flames_accepts_kimi_k3_with_existing_key_slot(self, run):
         self.mock_codex_bundled_catalog(run)
 
@@ -763,6 +791,29 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertEqual(deepseek["base_instructions"], "You are Codex.")
 
     @patch("subprocess.run")
+    def test_switch_codex_deepseek_writes_v4_flash_vision_catalog(self, run):
+        self.mock_codex_bundled_catalog(run)
+
+        self.mod.switch_codex(
+            "deepseek",
+            self.cfg,
+            {"deepseek": "dummy"},
+            model="deepseek-v4-flash-vision-exp",
+        )
+
+        text = self.cfg.cx_config.read_text(encoding="utf-8")
+        self.assertIn('model = "deepseek-v4-flash-vision-exp"', text)
+        self.assertIn('model_provider = "deepseek"', text)
+
+        catalog = json.loads(self.cfg.codex_deepseek_catalog.read_text(encoding="utf-8"))
+        deepseek = next(
+            model
+            for model in catalog["models"]
+            if model["slug"] == "deepseek-v4-flash-vision-exp"
+        )
+        self.assertEqual(deepseek["input_modalities"], ["text", "image"])
+
+    @patch("subprocess.run")
     def test_switch_codex_restores_previous_catalog_after_deepseek(self, run):
         self.mock_codex_bundled_catalog(run)
         original_catalog = "/tmp/custom-codex-models.json"
@@ -816,6 +867,24 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertEqual(data["model"], "claude-sonnet-5")
         self.assertEqual(env["ANTHROPIC_CUSTOM_MODEL_OPTION"], "claude-sonnet-5")
         self.assertEqual(env["ANTHROPIC_CUSTOM_MODEL_OPTION_NAME"], "Claude Sonnet 5")
+
+    def test_switch_cc_flames_accepts_deepseek_v4_flash_vision(self):
+        self.init_cc_settings(model="claude-sonnet-4-6")
+
+        self.mod.switch_cc(
+            "flames",
+            self.cfg,
+            {"flames": "dummy"},
+            model="deepseek-v4-flash-vision-exp",
+        )
+
+        data = json.loads(self.cfg.cc_settings.read_text(encoding="utf-8"))
+        env = data["env"]
+        self.assertEqual(data["model"], "deepseek-v4-flash-vision-exp")
+        self.assertEqual(
+            env["ANTHROPIC_CUSTOM_MODEL_OPTION_NAME"],
+            "DeepSeek V4 Flash Vision (Experimental)",
+        )
 
     def test_switch_cc_flames_kimi_k3_pins_main_helper_and_subagent_models(self):
         self.init_cc_settings(model="claude-sonnet-4-6")
@@ -913,6 +982,24 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertEqual(data["model"], "deepseek-v4-pro")
         self.assertEqual(env["ANTHROPIC_CUSTOM_MODEL_OPTION"], "deepseek-v4-pro")
         self.assertEqual(env["ANTHROPIC_DEFAULT_HAIKU_MODEL"], "deepseek-v4-flash")
+
+    def test_switch_cc_deepseek_accepts_v4_flash_vision(self):
+        self.init_cc_settings(model="claude-sonnet-4-6")
+
+        self.mod.switch_cc(
+            "deepseek",
+            self.cfg,
+            {"deepseek": "dummy"},
+            model="deepseek-v4-flash-vision-exp",
+        )
+
+        data = json.loads(self.cfg.cc_settings.read_text(encoding="utf-8"))
+        env = data["env"]
+        self.assertEqual(data["model"], "deepseek-v4-flash-vision-exp")
+        self.assertEqual(
+            env["ANTHROPIC_CUSTOM_MODEL_OPTION_NAME"],
+            "DeepSeek V4 Flash Vision (Experimental)",
+        )
 
     def test_switch_cc_non_deepseek_clears_stale_model_alias_env(self):
         self.init_cc_settings(

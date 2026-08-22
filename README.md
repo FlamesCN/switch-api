@@ -156,14 +156,18 @@ switch-api claude deepseek              # `claude` 是 `cc` 的别名
 switch-api cc icodeeasy
 switch-api cc deepseek [model]
 switch-api cc deepseek deepseek-v4-pro
+switch-api cc deepseek deepseek-v4-flash-vision-exp  # Claude Code → DeepSeek V4 Flash Vision
 switch-api codex deepseek                 # Codex → DeepSeek V4 Flash
 switch-api codex deepseek deepseek-v4-flash
+switch-api codex deepseek deepseek-v4-flash-vision-exp  # Codex → DeepSeek V4 Flash Vision
 switch-api codex deepseek deepseek-v4-pro      # Codex → DeepSeek V4 Pro (direct Responses)
 switch-api cc flames [model]
 switch-api cc flames claude-opus-4-8
 switch-api cc flames moonshotai/kimi-k3       # K3 主模型及 helper/subagent 均走 Flames
 switch-api cc flames deepseek-v4-pro          # Claude Code → Flames NewAPI / DeepSeek V4 Pro
+switch-api cc flames deepseek-v4-flash-vision-exp  # Claude Code → Flames NewAPI / DeepSeek V4 Flash Vision
 switch-api codex flames deepseek-v4-flash     # Codex → Flames NewAPI / DeepSeek V4 Flash
+switch-api codex flames deepseek-v4-flash-vision-exp  # Codex → Flames NewAPI / DeepSeek V4 Flash Vision
 switch-api codex flames deepseek-v4-pro       # Codex → Flames NewAPI / DeepSeek V4 Pro
 switch-api openclaw quotio [profile]
 switch-api openclaw icodeeasy [model]

@@ -486,9 +486,16 @@ FLAMES_CC_ALLOWED_MODELS = (
     "gpt-5.4",
     "gpt-5.3-codex",
     "deepseek-v4-flash",
+    "deepseek-v4-flash-vision-exp",
     "deepseek-v4-pro",
 )
-FLAMES_AVAILABLE_MODELS = tuple(dict.fromkeys(FLAMES_CC_ALLOWED_MODELS + FLAMES_GROK_AVAILABLE_MODELS))
+FLAMES_AVAILABLE_MODELS = tuple(
+    dict.fromkeys(
+        FLAMES_CC_ALLOWED_MODELS
+        + ("deepseek-v4-flash-vision-exp",)
+        + FLAMES_GROK_AVAILABLE_MODELS
+    )
+)
 FLAMES_CC_MODEL_NAMES = {
     "claude-fable-5": "Claude Fable 5",
     "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
@@ -502,6 +509,7 @@ FLAMES_CC_MODEL_NAMES = {
     "gpt-5.4": "Codex GPT-5.4",
     "gpt-5.3-codex": "Codex GPT-5.3 Codex",
     "deepseek-v4-flash": "DeepSeek V4 Flash",
+    "deepseek-v4-flash-vision-exp": "DeepSeek V4 Flash Vision (Experimental)",
     "deepseek-v4-pro": "DeepSeek V4 Pro",
 }
 CC_MODEL_ALIAS_ENV_KEYS = (
@@ -518,16 +526,19 @@ DEEPSEEK_CODEX_BASE_URL = "https://api.deepseek.com"
 DEEPSEEK_CC_DEFAULT_MODEL = "deepseek-v4-pro"
 DEEPSEEK_AVAILABLE_MODELS = (
     "deepseek-v4-flash",
+    "deepseek-v4-flash-vision-exp",
     "deepseek-v4-pro",
 )
 DEEPSEEK_CODEX_DEFAULT_MODEL = "deepseek-v4-flash"
 DEEPSEEK_CODEX_AVAILABLE_MODELS = (
     "deepseek-v4-flash",
+    "deepseek-v4-flash-vision-exp",
     "deepseek-v4-pro",
 )
 DEEPSEEK_CODEX_CATALOG_FILENAME = "switch-api-deepseek.json"
 DEEPSEEK_CC_MODEL_NAMES = {
     "deepseek-v4-flash": "DeepSeek V4 Flash",
+    "deepseek-v4-flash-vision-exp": "DeepSeek V4 Flash Vision (Experimental)",
     "deepseek-v4-pro": "DeepSeek V4 Pro",
 }
 DEEPSEEK_CC_MODEL_ALIASES = {
@@ -4088,6 +4099,7 @@ def _build_deepseek_codex_model(
     template: Dict[str, Any],
 ) -> Dict[str, Any]:
     """Build a DeepSeek Codex model entry on top of a bundled template."""
+    is_vision_model = slug.endswith("-vision-exp")
     deepseek_model = {
         "slug": slug,
         "prefer_websockets": False,
@@ -4095,7 +4107,7 @@ def _build_deepseek_codex_model(
         "default_verbosity": "low",
         "apply_patch_tool_type": "freeform",
         "web_search_tool_type": "text",
-        "input_modalities": ["text"],
+        "input_modalities": ["text", "image"] if is_vision_model else ["text"],
         "supports_image_detail_original": False,
         "truncation_policy": {"mode": "tokens", "limit": 10_000},
         "supports_parallel_tool_calls": True,
@@ -4148,6 +4160,7 @@ def build_deepseek_codex_catalog() -> Dict[str, Any]:
 
     display_names = {
         "deepseek-v4-flash": "DeepSeek-V4-Flash",
+        "deepseek-v4-flash-vision-exp": "DeepSeek-V4-Flash Vision (Experimental)",
         "deepseek-v4-pro": "DeepSeek-V4-Pro",
     }
     deepseek_models = [

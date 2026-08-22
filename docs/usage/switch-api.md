@@ -41,10 +41,10 @@
   - `gemini` 走 Gemini `v1beta` 兼容入口
   - 实际可用模型以服务端鉴权结果为准；`switch-api` 当前默认模型：`claude-opus-4-8` / `gpt-5.4`
 - **flames** — Flames NewAPI `https://www.flamescn.vip/v1`，支持 **Claude Code + Codex + OpenClaw + Gemini + Hermes + Grok**
-  - `cc` 走 Anthropic 兼容入口，默认 `claude-opus-4-8`，也支持 `moonshotai/kimi-k3` / `gpt-5.6` / `gpt-5.4` / `gpt-5.3-codex` / `deepseek-v4-flash` / `deepseek-v4-pro` 及内置 Claude 模型
+  - `cc` 走 Anthropic 兼容入口，默认 `claude-opus-4-8`，也支持 `moonshotai/kimi-k3` / `gpt-5.6` / `gpt-5.4` / `gpt-5.3-codex` / `deepseek-v4-flash` / `deepseek-v4-flash-vision-exp` / `deepseek-v4-pro` 及内置 Claude 模型
   - `cc flames moonshotai/kimi-k3` 会同时固定主模型、Opus/Sonnet/Haiku/Fable、small-fast 与 subagent 槽，避免内部调用回落到 Claude
   - `codex` 复用内部 provider block：`model_provider = "flames_newapi"`，默认 `gpt-5.6`；显式指定 `moonshotai/kimi-k3` 时仍复用相同的 `FLAMES_API_KEY`
-  - `codex flames deepseek-v4-flash` / `deepseek-v4-pro` 走 Flames NewAPI 的 DeepSeek 上游，复用 `FLAMES_API_KEY`，上游鉴权使用 new-api 渠道内配置的本地 `DEEPSEEK_API_KEY`
+  - `codex flames deepseek-v4-flash` / `deepseek-v4-flash-vision-exp` / `deepseek-v4-pro` 走 Flames NewAPI 的 DeepSeek 上游，复用 `FLAMES_API_KEY`，上游鉴权使用 new-api 渠道内配置的本地 `DEEPSEEK_API_KEY`
   - 切到 Codex K3 时会基于当前 Codex bundled catalog 生成受管的 `model_catalog_json`，补齐 1M context、推理档位、图像输入与工具调用元数据；切回其他模型时恢复原 catalog 配置
   - `model_catalog_json` 仅在 Codex 启动时加载，切换 K3 后需要新开 Codex 会话
   - `env_key` 固定切回 `FLAMES_API_KEY`
@@ -58,8 +58,8 @@
 - **deepseek** — DeepSeek 官方，支持 **Claude Code + Codex**
   - `cc` 直连 Anthropic 兼容 `messages` 接口
   - 默认模型 `deepseek-v4-pro`
-  - 可切换 `deepseek-v4-flash` / `deepseek-v4-pro`
-  - `codex` 直连 `https://api.deepseek.com` 的 Responses API，支持 `deepseek-v4-flash` / `deepseek-v4-pro`
+  - 可切换 `deepseek-v4-flash` / `deepseek-v4-flash-vision-exp` / `deepseek-v4-pro`
+  - `codex` 直连 `https://api.deepseek.com` 的 Responses API，支持 `deepseek-v4-flash` / `deepseek-v4-flash-vision-exp` / `deepseek-v4-pro`；Vision Experimental 模型支持图像输入和编程任务
 - **duck_codex2cc** — Duck CodeX→CC 映射 key，**CC-only**
   - 在 CC 中用 Claude 模型名，duck 后端自动映射到 GPT codex 模型
   - `claude-opus-4-6` → `gpt-5.3-codex-xhigh`
@@ -261,7 +261,9 @@ switch-api cc antigravity
 switch-api cc icodeeasy              # Claude Code → iCodeEasy
 switch-api cc deepseek               # Claude Code → DeepSeek / deepseek-v4-pro
 switch-api cc deepseek deepseek-v4-flash
+switch-api cc deepseek deepseek-v4-flash-vision-exp  # Claude Code → DeepSeek V4 Flash Vision
 switch-api cc flames deepseek-v4-pro          # Claude Code → Flames NewAPI / DeepSeek V4 Pro
+switch-api cc flames deepseek-v4-flash-vision-exp  # Claude Code → Flames NewAPI / DeepSeek V4 Flash Vision
 switch-api cc flames                 # Claude Code → Flames / claude-opus-4-8
 switch-api cc duck_codex2cc          # Duck CodeX→CC (GPT codex via CC)
 
@@ -291,8 +293,10 @@ switch-api codex quotio
 switch-api codex antigravity
 switch-api codex deepseek                  # DeepSeek / deepseek-v4-flash
 switch-api codex deepseek deepseek-v4-flash
+switch-api codex deepseek deepseek-v4-flash-vision-exp  # DeepSeek / vision coding model
 switch-api codex deepseek deepseek-v4-pro       # DeepSeek / deepseek-v4-pro
 switch-api codex flames deepseek-v4-flash     # Codex → Flames NewAPI / DeepSeek V4 Flash
+switch-api codex flames deepseek-v4-flash-vision-exp  # Codex → Flames NewAPI / DeepSeek V4 Flash Vision
 switch-api codex flames deepseek-v4-pro        # Codex → Flames NewAPI / DeepSeek V4 Pro
 switch-api codex icodeeasy                 # iCodeEasy / gpt-5.4
 switch-api codex flames                     # flames_newapi / gpt-5.6 + FLAMES_API_KEY
@@ -614,8 +618,8 @@ OpenClaw 走 OpenAI 时会额外显示认证模式后缀，避免把 OAuth 和 A
 | duck_cc1 | Anthropic 原生 only | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
 > **关键限制**：
-> `flames` 在 `cc` 下通过 Anthropic 兼容网关暴露自定义模型，目前内置支持 `moonshotai/kimi-k3` / `gpt-5.6` / `gpt-5.4` / `gpt-5.3-codex` / `deepseek-v4-flash` / `deepseek-v4-pro`。
-> `deepseek` 的 Codex 路径使用官方 `https://api.deepseek.com` Responses API，支持 `deepseek-v4-flash` / `deepseek-v4-pro`；切换时会生成含官方 1M context 和工具元数据的受管 catalog，切回其他 provider 时恢复原 catalog。
+> `flames` 在 `cc` 下通过 Anthropic 兼容网关暴露自定义模型，目前内置支持 `moonshotai/kimi-k3` / `gpt-5.6` / `gpt-5.4` / `gpt-5.3-codex` / `deepseek-v4-flash` / `deepseek-v4-flash-vision-exp` / `deepseek-v4-pro`。
+> `deepseek` 的 Codex 路径使用官方 `https://api.deepseek.com` Responses API，支持 `deepseek-v4-flash` / `deepseek-v4-flash-vision-exp` / `deepseek-v4-pro`；切换时会生成含官方 1M context、工具元数据和 Vision 图像输入声明的受管 catalog，切回其他 provider 时恢复原 catalog。
 > `flames` 的 `grok` 通过 `~/.grok/config.toml` 中的实际模型覆盖指向 `https://www.flamescn.vip/v1`；切换期间会暂存官方 `auth.json`，避免登录态优先触发官方额度检查。
 > `xai` 只用于 Grok 官方直连，依赖 `~/.grok/auth.json` 或 `XAI_API_KEY` / `GROK_CODE_XAI_API_KEY`。
 > `icodeeasy` 现在可用于 `cc` / `openclaw` / `codex` / `gemini`，但 `openclaw` 当前仍走 Anthropic `messages` 链路，所以只支持 Claude 模型。
@@ -674,7 +678,7 @@ switch-api openclaw openai key
 
 - **cc** (Claude Code): 默认 `claude-*`；`flames` 下也支持 `gpt-*` / `deepseek-v4-*`；自定义 Anthropic-compatible provider 不做内置 family 限制
 - **openclaw**: `claude-*` + `gemini-*` + 部分 `gpt-*`（取决于 provider）
-- **codex**: 默认 `gpt-*` 模型；DeepSeek 官方 provider 与 `flames` relay 均支持 `deepseek-v4-flash` / `deepseek-v4-pro`
+- **codex**: 默认 `gpt-*` 模型；DeepSeek 官方 provider 与 `flames` relay 均支持 `deepseek-v4-flash` / `deepseek-v4-flash-vision-exp` / `deepseek-v4-pro`
 - **droid**: `gemini-*`（默认）+ `gpt-*`（codex profile）
 - **gemini**: 仅 `gemini-*`
 - **hermes**: `gpt-*` / `gemini-*`（取决于 provider）
