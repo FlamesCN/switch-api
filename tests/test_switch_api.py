@@ -68,9 +68,15 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
             {
                 "models": [
                     {
-                        "slug": "gpt-5.4",
+                        "slug": slug,
                         "base_instructions": "You are Codex.",
                     }
+                    for slug in (
+                        "gpt-5.6-sol",
+                        "gpt-5.6-terra",
+                        "gpt-5.6-luna",
+                        "gpt-5.4",
+                    )
                 ]
             }
         )
@@ -576,12 +582,12 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertIn('wire_api = "responses"', text)
         self.assertIn('env_key = "FLAMES_API_KEY"', text)
         self.assertIn(
-            f'model_catalog_json = "{self.cfg.codex_deepseek_catalog}"',
+            f'model_catalog_json = "{self.cfg.codex_flames_catalog}"',
             text,
         )
         self.assertEqual(self.mod.detect_provider("codex", self.cfg), "flames")
 
-        catalog = json.loads(self.cfg.codex_deepseek_catalog.read_text(encoding="utf-8"))
+        catalog = json.loads(self.cfg.codex_flames_catalog.read_text(encoding="utf-8"))
         deepseek = next(
             model for model in catalog["models"] if model["slug"] == "deepseek-v4-flash"
         )
@@ -605,12 +611,12 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertIn('wire_api = "responses"', text)
         self.assertIn('env_key = "FLAMES_API_KEY"', text)
         self.assertIn(
-            f'model_catalog_json = "{self.cfg.codex_deepseek_catalog}"',
+            f'model_catalog_json = "{self.cfg.codex_flames_catalog}"',
             text,
         )
         self.assertEqual(self.mod.detect_provider("codex", self.cfg), "flames")
 
-        catalog = json.loads(self.cfg.codex_deepseek_catalog.read_text(encoding="utf-8"))
+        catalog = json.loads(self.cfg.codex_flames_catalog.read_text(encoding="utf-8"))
         deepseek = next(
             model for model in catalog["models"] if model["slug"] == "deepseek-v4-pro"
         )
@@ -632,17 +638,56 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertIn('model = "deepseek-v4-flash-vision-exp"', text)
         self.assertIn('wire_api = "responses"', text)
         self.assertIn(
-            f'model_catalog_json = "{self.cfg.codex_deepseek_catalog}"',
+            f'model_catalog_json = "{self.cfg.codex_flames_catalog}"',
             text,
         )
 
-        catalog = json.loads(self.cfg.codex_deepseek_catalog.read_text(encoding="utf-8"))
+        catalog = json.loads(self.cfg.codex_flames_catalog.read_text(encoding="utf-8"))
         deepseek = next(
             model
             for model in catalog["models"]
             if model["slug"] == "deepseek-v4-flash-vision-exp"
         )
         self.assertEqual(deepseek["input_modalities"], ["text", "image"])
+
+    @patch("subprocess.run")
+    def test_switch_codex_flames_glm_uses_grouped_catalog(self, run):
+        self.mock_codex_bundled_catalog(run)
+        self.mod.cmd_model_override_add(
+            self.cfg,
+            "flames",
+            "glm-5.3-flash",
+            ["codex"],
+            False,
+        )
+
+        self.mod.switch_codex(
+            "flames",
+            self.cfg,
+            {"flames": "dummy"},
+            model="glm-5.3-flash",
+        )
+
+        text = self.cfg.cx_config.read_text(encoding="utf-8")
+        self.assertIn('model = "glm-5.3-flash"', text)
+        self.assertIn(
+            f'model_catalog_json = "{self.cfg.codex_flames_catalog}"',
+            text,
+        )
+        catalog = json.loads(self.cfg.codex_flames_catalog.read_text(encoding="utf-8"))
+        slugs = [model["slug"] for model in catalog["models"]]
+        self.assertEqual(
+            slugs[:7],
+            [
+                "gpt-5.6-sol",
+                "gpt-5.6-terra",
+                "gpt-5.6-luna",
+                "deepseek-v4-flash",
+                "deepseek-v4-flash-vision-exp",
+                "deepseek-v4-pro",
+                "glm-5.3-flash",
+            ],
+        )
 
 
     @patch("subprocess.run")

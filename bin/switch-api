@@ -464,6 +464,12 @@ FLAMES_KIMI_CODEX_MODEL = FLAMES_KIMI_AVAILABLE_MODELS[0]
 FLAMES_KIMI_CONTEXT_WINDOW = 1_048_576
 FLAMES_KIMI_CODEX_CATALOG_FILENAME = "switch-api-flames-kimi-k3.json"
 FLAMES_KIMI_CODEX_CATALOG_STATE_FILENAME = "codex-model-catalog-state.json"
+FLAMES_CODEX_CATALOG_FILENAME = "switch-api-flames.json"
+FLAMES_CODEX_PRIMARY_MODELS = (
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
+)
 FLAMES_GROK_DEFAULT_MODEL = "grok-4.5"
 FLAMES_GROK_AVAILABLE_MODELS = (
     "grok-4.5",
@@ -3449,6 +3455,9 @@ class Config:
         self.codex_kimi_catalog = (
             self.codex_home / "model-catalogs" / FLAMES_KIMI_CODEX_CATALOG_FILENAME
         )
+        self.codex_flames_catalog = (
+            self.codex_home / "model-catalogs" / FLAMES_CODEX_CATALOG_FILENAME
+        )
         self.codex_deepseek_catalog = (
             self.codex_home / "model-catalogs" / DEEPSEEK_CODEX_CATALOG_FILENAME
         )
@@ -4334,10 +4343,77 @@ def build_deepseek_codex_catalog(cfg: Config | None = None) -> Dict[str, Any]:
         )
         for slug in managed_models
     ]
-    managed_slugs = set(managed_models)
+    preferred_slugs = set(FLAMES_CODEX_PRIMARY_MODELS) | set(managed_models)
     catalog["models"] = [
-        model for model in models if model.get("slug") not in managed_slugs
-    ] + deepseek_models
+        model for slug in FLAMES_CODEX_PRIMARY_MODELS
+        for model in models
+        if model.get("slug") == slug
+    ] + deepseek_models + [
+        model for model in models if model.get("slug") not in preferred_slugs
+    ]
+    return catalog
+
+
+def build_flames_codex_catalog(cfg: Config) -> Dict[str, Any]:
+    """Build the Flames catalog with Codex, DeepSeek, then registered models."""
+    catalog = load_codex_bundled_catalog()
+    models = [model for model in catalog["models"] if isinstance(model, dict)]
+    template = next(
+        (model for model in models if model.get("slug") == "gpt-5.4"),
+        models[0] if models else None,
+    )
+    if not template or not isinstance(template.get("base_instructions"), str):
+        raise SwitchError("Bundled Codex model catalog has no usable instruction template")
+
+    override_entries = model_override_entries(cfg, provider="flames", tool="codex")
+    deepseek_slugs = list(DEEPSEEK_CODEX_AVAILABLE_MODELS)
+    for model_id in override_entries:
+        if model_family(model_id) == "deepseek" and model_id not in deepseek_slugs:
+            deepseek_slugs.append(model_id)
+
+    display_names = {
+        "deepseek-v4-flash": "DeepSeek-V4-Flash",
+        "deepseek-v4-flash-vision-exp": "DeepSeek-V4-Flash Vision (Experimental)",
+        "deepseek-v4-pro": "DeepSeek-V4-Pro",
+    }
+    deepseek_models = [
+        _build_deepseek_codex_model(
+            slug,
+            display_names.get(slug, slug),
+            template,
+            vision=bool(override_entries.get(slug, {}).get("vision", False)),
+        )
+        for slug in deepseek_slugs
+    ]
+    registered_slugs = [
+        model_id
+        for model_id in override_entries
+        if model_id not in deepseek_slugs
+        and model_id not in FLAMES_CODEX_PRIMARY_MODELS
+        and model_id != FLAMES_KIMI_CODEX_MODEL
+    ]
+    registered_models = [
+        _build_deepseek_codex_model(
+            slug,
+            slug,
+            template,
+            vision=bool(override_entries[slug].get("vision", False)),
+        )
+        for slug in registered_slugs
+    ]
+
+    preferred_slugs = (
+        set(FLAMES_CODEX_PRIMARY_MODELS)
+        | set(deepseek_slugs)
+        | set(registered_slugs)
+    )
+    catalog["models"] = [
+        model for slug in FLAMES_CODEX_PRIMARY_MODELS
+        for model in models
+        if model.get("slug") == slug
+    ] + deepseek_models + registered_models + [
+        model for model in models if model.get("slug") not in preferred_slugs
+    ]
     return catalog
 
 
@@ -4377,6 +4453,42 @@ def codex_deepseek_catalog_is_ready(cfg: Config, text: str) -> bool:
     return required.issubset(catalog_slugs)
 
 
+def codex_flames_catalog_is_ready(cfg: Config, text: str) -> bool:
+    configured_path = read_codex_top_level_string(text, "model_catalog_json")
+    if configured_path != str(cfg.codex_flames_catalog) or not cfg.codex_flames_catalog.exists():
+        return False
+    try:
+        catalog = load_json(cfg.codex_flames_catalog)
+    except SwitchError:
+        return False
+    catalog_slugs = [
+        model.get("slug")
+        for model in catalog.get("models", [])
+        if isinstance(model, dict)
+    ]
+    override_entries = model_override_entries(cfg, provider="flames", tool="codex")
+    extra_deepseek = [
+        model_id
+        for model_id in override_entries
+        if model_family(model_id) == "deepseek"
+        and model_id not in DEEPSEEK_CODEX_AVAILABLE_MODELS
+    ]
+    registered = [
+        model_id
+        for model_id in override_entries
+        if model_family(model_id) != "deepseek"
+        and model_id not in FLAMES_CODEX_PRIMARY_MODELS
+        and model_id != FLAMES_KIMI_CODEX_MODEL
+    ]
+    expected_prefix = [
+        *FLAMES_CODEX_PRIMARY_MODELS,
+        *DEEPSEEK_CODEX_AVAILABLE_MODELS,
+        *extra_deepseek,
+        *registered,
+    ]
+    return catalog_slugs[:len(expected_prefix)] == expected_prefix
+
+
 def activate_flames_kimi_codex_catalog(cfg: Config, text: str) -> str:
     managed_path = str(cfg.codex_kimi_catalog)
     current_path = read_codex_top_level_string(text, "model_catalog_json")
@@ -4409,9 +4521,26 @@ def activate_deepseek_codex_catalog(cfg: Config, text: str) -> str:
     return set_codex_top_level_string(text, "model_catalog_json", managed_path)
 
 
+def activate_flames_codex_catalog(cfg: Config, text: str) -> str:
+    managed_path = str(cfg.codex_flames_catalog)
+    current_path = read_codex_top_level_string(text, "model_catalog_json")
+    if current_path != managed_path:
+        cfg.switch_dir.mkdir(parents=True, exist_ok=True)
+        save_json(
+            cfg.codex_catalog_state,
+            {"previous_model_catalog_json": current_path or None},
+        )
+
+    cfg.codex_flames_catalog.parent.mkdir(parents=True, exist_ok=True)
+    save_json(cfg.codex_flames_catalog, build_flames_codex_catalog(cfg))
+    info(f"Codex Flames metadata catalog → {cfg.codex_flames_catalog}")
+    return set_codex_top_level_string(text, "model_catalog_json", managed_path)
+
+
 def restore_codex_model_catalog(cfg: Config, text: str) -> str:
     managed_paths = {
         str(cfg.codex_kimi_catalog),
+        str(cfg.codex_flames_catalog),
         str(cfg.codex_deepseek_catalog),
     }
     if read_codex_top_level_string(text, "model_catalog_json") not in managed_paths:
@@ -4445,6 +4574,13 @@ def skip_redundant_switch(tool: str, provider: str, cfg: Config, model: str = ""
         if target_model == FLAMES_KIMI_CODEX_MODEL:
             text = read_text(cfg.cx_config) if cfg.cx_config.exists() else ""
             if not codex_kimi_catalog_is_ready(cfg, text):
+                return False
+        elif (
+            model_family(target_model) == "deepseek"
+            or model_override_spec(cfg, "flames", target_model) is not None
+        ):
+            text = read_text(cfg.cx_config) if cfg.cx_config.exists() else ""
+            if not codex_flames_catalog_is_ready(cfg, text):
                 return False
     if tool == "codex" and provider == "deepseek":
         target_model = model or DEEPSEEK_CODEX_DEFAULT_MODEL
@@ -6880,8 +7016,11 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
         text = set_codex_provider_env_key(text, "flames_newapi", "FLAMES_API_KEY")
         if target_model_f == FLAMES_KIMI_CODEX_MODEL:
             text = activate_flames_kimi_codex_catalog(cfg, text)
-        elif model_family(target_model_f) == "deepseek":
-            text = activate_deepseek_codex_catalog(cfg, text)
+        elif (
+            model_family(target_model_f) == "deepseek"
+            or model_override_spec(cfg, "flames", target_model_f) is not None
+        ):
+            text = activate_flames_codex_catalog(cfg, text)
         info(f"Codex → flames_newapi / {target_model_f} (FLAMES_API_KEY)")
 
     if provider == "openrouter":

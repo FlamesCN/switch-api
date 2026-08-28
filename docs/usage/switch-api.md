@@ -45,8 +45,9 @@
   - `cc flames moonshotai/kimi-k3` 会同时固定主模型、Opus/Sonnet/Haiku/Fable、small-fast 与 subagent 槽，避免内部调用回落到 Claude
   - `codex` 复用内部 provider block：`model_provider = "flames_newapi"`，默认 `gpt-5.6`；显式指定 `moonshotai/kimi-k3` 时仍复用相同的 `FLAMES_API_KEY`
   - `codex flames deepseek-v4-flash` / `deepseek-v4-flash-vision-exp` / `deepseek-v4-pro` 走 Flames NewAPI 的 DeepSeek 上游，复用 `FLAMES_API_KEY`，上游鉴权使用 new-api 渠道内配置的本地 `DEEPSEEK_API_KEY`
-  - 切到 Codex K3 时会基于当前 Codex bundled catalog 生成受管的 `model_catalog_json`，补齐 1M context、推理档位、图像输入与工具调用元数据；切回其他模型时恢复原 catalog 配置
-  - `model_catalog_json` 仅在 Codex 启动时加载，切换 K3 后需要新开 Codex 会话
+  - 切到 Codex K3 时会基于当前 Codex bundled catalog 生成专用的受管 `model_catalog_json`
+  - 切到 Flames 的 DeepSeek 或已登记 Codex 模型时会生成统一目录：前三项固定为 `gpt-5.6-sol` / `gpt-5.6-terra` / `gpt-5.6-luna`，随后集中排列 DeepSeek，再排列已登记模型（例如 `glm-5.3-flash`）
+  - 受管目录会补齐 1M context、推理档位、图像输入与工具调用元数据；`model_catalog_json` 仅在 Codex 启动时加载，切换后需要新开 Codex 会话
   - `env_key` 固定切回 `FLAMES_API_KEY`
   - `openclaw` 通过自定义 provider `flames/...` 接入，默认模型 `gpt-5.4`
   - `gemini` 通过 `GOOGLE_GEMINI_BASE_URL=https://www.flamescn.vip` 接入，默认模型仍按内置值写入；实际可用性取决于当前 key 的 `/v1/models`

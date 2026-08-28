@@ -211,7 +211,7 @@ switch-api gemini duck
 switch-api gemini icodeeasy
 ```
 
-切到 Codex K3 时会生成受管的 `model_catalog_json`，补齐 1M context、推理档位和工具能力元数据；该目录在 Codex 启动时加载，因此切换后请新开 Codex 会话。
+切到 Codex K3 时会生成专用的受管 `model_catalog_json`。切到 Flames 的 DeepSeek 或已登记 Codex 模型时，会生成统一目录：前三项为 `gpt-5.6-sol` / `gpt-5.6-terra` / `gpt-5.6-luna`，随后集中排列 DeepSeek，再排列已登记模型（例如 `glm-5.3-flash`）。目录会补齐 context、推理档位和工具能力元数据；Codex 仅在启动时加载，因此切换后请新开 Codex 会话。
 
 Hermes profile rules:
 - `switch-api hermes <provider>` 只改根 `~/.hermes/config.yaml`
