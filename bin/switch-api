@@ -500,6 +500,7 @@ FLAMES_OPENROUTER_FREE_MODELS = (
     "nvidia/nemotron-3.5-lightning:free",
     "nvidia/nemotron-3-ultra-550b-a55b:free",
     "nvidia/nemotron-3-super-120b-a12b:free",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
     "minimax/minimax-m3:free",
     "minimax/minimax-m2.7:free",
     "z-ai/glm-5.2:free",
@@ -509,7 +510,11 @@ FLAMES_OPENROUTER_FREE_MODELS = (
     "openrouter/free",
     "inclusionai/ling-3.0-flash-fin:free",
     "poolside/laguna-s-2.1:free",
+    "poolside/laguna-xs-2.1:free",
     "thinkingmachines/inkling:free",
+    "thinkingmachines/inkling-small:free",
+    "dots-studio/dots-3-note-preview:free",
+    "liquid/lfm-2.5-2.6b:free",
 )
 FLAMES_OPENROUTER_PAID_MODELS = (
     "deepseek/deepseek-v4-flash",
