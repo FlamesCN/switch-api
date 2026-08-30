@@ -1134,6 +1134,38 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         )
         self.assertEqual((tool, provider, profile), ("codex", "openrouter", "@model:ds"))
 
+    def test_flames_openrouter_shortcut_parses_to_codex_flames(self):
+        self.assertEqual(
+            self.mod.parse_args(["flames", "openrouter"], known_providers=[]),
+            ("codex", "flames", "@model:" + self.mod.OPENROUTER_DEFAULT_MODEL),
+        )
+        self.assertEqual(
+            self.mod.parse_args(["flames", "openrouter", "nemotron"], known_providers=[]),
+            ("codex", "flames", "@model:nemotron"),
+        )
+
+    @patch("subprocess.run")
+    def test_switch_codex_flames_openrouter_nemotron_writes_catalog(self, run):
+        self.mock_codex_bundled_catalog(run)
+        self.mod.switch_codex(
+            "flames",
+            self.cfg,
+            {"flames": "dummy"},
+            model="nemotron",
+        )
+        text = self.cfg.cx_config.read_text(encoding="utf-8")
+        self.assertIn('model = "nvidia/nemotron-3.5-lightning:free"', text)
+        self.assertIn('model_provider = "flames_newapi"', text)
+        self.assertIn(
+            f'model_catalog_json = "{self.cfg.codex_flames_catalog}"',
+            text,
+        )
+        catalog = json.loads(self.cfg.codex_flames_catalog.read_text(encoding="utf-8"))
+        slugs = [model["slug"] for model in catalog["models"]]
+        self.assertIn("nvidia/nemotron-3.5-lightning:free", slugs)
+        self.assertIn("deepseek/deepseek-v4-flash", slugs)
+        self.assertIn("gpt-5.6-sol", slugs)
+
     def test_registered_xingyun_model_switches_codex(self):
         self.mod.cmd_model_override_add(
             self.cfg,

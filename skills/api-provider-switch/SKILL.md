@@ -140,6 +140,9 @@ switch-api codex openrouter
 switch-api codex openrouter ds
 switch-api codex openrouter gpt
 switch-api codex openrouter claude
+switch-api flames openrouter
+switch-api flames openrouter nemotron
+switch-api flames openrouter ds
 ```
 
 ## 执行后建议

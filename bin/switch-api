@@ -496,11 +496,32 @@ FLAMES_CC_ALLOWED_MODELS = (
     "deepseek-v4-flash-vision-exp",
     "deepseek-v4-pro",
 )
+FLAMES_OPENROUTER_FREE_MODELS = (
+    "nvidia/nemotron-3.5-lightning:free",
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "minimax/minimax-m3:free",
+    "minimax/minimax-m2.7:free",
+    "z-ai/glm-5.2:free",
+    "google/gemma-4-31b-it:free",
+    "google/gemma-4-26b-a4b-it:free",
+    "cohere/north-mini-code:free",
+    "openrouter/free",
+    "inclusionai/ling-3.0-flash-fin:free",
+    "poolside/laguna-s-2.1:free",
+    "thinkingmachines/inkling:free",
+)
+FLAMES_OPENROUTER_PAID_MODELS = (
+    "deepseek/deepseek-v4-flash",
+    "deepseek/deepseek-v4-pro",
+)
+FLAMES_OPENROUTER_MODELS = FLAMES_OPENROUTER_FREE_MODELS + FLAMES_OPENROUTER_PAID_MODELS
 FLAMES_AVAILABLE_MODELS = tuple(
     dict.fromkeys(
         FLAMES_CC_ALLOWED_MODELS
         + ("deepseek-v4-flash-vision-exp",)
         + FLAMES_GROK_AVAILABLE_MODELS
+        + FLAMES_OPENROUTER_MODELS
     )
 )
 FLAMES_CC_MODEL_NAMES = {
@@ -4551,17 +4572,36 @@ def build_flames_codex_catalog(cfg: Config) -> Dict[str, Any]:
         )
         for slug in registered_slugs
     ]
+    openrouter_models = []
+    for slug in FLAMES_OPENROUTER_MODELS:
+        vision = slug in OPENROUTER_CODEX_VISION_MODELS or model_family(slug) in ("claude", "gpt")
+        entry = _build_deepseek_codex_model(
+            slug,
+            openrouter_codex_display_name(slug),
+            template,
+            vision=vision,
+        )
+        ctx = OPENROUTER_CODEX_CONTEXT_WINDOWS.get(slug)
+        if ctx:
+            entry["context_window"] = ctx
+            entry["max_context_window"] = ctx
+        if is_openrouter_free_model(slug):
+            entry["description"] = "OpenRouter free model via Flames NewAPI."
+        else:
+            entry["description"] = "OpenRouter paid model via Flames NewAPI."
+        openrouter_models.append(entry)
 
     preferred_slugs = (
         set(FLAMES_CODEX_PRIMARY_MODELS)
         | set(deepseek_slugs)
         | set(registered_slugs)
+        | set(FLAMES_OPENROUTER_MODELS)
     )
     catalog["models"] = [
         model for slug in FLAMES_CODEX_PRIMARY_MODELS
         for model in models
         if model.get("slug") == slug
-    ] + deepseek_models + registered_models + [
+    ] + deepseek_models + registered_models + openrouter_models + [
         model for model in models if model.get("slug") not in preferred_slugs
     ]
     return catalog
@@ -4635,6 +4675,7 @@ def codex_flames_catalog_is_ready(cfg: Config, text: str) -> bool:
         *DEEPSEEK_CODEX_AVAILABLE_MODELS,
         *extra_deepseek,
         *registered,
+        *FLAMES_OPENROUTER_MODELS,
     ]
     return catalog_slugs[:len(expected_prefix)] == expected_prefix
 
@@ -4796,6 +4837,8 @@ def skip_redundant_switch(tool: str, provider: str, cfg: Config, model: str = ""
                 return False
         elif (
             model_family(target_model) == "deepseek"
+            or target_model in FLAMES_OPENROUTER_MODELS
+            or model_family(target_model) == "openrouter"
             or model_override_spec(cfg, "flames", target_model) is not None
         ):
             text = read_text(cfg.cx_config) if cfg.cx_config.exists() else ""
@@ -5095,6 +5138,10 @@ def validate_model_for_tool(
     if provider == "openrouter" and tool in ("codex", "openclaw", "droid", "all"):
         # OpenRouter is OpenAI-compatible, so Codex/Droid can take Claude/DS/GPT IDs.
         compatible = tuple(dict.fromkeys((*compatible, tool)))
+    if provider == "flames" and tool == "codex" and (
+        fam == "openrouter" or model in FLAMES_OPENROUTER_MODELS
+    ):
+        compatible = tuple(dict.fromkeys((*compatible, "codex")))
 
     if tool not in compatible:
         raise SwitchError(
@@ -7233,6 +7280,12 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
 
     if provider == "flames":
         target_model_f = model or FLAMES_CODEX_DEFAULT_MODEL
+        resolved_or = resolve_openrouter_model(target_model_f)
+        if resolved_or != target_model_f and (
+            resolved_or in FLAMES_OPENROUTER_MODELS or is_openrouter_free_model(resolved_or)
+        ):
+            info(f"Flames OpenRouter alias {target_model_f} -> {resolved_or}")
+            target_model_f = resolved_or
 
         model_match_f = re.search(r'^\s*model\s*=\s*"([^"]+)"\s*$', text, flags=re.M)
         if model_match_f:
@@ -7253,6 +7306,8 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
             text = activate_flames_kimi_codex_catalog(cfg, text)
         elif (
             model_family(target_model_f) == "deepseek"
+            or target_model_f in FLAMES_OPENROUTER_MODELS
+            or model_family(target_model_f) == "openrouter"
             or model_override_spec(cfg, "flames", target_model_f) is not None
         ):
             text = activate_flames_codex_catalog(cfg, text)
@@ -7978,6 +8033,9 @@ def usage() -> None:
     print("       switch-api codex openrouter")
     print("       switch-api codex openrouter ds     # paid DeepSeek V4 Flash")
     print("       switch-api codex openrouter gpt    # paid GPT-5.4")
+    print("       switch-api flames openrouter       # Codex → Flames 中转 OpenRouter 免费默认")
+    print("       switch-api flames openrouter nemotron")
+    print("       switch-api flames openrouter ds")
     print("       switch-api openclaw openrouter")
     print("       switch-api openclaw openrouter glm")
     print("       switch-api droid openrouter")
@@ -8570,6 +8628,9 @@ def parse_args(argv: Iterable[str], known_providers: Iterable[str] | None = None
             return ("doctor-provider", a1, "")
         if a0 == "list" and a1 in ("--online", "online"):
             return ("list-online", "", "")
+        # flames openrouter [model] → Codex via Flames NewAPI OpenRouter channels
+        if a0 == "flames" and a1 == "openrouter":
+            return ("codex", "flames", "@model:" + OPENROUTER_DEFAULT_MODEL)
         # <tool> <provider>
         if a0 in TOOLS_WITH_ALL:
             if a1 not in provider_set:
@@ -8584,6 +8645,9 @@ def parse_args(argv: Iterable[str], known_providers: Iterable[str] | None = None
 
     if len(args) == 3:
         tool, provider, arg3 = args
+        # switch-api flames openrouter nemotron → Codex on Flames OpenRouter channels
+        if tool == "flames" and provider == "openrouter":
+            return ("codex", "flames", "@model:" + arg3)
         tool = normalize_tool_name(tool)
         if tool == "list" and arg3 in ("--online", "online"):
             if provider in provider_set:
@@ -8947,6 +9011,13 @@ def main() -> int:
             if resolved != model:
                 info(f"OpenRouter alias {model} -> {resolved}")
             model = resolved
+        elif provider == "flames":
+            resolved = resolve_openrouter_model(model)
+            if resolved != model and (
+                resolved in FLAMES_OPENROUTER_MODELS or is_openrouter_free_model(resolved)
+            ):
+                info(f"Flames OpenRouter alias {model} -> {resolved}")
+                model = resolved
         validate_model_for_tool(tool, model, provider, force, custom_provider=custom_spec, cfg=cfg)
 
     if custom_spec is not None:

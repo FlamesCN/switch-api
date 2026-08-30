@@ -349,6 +349,8 @@ switch-api openrouter                        # openclaw+codex+droid → OpenRout
 switch-api codex openrouter ds               # Codex → DeepSeek V4 Flash（付费）
 switch-api codex openrouter gpt              # Codex → GPT-5.4（付费）
 switch-api openclaw openrouter glm           # OpenClaw → GLM 5.2 free
+switch-api flames openrouter nemotron        # Codex → Flames 中转 OpenRouter nemotron
+switch-api flames openrouter ds              # Codex → Flames 中转 OpenRouter DeepSeek
 switch-api droid openrouter                  # Droid → OpenRouter
 
 # ─── OpenAI / flames_newapi key 槽位 ─────────

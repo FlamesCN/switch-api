@@ -229,6 +229,9 @@ switch-api openclaw openrouter                # OpenClaw → nemotron lightning
 switch-api openclaw openrouter glm            # OpenClaw → GLM 5.2 free
 switch-api droid openrouter                   # Droid → OpenRouter (customModels)
 switch-api list openrouter                    # 列出当前免费模型 + 常用付费 DS/GPT/Claude
+switch-api flames openrouter                  # Codex → Flames 中转的 OpenRouter 免费默认
+switch-api flames openrouter nemotron         # Codex → nvidia/nemotron-3.5-lightning:free（经 Flames）
+switch-api flames openrouter ds               # Codex → deepseek/deepseek-v4-flash（经 Flames OpenRouter）
 ```
 
 **OpenRouter OpenClaw Profiles:**
