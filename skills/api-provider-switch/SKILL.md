@@ -113,7 +113,7 @@ switch-api cc anyrouter
 
 - `cc`: 默认 `claude-*`；`flames` 下也可走 `gpt-*` / `deepseek-v4-*`
 - `openclaw`: `claude-*` + `gemini-*` + 部分 `gpt-*`
-- `codex`: `gpt-*`；DeepSeek 官方 provider 与 `flames` relay 均支持 `deepseek-v4-flash` / `deepseek-v4-pro`
+- `codex`: `gpt-*`；DeepSeek 官方 provider 与 `flames` relay 均支持 `deepseek-v4-flash` / `deepseek-v4-pro`；`openrouter` 可用 `:free` 模型以及付费 `deepseek/*` / `openai/gpt-*` / `anthropic/claude-*`
 - `droid`: `gemini-*` + `gpt-*`
 - `gemini`: `gemini-*`
 - `hermes`: `gpt-*` / `gemini-*`（取决于 provider）
@@ -136,6 +136,10 @@ switch-api codex flames deepseek-v4-pro
 switch-api cc deepseek deepseek-v4-pro
 switch-api cc flames deepseek-v4-pro
 switch-api openclaw quotio claude-sonnet-4-6
+switch-api codex openrouter
+switch-api codex openrouter ds
+switch-api codex openrouter gpt
+switch-api codex openrouter claude
 ```
 
 ## 执行后建议

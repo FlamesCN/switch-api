@@ -435,20 +435,21 @@ OPENCLAW_ANTIGRAVITY_PROFILE_NAMES = tuple(OPENCLAW_ANTIGRAVITY_PROFILE_TO_PRIMA
 
 ANTIGRAVITY_DROID_MODEL = "gemini-3.1-pro-high"
 
-# OpenRouter OpenClaw profiles
-OPENCLAW_OPENROUTER_DEFAULT_PRIMARY = "openrouter/stepfun/step-3.5-flash:free"
+# OpenRouter OpenClaw profiles (free catalog rotates; fetched 2026-08-29)
+OPENCLAW_OPENROUTER_DEFAULT_PRIMARY = "openrouter/nvidia/nemotron-3.5-lightning:free"
 OPENCLAW_OPENROUTER_PROFILE_TO_PRIMARY = {
-    "default": "openrouter/stepfun/step-3.5-flash:free",
-    "step": "openrouter/stepfun/step-3.5-flash:free",
-    "llama": "openrouter/meta-llama/llama-3.3-70b-instruct:free",
-    "qwen": "openrouter/qwen/qwen3-coder:free",
-    "gemma": "openrouter/google/gemma-3-27b-it:free",
-    "hermes": "openrouter/nousresearch/hermes-3-llama-3.1-405b:free",
-    "gpt-oss": "openrouter/openai/gpt-oss-120b:free",
+    "default": "openrouter/nvidia/nemotron-3.5-lightning:free",
+    "free": "openrouter/openrouter/free",
+    "nemotron": "openrouter/nvidia/nemotron-3.5-lightning:free",
+    "ultra": "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free",
+    "minimax": "openrouter/minimax/minimax-m3:free",
+    "glm": "openrouter/z-ai/glm-5.2:free",
+    "gemma": "openrouter/google/gemma-4-31b-it:free",
+    "code": "openrouter/cohere/north-mini-code:free",
 }
 OPENCLAW_OPENROUTER_PROFILE_NAMES = tuple(OPENCLAW_OPENROUTER_PROFILE_TO_PRIMARY.keys())
 
-OPENROUTER_DROID_MODEL = "stepfun/step-3.5-flash:free"
+OPENROUTER_DROID_MODEL = "nvidia/nemotron-3.5-lightning:free"
 
 XRAY_PROXY = "http://127.0.0.1:1081"
 OPENAI_BASE_URL_V1 = "https://api.openai.com/v1"
@@ -564,37 +565,133 @@ OPENAI_PROVIDER_ENV_KEYS = {
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api"
 OPENROUTER_BASE_URL_V1 = "https://openrouter.ai/api/v1"
-OPENROUTER_DEFAULT_MODEL = "stepfun/step-3.5-flash:free"
+OPENROUTER_DEFAULT_MODEL = "nvidia/nemotron-3.5-lightning:free"
 
-# OpenRouter free models (fetched 2026-02-28)
+# OpenRouter free models (fetched 2026-08-29). Catalog rotates; :free IDs also pass validation.
 OPENROUTER_FREE_MODELS = (
-    "arcee-ai/trinity-large-preview:free",
-    "arcee-ai/trinity-mini:free",
-    "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
-    "google/gemma-3-12b-it:free",
-    "google/gemma-3-27b-it:free",
-    "google/gemma-3-4b-it:free",
-    "google/gemma-3n-e2b-it:free",
-    "google/gemma-3n-e4b-it:free",
-    "liquid/lfm-2.5-1.2b-instruct:free",
-    "liquid/lfm-2.5-1.2b-thinking:free",
-    "meta-llama/llama-3.2-3b-instruct:free",
-    "meta-llama/llama-3.3-70b-instruct:free",
-    "mistralai/mistral-small-3.1-24b-instruct:free",
-    "nousresearch/hermes-3-llama-3.1-405b:free",
-    "nvidia/nemotron-3-nano-30b-a3b:free",
-    "nvidia/nemotron-nano-12b-v2-vl:free",
-    "nvidia/nemotron-nano-9b-v2:free",
-    "openai/gpt-oss-120b:free",
-    "openai/gpt-oss-20b:free",
+    "cohere/north-mini-code:free",
+    "dots-studio/dots-3-note-preview:free",
+    "google/gemma-4-26b-a4b-it:free",
+    "google/gemma-4-31b-it:free",
+    "google/lyria-3-clip-preview",
+    "google/lyria-3-pro-preview",
+    "inclusionai/ling-3.0-flash-fin:free",
+    "liquid/lfm-2.5-2.6b:free",
+    "minimax/minimax-m2.7:free",
+    "minimax/minimax-m3:free",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "nvidia/nemotron-3.5-content-safety:free",
+    "nvidia/nemotron-3.5-lightning:free",
     "openrouter/free",
-    "qwen/qwen3-4b:free",
-    "qwen/qwen3-coder:free",
-    "qwen/qwen3-next-80b-a3b-instruct:free",
-    "stepfun/step-3.5-flash:free",
-    "upstage/solar-pro-3:free",
-    "z-ai/glm-4.5-air:free",
+    "poolside/laguna-s-2.1:free",
+    "poolside/laguna-xs-2.1:free",
+    "thinkingmachines/inkling-small:free",
+    "thinkingmachines/inkling:free",
+    "z-ai/glm-5.2:free",
 )
+
+# Paid OpenRouter IDs commonly used from Codex (consume credits, not the :free daily quota).
+OPENROUTER_PAID_MODELS = (
+    "deepseek/deepseek-v4-flash",
+    "deepseek/deepseek-v4-pro",
+    "openai/gpt-5.4",
+    "openai/gpt-5.3-codex",
+    "openai/gpt-5",
+    "anthropic/claude-sonnet-5",
+    "anthropic/claude-opus-5",
+    "anthropic/claude-haiku-4.5",
+)
+
+OPENROUTER_MODEL_ALIASES = {
+    "free": "openrouter/free",
+    "ds": "deepseek/deepseek-v4-flash",
+    "deepseek": "deepseek/deepseek-v4-flash",
+    "flash": "deepseek/deepseek-v4-flash",
+    "pro": "deepseek/deepseek-v4-pro",
+    "gpt": "openai/gpt-5.4",
+    "codex": "openai/gpt-5.3-codex",
+    "claude": "anthropic/claude-sonnet-5",
+    "sonnet": "anthropic/claude-sonnet-5",
+    "opus": "anthropic/claude-opus-5",
+    "haiku": "anthropic/claude-haiku-4.5",
+    "nemotron": "nvidia/nemotron-3.5-lightning:free",
+    "ultra": "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "minimax": "minimax/minimax-m3:free",
+    "glm": "z-ai/glm-5.2:free",
+    "gemma": "google/gemma-4-31b-it:free",
+    "code": "cohere/north-mini-code:free",
+}
+
+OPENROUTER_CODEX_CATALOG_FILENAME = "switch-api-openrouter.json"
+OPENROUTER_CODEX_SKIP_MODELS = frozenset({
+    "google/lyria-3-clip-preview",
+    "google/lyria-3-pro-preview",
+    "nvidia/nemotron-3.5-content-safety:free",
+})
+OPENROUTER_CODEX_VISION_MODELS = frozenset({
+    "dots-studio/dots-3-note-preview:free",
+    "thinkingmachines/inkling:free",
+    "thinkingmachines/inkling-small:free",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+})
+OPENROUTER_CODEX_DISPLAY_NAMES = {
+    "deepseek/deepseek-v4-flash": "DeepSeek V4 Flash",
+    "deepseek/deepseek-v4-pro": "DeepSeek V4 Pro",
+    "openai/gpt-5.4": "GPT-5.4",
+    "openai/gpt-5.3-codex": "GPT-5.3 Codex",
+    "openai/gpt-5": "GPT-5",
+    "anthropic/claude-sonnet-5": "Claude Sonnet 5",
+    "anthropic/claude-opus-5": "Claude Opus 5",
+    "anthropic/claude-haiku-4.5": "Claude Haiku 4.5",
+    "nvidia/nemotron-3.5-lightning:free": "Nemotron 3.5 Lightning (Free)",
+    "nvidia/nemotron-3-ultra-550b-a55b:free": "Nemotron 3 Ultra (Free)",
+    "nvidia/nemotron-3-super-120b-a12b:free": "Nemotron 3 Super (Free)",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": "Nemotron 3 Nano Omni (Free)",
+    "minimax/minimax-m3:free": "MiniMax M3 (Free)",
+    "minimax/minimax-m2.7:free": "MiniMax M2.7 (Free)",
+    "z-ai/glm-5.2:free": "GLM 5.2 (Free)",
+    "google/gemma-4-31b-it:free": "Gemma 4 31B (Free)",
+    "google/gemma-4-26b-a4b-it:free": "Gemma 4 26B (Free)",
+    "cohere/north-mini-code:free": "North Mini Code (Free)",
+    "openrouter/free": "OpenRouter Free Router",
+    "inclusionai/ling-3.0-flash-fin:free": "Ling 3.0 Flash (Free)",
+    "poolside/laguna-s-2.1:free": "Laguna S 2.1 (Free)",
+    "poolside/laguna-xs-2.1:free": "Laguna XS 2.1 (Free)",
+    "thinkingmachines/inkling:free": "Inkling (Free)",
+    "thinkingmachines/inkling-small:free": "Inkling Small (Free)",
+    "liquid/lfm-2.5-2.6b:free": "LFM 2.5 2.6B (Free)",
+    "dots-studio/dots-3-note-preview:free": "Dots3 Note Preview (Free)",
+}
+OPENROUTER_CODEX_CONTEXT_WINDOWS = {
+    "deepseek/deepseek-v4-flash": 1_048_576,
+    "deepseek/deepseek-v4-pro": 1_048_576,
+    "openai/gpt-5.4": 1_050_000,
+    "openai/gpt-5.3-codex": 400_000,
+    "openai/gpt-5": 400_000,
+    "anthropic/claude-sonnet-5": 1_000_000,
+    "anthropic/claude-opus-5": 1_000_000,
+    "anthropic/claude-haiku-4.5": 200_000,
+    "nvidia/nemotron-3.5-lightning:free": 1_000_000,
+    "nvidia/nemotron-3-ultra-550b-a55b:free": 1_000_000,
+    "nvidia/nemotron-3-super-120b-a12b:free": 262_144,
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": 256_000,
+    "minimax/minimax-m3:free": 1_048_576,
+    "minimax/minimax-m2.7:free": 196_608,
+    "z-ai/glm-5.2:free": 256_000,
+    "google/gemma-4-31b-it:free": 262_144,
+    "google/gemma-4-26b-a4b-it:free": 262_144,
+    "cohere/north-mini-code:free": 256_000,
+    "openrouter/free": 200_000,
+    "inclusionai/ling-3.0-flash-fin:free": 262_144,
+    "poolside/laguna-s-2.1:free": 262_144,
+    "poolside/laguna-xs-2.1:free": 262_144,
+    "thinkingmachines/inkling:free": 1_048_576,
+    "thinkingmachines/inkling-small:free": 1_048_576,
+    "liquid/lfm-2.5-2.6b:free": 65_536,
+    "dots-studio/dots-3-note-preview:free": 512_000,
+}
 
 # Gemini CLI: provider → base URL (SDK appends /v1beta/models/...)
 GEMINI_CLI_BASE_URLS = {
@@ -673,6 +770,9 @@ CUSTOM_OPENCLAW_APIS = ("openai-completions", "openai-responses")
 CUSTOM_HERMES_API_MODES = ("codex_responses", "chat_completions")
 MODEL_DISCOVERY_AUTH_MODES = ("bearer", "anthropic", "none")
 ENV_KEY_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
+ENV_KEY_PROVIDER_SLOTS = {
+    "OPENROUTER_API_KEY": "openrouter",
+}
 CUSTOM_PROVIDER_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 SHELL_ENV_SOURCE_LINE = '[ -f "$HOME/.env" ] && source "$HOME/.env"'
 
@@ -3013,9 +3113,13 @@ def cmd_key_set(cfg: Config, store: Dict[str, str], env_key: str, value: str) ->
     key_name = validate_env_key_name(env_key)
     if not value.strip():
         raise SwitchError("Key value must not be empty")
-    store[key_name] = value.strip()
+    secret = value.strip()
+    store[key_name] = secret
+    slot = ENV_KEY_PROVIDER_SLOTS.get(key_name)
+    if slot:
+        store[slot] = secret
     save_credential_store(cfg.cred_file, store)
-    sync_shared_shell_env(cfg, {key_name: value.strip()})
+    sync_shared_shell_env(cfg, {key_name: secret})
     ok(f"Saved key → {key_name}")
     info(f"credentials: {cfg.cred_file}")
     info(f"shell env: {cfg.home / '.env'}")
@@ -3417,6 +3521,42 @@ def resolve_openclaw_antigravity_profile(profile: str) -> Tuple[str, str]:
     return target, f"OpenClaw antigravity profile {p} -> {target}"
 
 
+def resolve_openrouter_model(model: str) -> str:
+    raw = (model or "").strip()
+    if not raw:
+        return raw
+    return OPENROUTER_MODEL_ALIASES.get(raw.lower(), raw)
+
+
+def is_openrouter_free_model(model: str) -> bool:
+    m = (model or "").strip()
+    if not m:
+        return False
+    if m == "openrouter/free" or m.endswith(":free"):
+        return True
+    return m in OPENROUTER_FREE_MODELS
+
+
+def openrouter_codex_display_name(slug: str) -> str:
+    if slug in OPENROUTER_CODEX_DISPLAY_NAMES:
+        return OPENROUTER_CODEX_DISPLAY_NAMES[slug]
+    name = slug.split("/", 1)[-1].replace(":free", " (Free)").replace("-", " ")
+    return name
+
+
+def openrouter_codex_catalog_slugs(cfg: Config | None = None) -> List[str]:
+    slugs: List[str] = []
+    for model in (*OPENROUTER_PAID_MODELS, *OPENROUTER_FREE_MODELS):
+        if model in OPENROUTER_CODEX_SKIP_MODELS or model in slugs:
+            continue
+        slugs.append(model)
+    if cfg is not None:
+        for model_id in model_override_entries(cfg, provider="openrouter", tool="codex"):
+            if model_id not in slugs:
+                slugs.append(model_id)
+    return slugs
+
+
 def resolve_openclaw_openrouter_profile(profile: str) -> Tuple[str, str]:
     p = (profile or "").strip().lower()
     if not p:
@@ -3460,6 +3600,9 @@ class Config:
         )
         self.codex_deepseek_catalog = (
             self.codex_home / "model-catalogs" / DEEPSEEK_CODEX_CATALOG_FILENAME
+        )
+        self.codex_openrouter_catalog = (
+            self.codex_home / "model-catalogs" / OPENROUTER_CODEX_CATALOG_FILENAME
         )
         self.factory_settings = home / ".factory/settings.json"
         self.gemini_env = home / ".gemini/.env"
@@ -3901,8 +4044,10 @@ def model_family(model: str) -> str:
         return "kimi"
     if m.startswith("deepseek-") or m.startswith("deepseek_"):
         return "deepseek"
-    # OpenRouter model IDs contain "/" (e.g. stepfun/step-3.5-flash:free)
-    if "/" in model and (model in OPENROUTER_FREE_MODELS or model.rstrip(":free") + ":free" in OPENROUTER_FREE_MODELS):
+    # OpenRouter free IDs contain "/" (e.g. nvidia/nemotron-3.5-lightning:free)
+    if is_openrouter_free_model(model) or (
+        "/" in model and (model in OPENROUTER_FREE_MODELS or model.rstrip(":free") + ":free" in OPENROUTER_FREE_MODELS)
+    ):
         return "openrouter"
     return "other"
 
@@ -3963,7 +4108,7 @@ def get_provider_models(
     elif provider == "duck_codex2cc":
         models = DUCK_CODEX2CC_AVAILABLE_MODELS
     elif provider == "openrouter":
-        models = OPENROUTER_FREE_MODELS
+        models = tuple(dict.fromkeys((*OPENROUTER_FREE_MODELS, *OPENROUTER_PAID_MODELS)))
     else:
         models = ()
     if cfg is not None:
@@ -3989,8 +4134,13 @@ def model_in_provider(model: str, provider: str, cfg: Config | None = None) -> b
     if cfg is not None and model in model_override_entries(cfg, provider=provider):
         return True
     if provider == "openrouter":
-        # OpenRouter model IDs contain slashes (e.g. stepfun/step-3.5-flash:free)
-        return model in OPENROUTER_FREE_MODELS
+        resolved = resolve_openrouter_model(model)
+        if resolved in OPENROUTER_FREE_MODELS or resolved in OPENROUTER_PAID_MODELS:
+            return True
+        if is_openrouter_free_model(resolved):
+            return True
+        # OpenRouter IDs are vendor/model; allow paid catalog IDs not yet snapshotted.
+        return "/" in resolved
     m = model.split("/")[-1]  # strip provider prefix
     if provider == "quotio" or provider == "antigravity":
         return m in QUOTIO_AVAILABLE_MODELS
@@ -4068,7 +4218,7 @@ def cmd_list_models(
             "deepseek": "DeepSeek (Anthropic + Responses)",
             "icodeeasy": "iCodeEasy (统一网关)",
             "duck_codex2cc": "Duck CodeX→CC (CC-only)",
-            "openrouter": "OpenRouter (Free)",
+            "openrouter": "OpenRouter",
         }.get(prov, prov)
         print(f"{CYAN}═══ {prov_label} 可用模型 ({total}) ═══{NC}")
 
@@ -4489,6 +4639,58 @@ def codex_flames_catalog_is_ready(cfg: Config, text: str) -> bool:
     return catalog_slugs[:len(expected_prefix)] == expected_prefix
 
 
+def build_openrouter_codex_catalog(cfg: Config | None = None) -> Dict[str, Any]:
+    """Build a Codex /model catalog of OpenRouter free + paid IDs."""
+    catalog = load_codex_bundled_catalog()
+    models = [model for model in catalog["models"] if isinstance(model, dict)]
+    template = next(
+        (model for model in models if model.get("slug") == "gpt-5.4"),
+        models[0] if models else None,
+    )
+    if not template or not isinstance(template.get("base_instructions"), str):
+        raise SwitchError("Bundled Codex model catalog has no usable instruction template")
+
+    override_entries = model_override_entries(cfg, provider="openrouter", tool="codex") if cfg else {}
+    openrouter_models = []
+    for slug in openrouter_codex_catalog_slugs(cfg):
+        vision = bool(override_entries.get(slug, {}).get("vision", False)) or slug in OPENROUTER_CODEX_VISION_MODELS
+        if not vision and model_family(slug) in ("claude", "gpt"):
+            vision = True
+        entry = _build_deepseek_codex_model(
+            slug,
+            openrouter_codex_display_name(slug),
+            template,
+            vision=vision,
+        )
+        ctx = OPENROUTER_CODEX_CONTEXT_WINDOWS.get(slug)
+        if ctx:
+            entry["context_window"] = ctx
+            entry["max_context_window"] = ctx
+        if is_openrouter_free_model(slug):
+            entry["description"] = "OpenRouter free model (:free daily quota)."
+        else:
+            entry["description"] = "OpenRouter paid model (uses account credits)."
+        openrouter_models.append(entry)
+    catalog["models"] = openrouter_models
+    return catalog
+
+
+def codex_openrouter_catalog_is_ready(cfg: Config, text: str) -> bool:
+    configured_path = read_codex_top_level_string(text, "model_catalog_json")
+    if configured_path != str(cfg.codex_openrouter_catalog) or not cfg.codex_openrouter_catalog.exists():
+        return False
+    try:
+        catalog = load_json(cfg.codex_openrouter_catalog)
+    except SwitchError:
+        return False
+    catalog_slugs = {
+        model.get("slug")
+        for model in catalog.get("models", [])
+        if isinstance(model, dict)
+    }
+    return set(openrouter_codex_catalog_slugs(cfg)).issubset(catalog_slugs)
+
+
 def activate_flames_kimi_codex_catalog(cfg: Config, text: str) -> str:
     managed_path = str(cfg.codex_kimi_catalog)
     current_path = read_codex_top_level_string(text, "model_catalog_json")
@@ -4537,11 +4739,28 @@ def activate_flames_codex_catalog(cfg: Config, text: str) -> str:
     return set_codex_top_level_string(text, "model_catalog_json", managed_path)
 
 
+def activate_openrouter_codex_catalog(cfg: Config, text: str) -> str:
+    managed_path = str(cfg.codex_openrouter_catalog)
+    current_path = read_codex_top_level_string(text, "model_catalog_json")
+    if current_path != managed_path:
+        cfg.switch_dir.mkdir(parents=True, exist_ok=True)
+        save_json(
+            cfg.codex_catalog_state,
+            {"previous_model_catalog_json": current_path or None},
+        )
+
+    cfg.codex_openrouter_catalog.parent.mkdir(parents=True, exist_ok=True)
+    save_json(cfg.codex_openrouter_catalog, build_openrouter_codex_catalog(cfg))
+    info(f"Codex OpenRouter metadata catalog → {cfg.codex_openrouter_catalog}")
+    return set_codex_top_level_string(text, "model_catalog_json", managed_path)
+
+
 def restore_codex_model_catalog(cfg: Config, text: str) -> str:
     managed_paths = {
         str(cfg.codex_kimi_catalog),
         str(cfg.codex_flames_catalog),
         str(cfg.codex_deepseek_catalog),
+        str(cfg.codex_openrouter_catalog),
     }
     if read_codex_top_level_string(text, "model_catalog_json") not in managed_paths:
         return text
@@ -4588,6 +4807,13 @@ def skip_redundant_switch(tool: str, provider: str, cfg: Config, model: str = ""
             return False
         text = read_text(cfg.cx_config) if cfg.cx_config.exists() else ""
         if not codex_deepseek_catalog_is_ready(cfg, text):
+            return False
+    if tool == "codex" and provider == "openrouter":
+        target_model = resolve_openrouter_model(model) if model else OPENROUTER_DEFAULT_MODEL
+        if current_model != target_model:
+            return False
+        text = read_text(cfg.cx_config) if cfg.cx_config.exists() else ""
+        if not codex_openrouter_catalog_is_ready(cfg, text):
             return False
     if tool == "grok":
         try:
@@ -4716,7 +4942,7 @@ def probe_model_curl(provider: str, model: str, keys: Dict[str, str]) -> Tuple[b
         return False, "no API key"
 
     bare_model = model.split("/")[-1]
-    request_model = model if provider == "flames" else bare_model
+    request_model = model if provider in ("flames", "openrouter") else bare_model
     if provider == "icodeeasy":
         if fam == "claude":
             payload = json.dumps({
@@ -4866,6 +5092,9 @@ def validate_model_for_tool(
         compatible = (tool,)
     if provider == "flames" and tool == "cc" and fam == "gpt":
         compatible = tuple(dict.fromkeys((*compatible, "cc")))
+    if provider == "openrouter" and tool in ("codex", "openclaw", "droid", "all"):
+        # OpenRouter is OpenAI-compatible, so Codex/Droid can take Claude/DS/GPT IDs.
+        compatible = tuple(dict.fromkeys((*compatible, tool)))
 
     if tool not in compatible:
         raise SwitchError(
@@ -5481,59 +5710,59 @@ def openrouter_models_payload() -> Dict[str, Any]:
         "apiKey": "",
         "models": [
             {
-                "id": "stepfun/step-3.5-flash:free",
-                "name": "Step 3.5 Flash (Free)",
+                "id": "openrouter/free",
+                "name": "OpenRouter Free Router",
+                "reasoning": False,
+                "input": ["text"],
+                "contextWindow": 200000,
+                "maxTokens": 32768,
+            },
+            {
+                "id": "nvidia/nemotron-3.5-lightning:free",
+                "name": "Nemotron 3.5 Lightning (Free)",
+                "reasoning": False,
+                "input": ["text"],
+                "contextWindow": 1000000,
+                "maxTokens": 32768,
+            },
+            {
+                "id": "nvidia/nemotron-3-ultra-550b-a55b:free",
+                "name": "Nemotron 3 Ultra (Free)",
+                "reasoning": False,
+                "input": ["text"],
+                "contextWindow": 1000000,
+                "maxTokens": 32768,
+            },
+            {
+                "id": "minimax/minimax-m3:free",
+                "name": "MiniMax M3 (Free)",
+                "reasoning": False,
+                "input": ["text"],
+                "contextWindow": 1048576,
+                "maxTokens": 32768,
+            },
+            {
+                "id": "z-ai/glm-5.2:free",
+                "name": "GLM 5.2 (Free)",
                 "reasoning": False,
                 "input": ["text"],
                 "contextWindow": 256000,
                 "maxTokens": 32768,
             },
             {
-                "id": "meta-llama/llama-3.3-70b-instruct:free",
-                "name": "Llama 3.3 70B (Free)",
+                "id": "google/gemma-4-31b-it:free",
+                "name": "Gemma 4 31B (Free)",
                 "reasoning": False,
                 "input": ["text"],
-                "contextWindow": 128000,
+                "contextWindow": 262144,
                 "maxTokens": 32768,
             },
             {
-                "id": "qwen/qwen3-coder:free",
-                "name": "Qwen3 Coder 480B A35B (Free)",
+                "id": "cohere/north-mini-code:free",
+                "name": "North Mini Code (Free)",
                 "reasoning": False,
                 "input": ["text"],
-                "contextWindow": 262000,
-                "maxTokens": 32768,
-            },
-            {
-                "id": "nousresearch/hermes-3-llama-3.1-405b:free",
-                "name": "Hermes 3 405B (Free)",
-                "reasoning": False,
-                "input": ["text"],
-                "contextWindow": 131072,
-                "maxTokens": 32768,
-            },
-            {
-                "id": "google/gemma-3-27b-it:free",
-                "name": "Gemma 3 27B (Free)",
-                "reasoning": False,
-                "input": ["text"],
-                "contextWindow": 131072,
-                "maxTokens": 32768,
-            },
-            {
-                "id": "openai/gpt-oss-120b:free",
-                "name": "GPT-OSS 120B (Free)",
-                "reasoning": False,
-                "input": ["text"],
-                "contextWindow": 131072,
-                "maxTokens": 32768,
-            },
-            {
-                "id": "mistralai/mistral-small-3.1-24b-instruct:free",
-                "name": "Mistral Small 3.1 24B (Free)",
-                "reasoning": False,
-                "input": ["text"],
-                "contextWindow": 128000,
+                "contextWindow": 256000,
                 "maxTokens": 32768,
             },
         ],
@@ -6018,8 +6247,14 @@ def _switch_openclaw_single_agent(provider: str, cfg: Config, keys: Dict[str, st
 
     elif provider == "openrouter":
         or_key = ensure_key("OPENROUTER_API_KEY", keys["openrouter"], "required for OpenClaw openrouter")
-        if model:
-            target_primary, reason = f"openrouter/{model}", ""
+        resolved_model = resolve_openrouter_model(model) if model else ""
+        if resolved_model:
+            target_primary, reason = f"openrouter/{resolved_model}", ""
+            if not is_openrouter_free_model(resolved_model):
+                warn(
+                    "This OpenRouter model is paid — it uses account credits, "
+                    "not the :free daily quota (50/day, or 1000/day after $10 lifetime credits)."
+                )
         else:
             target_primary, reason = resolve_openclaw_openrouter_profile(profile)
         set_openclaw_target_primary_model(
@@ -6028,15 +6263,15 @@ def _switch_openclaw_single_agent(provider: str, cfg: Config, keys: Dict[str, st
         selected_primary = target_primary
         if reason:
             info(reason)
-        info(f"OpenRouter default: {OPENROUTER_DEFAULT_MODEL} (all free models available)")
+        info(f"OpenRouter default: {OPENROUTER_DEFAULT_MODEL}")
 
         orp = openrouter_models_payload()
-        append_registered_openclaw_model(orp, cfg, provider, model, "openai-completions")
+        append_registered_openclaw_model(orp, cfg, provider, resolved_model, "openai-completions")
         orp["apiKey"] = or_key
         oc_providers["openrouter"] = orp
 
         orm = openrouter_models_payload_for_models_json()
-        append_registered_openclaw_model(orm, cfg, provider, model, "openai-completions")
+        append_registered_openclaw_model(orm, cfg, provider, resolved_model, "openai-completions")
         orm["apiKey"] = or_key
         model_providers["openrouter"] = orm
 
@@ -7024,8 +7259,9 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
         info(f"Codex → flames_newapi / {target_model_f} (FLAMES_API_KEY)")
 
     if provider == "openrouter":
-        # Set default model to step 3.5 flash
-        target_model_or = model or OPENROUTER_DEFAULT_MODEL
+        or_key = ensure_key("OPENROUTER_API_KEY", keys.get("openrouter", ""), "required for Codex openrouter")
+        sync_env_key_to_shell_files(cfg, "OPENROUTER_API_KEY", or_key)
+        target_model_or = resolve_openrouter_model(model) if model else OPENROUTER_DEFAULT_MODEL
         model_match_or = re.search(r'^\s*model\s*=\s*"([^"]+)"\s*$', text, flags=re.M)
         if model_match_or:
             text = re.sub(
@@ -7038,11 +7274,16 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
         else:
             text = f'model = "{target_model_or}"\n' + text
         info(f"Codex model set to {target_model_or}")
+        if not is_openrouter_free_model(target_model_or):
+            warn(
+                "This OpenRouter model is paid — it uses account credits, "
+                "not the :free daily quota (50/day, or 1000/day after $10 lifetime credits)."
+            )
 
         # ensure openrouter provider block exists
         if not re.search(r"^\[model_providers\.openrouter\]\s*$", text, flags=re.M):
             block = (
-                "\n\n# OpenRouter (unified API gateway, free models)\n"
+                "\n\n# OpenRouter (unified API gateway)\n"
                 "[model_providers.openrouter]\n"
                 'name = "openrouter"\n'
                 f'base_url = "{OPENROUTER_BASE_URL_V1}"\n'
@@ -7051,6 +7292,7 @@ def switch_codex(provider: str, cfg: Config, keys: Dict[str, str], model: str = 
             )
             text += block
             info("Added openrouter provider to codex config")
+        text = activate_openrouter_codex_catalog(cfg, text)
 
     if provider == "quotio_local":
         if not re.search(r"^\[model_providers\.quotio-local\]\s*$", text, flags=re.M):
@@ -7555,7 +7797,12 @@ def switch_droid(provider: str, cfg: Config, keys: Dict[str, str], profile: str 
 
     elif provider == "openrouter":
         or_key = ensure_key("OPENROUTER_API_KEY", keys["openrouter"], "required for Droid openrouter")
-        droid_model = model or OPENROUTER_DEFAULT_MODEL
+        droid_model = resolve_openrouter_model(model) if model else OPENROUTER_DROID_MODEL
+        if not is_openrouter_free_model(droid_model):
+            warn(
+                "This OpenRouter model is paid — it uses account credits, "
+                "not the :free daily quota (50/day, or 1000/day after $10 lifetime credits)."
+            )
         _write_factory_custom_models(cfg.factory_settings, [
             {
                 "model": droid_model,
@@ -7726,11 +7973,13 @@ def usage() -> None:
     print(f"  alias:    {', '.join(f'{alias}→{target}' for alias, target in TOOL_ALIASES.items())}")
     print(f"  provider: {' | '.join(PROVIDERS)}")
     print()
-    print("  4) OpenRouter (free models):")
-    print("       switch-api openrouter              # all → OpenRouter (free)")
+    print("  4) OpenRouter (free + paid DS/GPT/Claude):")
+    print("       switch-api openrouter              # all → OpenRouter free default")
     print("       switch-api codex openrouter")
+    print("       switch-api codex openrouter ds     # paid DeepSeek V4 Flash")
+    print("       switch-api codex openrouter gpt    # paid GPT-5.4")
     print("       switch-api openclaw openrouter")
-    print("       switch-api openclaw openrouter llama")
+    print("       switch-api openclaw openrouter glm")
     print("       switch-api droid openrouter")
     print()
     print("  5) Quotio Local (本地 Quotio app, 127.0.0.1:8317):")
@@ -8350,6 +8599,11 @@ def parse_args(argv: Iterable[str], known_providers: Iterable[str] | None = None
             usage()
             raise SystemExit(1)
 
+        # OpenRouter: Codex/Droid/all treat the third arg as a model or alias.
+        # OpenClaw still accepts named free-model profiles.
+        if provider == "openrouter" and tool != "openclaw":
+            return (tool, provider, "@model:" + arg3)
+
         # Decide: is arg3 a profile or a model name?
         if not is_model_name(arg3):
             # It's a known profile — validate as before
@@ -8688,6 +8942,11 @@ def main() -> int:
     if profile.startswith("@model:"):
         model = profile[7:]
         profile = ""
+        if provider == "openrouter":
+            resolved = resolve_openrouter_model(model)
+            if resolved != model:
+                info(f"OpenRouter alias {model} -> {resolved}")
+            model = resolved
         validate_model_for_tool(tool, model, provider, force, custom_provider=custom_spec, cfg=cfg)
 
     if custom_spec is not None:

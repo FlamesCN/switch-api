@@ -344,9 +344,11 @@ switch-api droid quotio_local                # Droid → Quotio Local (gpt-5.3-c
 switch-api codex quotio_local                # Codex → Quotio Local
 switch-api droid quotio_local gpt-5.3-codex-high  # 指定模型+思考等级
 
-# ─── OpenRouter (免费模型) ─────────────────────
-switch-api openrouter                        # openclaw+codex+droid → OpenRouter
-switch-api openclaw openrouter llama         # OpenClaw → Llama
+# ─── OpenRouter (免费模型 + 付费 DS/GPT/Claude) ─
+switch-api openrouter                        # openclaw+codex+droid → OpenRouter 免费默认
+switch-api codex openrouter ds               # Codex → DeepSeek V4 Flash（付费）
+switch-api codex openrouter gpt              # Codex → GPT-5.4（付费）
+switch-api openclaw openrouter glm           # OpenClaw → GLM 5.2 free
 switch-api droid openrouter                  # Droid → OpenRouter
 
 # ─── OpenAI / flames_newapi key 槽位 ─────────
@@ -565,7 +567,7 @@ openclaw onboard --auth-choice openai-codex
 - quotio codex → `gpt-5.3-codex`（profile 写法，同上）
 - quotio_local → `gpt-5.3-codex`（写入 `~/.factory/settings.json` customModels，本地 127.0.0.1:8317）
 - antigravity → `GEMINI_MODEL=gemini-3.1-pro-high`（env vars）
-- openrouter → `stepfun/step-3.5-flash:free`（写入 `~/.factory/settings.json` customModels）
+- openrouter → `nvidia/nemotron-3.5-lightning:free`（写入 `~/.factory/settings.json` customModels）
 - openai / openai_Gq80 / openai_V420 → `gpt-5.3-codex`（写入 customModels，需代理）
 
 > **Droid codex/quotio/quotio_local/openrouter/openai** 模型使用 OpenAI 协议，无法通过 GEMINI_* 环境变量配置。
@@ -585,7 +587,7 @@ openclaw onboard --auth-choice openai-codex
 # 格式: custom:{displayName 中空格替换为 -}-0
 droid exec -m "custom:Quotio-gpt-5.3-codex-0" "分析当前目录的代码结构"
 droid exec -m "custom:Quotio-Local-gpt-5.3-codex-0" "重构 main.py"
-droid exec -m "custom:OpenRouter-stepfun/step-3.5-flash:free-0" "解释这段代码"
+droid exec -m "custom:OpenRouter-nvidia/nemotron-3.5-lightning:free-0" "解释这段代码"
 ```
 
 **常用 custom model ID**：
@@ -594,7 +596,7 @@ droid exec -m "custom:OpenRouter-stepfun/step-3.5-flash:free-0" "解释这段代
 |----------|------|-----------|
 | quotio | gpt-5.3-codex | `custom:Quotio-gpt-5.3-codex-0` |
 | quotio_local | gpt-5.3-codex | `custom:Quotio-Local-gpt-5.3-codex-0` |
-| openrouter | step-3.5-flash:free | `custom:OpenRouter-stepfun/step-3.5-flash:free-0` |
+| openrouter | nemotron-3.5-lightning:free | `custom:OpenRouter-nvidia/nemotron-3.5-lightning:free-0` |
 | openai_Gq80 | gpt-5.3-codex | `custom:OpenAI[Gq80]-gpt-5.3-codex-0` |
 
 > ID 生成规则：`custom:{displayName.replace(" ", "-")}-{index}`，其中 index 是 customModels 数组下标（通常为 0）。

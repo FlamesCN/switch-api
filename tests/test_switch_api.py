@@ -946,7 +946,9 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         listed = self.mod.get_provider_models("openai", cfg=self.cfg)
         self.assertIn("gpt-next", listed["gpt"])
 
-    def test_registered_openrouter_model_switches_codex(self):
+    @patch("subprocess.run")
+    def test_registered_openrouter_model_switches_codex(self, run):
+        self.mock_codex_bundled_catalog(run)
         self.mod.cmd_model_override_add(
             self.cfg,
             "openrouter",
@@ -964,6 +966,15 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         text = self.cfg.cx_config.read_text(encoding="utf-8")
         self.assertIn('model = "vendor/model-next"', text)
         self.assertIn('model_provider = "openrouter"', text)
+        self.assertIn(
+            f'model_catalog_json = "{self.cfg.codex_openrouter_catalog}"',
+            text,
+        )
+        catalog = json.loads(self.cfg.codex_openrouter_catalog.read_text(encoding="utf-8"))
+        slugs = [model["slug"] for model in catalog["models"]]
+        self.assertIn("vendor/model-next", slugs)
+        self.assertIn("nvidia/nemotron-3.5-lightning:free", slugs)
+        self.assertIn("deepseek/deepseek-v4-flash", slugs)
 
     def test_registered_openrouter_model_switches_droid(self):
         self.mod.cmd_model_override_add(
@@ -1010,6 +1021,118 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
             if item["id"] == "vendor/model-next"
         )
         self.assertEqual(registered["input"], ["text", "image"])
+
+    @patch("subprocess.run")
+    def test_openrouter_alias_ds_switches_codex(self, run):
+        self.mock_codex_bundled_catalog(run)
+        self.mod.switch_codex(
+            "openrouter",
+            self.cfg,
+            {"openrouter": "dummy"},
+            model="ds",
+        )
+        text = self.cfg.cx_config.read_text(encoding="utf-8")
+        self.assertIn('model = "deepseek/deepseek-v4-flash"', text)
+        self.assertIn('model_provider = "openrouter"', text)
+
+    @patch("subprocess.run")
+    def test_openrouter_alias_gpt_switches_codex(self, run):
+        self.mock_codex_bundled_catalog(run)
+        self.mod.switch_codex(
+            "openrouter",
+            self.cfg,
+            {"openrouter": "dummy"},
+            model="gpt",
+        )
+        text = self.cfg.cx_config.read_text(encoding="utf-8")
+        self.assertIn('model = "openai/gpt-5.4"', text)
+
+    @patch("subprocess.run")
+    def test_openrouter_allows_claude_on_codex(self, run):
+        self.mock_codex_bundled_catalog(run)
+        self.mod.validate_model_for_tool(
+            "codex",
+            "anthropic/claude-sonnet-5",
+            "openrouter",
+        )
+        self.mod.switch_codex(
+            "openrouter",
+            self.cfg,
+            {"openrouter": "dummy"},
+            model="claude",
+        )
+        text = self.cfg.cx_config.read_text(encoding="utf-8")
+        self.assertIn('model = "anthropic/claude-sonnet-5"', text)
+
+    @patch("subprocess.run")
+    def test_switch_codex_openrouter_writes_multi_model_catalog(self, run):
+        self.mock_codex_bundled_catalog(run)
+        self.mod.switch_codex(
+            "openrouter",
+            self.cfg,
+            {"openrouter": "dummy"},
+            model="nemotron",
+        )
+        text = self.cfg.cx_config.read_text(encoding="utf-8")
+        self.assertIn('model = "nvidia/nemotron-3.5-lightning:free"', text)
+        self.assertIn(
+            f'model_catalog_json = "{self.cfg.codex_openrouter_catalog}"',
+            text,
+        )
+        catalog = json.loads(self.cfg.codex_openrouter_catalog.read_text(encoding="utf-8"))
+        slugs = [model["slug"] for model in catalog["models"]]
+        for expected in (
+            "nvidia/nemotron-3.5-lightning:free",
+            "nvidia/nemotron-3-ultra-550b-a55b:free",
+            "z-ai/glm-5.2:free",
+            "deepseek/deepseek-v4-flash",
+            "openai/gpt-5.4",
+            "anthropic/claude-sonnet-5",
+        ):
+            self.assertIn(expected, slugs)
+        self.assertGreaterEqual(len(slugs), 10)
+        self.assertNotIn("google/lyria-3-pro-preview", slugs)
+
+    @patch("subprocess.run")
+    def test_switch_codex_flames_restores_catalog_after_openrouter(self, run):
+        self.mock_codex_bundled_catalog(run)
+        original_catalog = "/tmp/custom-codex-models.json"
+        original_text = self.cfg.cx_config.read_text(encoding="utf-8")
+        self.cfg.cx_config.write_text(
+            f'model_catalog_json = "{original_catalog}"\n' + original_text,
+            encoding="utf-8",
+        )
+
+        self.mod.switch_codex(
+            "openrouter",
+            self.cfg,
+            {"openrouter": "dummy"},
+            model="nemotron",
+        )
+        self.mod.switch_codex("flames", self.cfg, {"flames": "dummy"}, model="")
+
+        text = self.cfg.cx_config.read_text(encoding="utf-8")
+        self.assertIn(f'model_catalog_json = "{original_catalog}"', text)
+        self.assertNotIn(str(self.cfg.codex_openrouter_catalog), text)
+
+    def test_openrouter_alias_resolution(self):
+        self.assertEqual(
+            self.mod.resolve_openrouter_model("ds"),
+            "deepseek/deepseek-v4-flash",
+        )
+        self.assertEqual(
+            self.mod.resolve_openrouter_model("free"),
+            "openrouter/free",
+        )
+        self.assertTrue(self.mod.is_openrouter_free_model("nvidia/nemotron-3.5-lightning:free"))
+        self.assertFalse(self.mod.is_openrouter_free_model("deepseek/deepseek-v4-flash"))
+
+    def test_openrouter_codex_third_arg_is_model_not_profile(self):
+        tool, provider, profile = self.mod.parse_args(
+            ["codex", "openrouter", "ds"],
+            known_providers=[],
+        )
+        self.assertEqual((tool, provider, profile), ("codex", "openrouter", "@model:ds"))
 
     def test_registered_xingyun_model_switches_codex(self):
         self.mod.cmd_model_override_add(

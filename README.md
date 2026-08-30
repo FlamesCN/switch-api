@@ -21,7 +21,7 @@ Unified API provider switcher across:
 | `xai` | ⚡ | grok | xAI Official / Grok 官方直连 |
 | `deepseek` | 🧠 | cc, codex | DeepSeek Official Anthropic + Responses API (api.deepseek.com) |
 | `quotio_local` | 🔗 | codex, droid | Quotio Local (本地 app, 127.0.0.1:8317) |
-| `openrouter` | 🌐 | openclaw, codex, droid | OpenRouter (openrouter.ai) — free models |
+| `openrouter` | 🌐 | openclaw, codex, droid | OpenRouter (openrouter.ai) — :free models + paid DS/GPT/Claude |
 | `openai` | 🔑 | openclaw, codex, droid | OpenAI 官方 (api.openai.com via proxy) |
 | `aiwave` | 🌊 | openclaw, codex, droid, gemini, hermes | AI Wave (api.ai-wave.org) |
 | `icodeeasy` | 🧊 | cc, openclaw, codex, gemini | iCodeEasy (api.icodeeasy.cc) — 统一网关（Anthropic + OpenAI + Gemini） |
@@ -218,25 +218,29 @@ Hermes profile rules:
 - `switch-api --profile <name> hermes <provider>` 只改该 profile
 - `switch-api --all-profiles hermes <provider>` 批量改所有 `~/.hermes/profiles/*/config.yaml`
 
-### OpenRouter (Free Models)
+### OpenRouter (Free + Paid DS/GPT/Claude)
 ```bash
-switch-api openrouter                         # 默认 stepfun/step-3.5-flash:free
-switch-api codex openrouter                   # codex → OpenRouter
-switch-api openclaw openrouter                # openclaw → step-3.5-flash
-switch-api openclaw openrouter llama          # openclaw → llama-3.3-70b
-switch-api openclaw openrouter qwen           # openclaw → qwen3-coder
-switch-api openclaw openrouter gpt-oss        # openclaw → gpt-oss-120b
-switch-api droid openrouter                   # droid → OpenRouter (customModels)
-switch-api list openrouter                    # 列出 26 个免费模型
+switch-api openrouter                         # 默认 nvidia/nemotron-3.5-lightning:free
+switch-api codex openrouter                   # Codex → OpenRouter 免费默认
+switch-api codex openrouter ds                # Codex → deepseek/deepseek-v4-flash（付费）
+switch-api codex openrouter gpt               # Codex → openai/gpt-5.4（付费）
+switch-api codex openrouter claude            # Codex → anthropic/claude-sonnet-5（付费）
+switch-api openclaw openrouter                # OpenClaw → nemotron lightning
+switch-api openclaw openrouter glm            # OpenClaw → GLM 5.2 free
+switch-api droid openrouter                   # Droid → OpenRouter (customModels)
+switch-api list openrouter                    # 列出当前免费模型 + 常用付费 DS/GPT/Claude
 ```
 
 **OpenRouter OpenClaw Profiles:**
-- `default` / `step` → stepfun/step-3.5-flash:free
-- `llama` → meta-llama/llama-3.3-70b-instruct:free
-- `qwen` → qwen/qwen3-coder:free
-- `gemma` → google/gemma-3-27b-it:free
-- `hermes` → nousresearch/hermes-3-llama-3.1-405b:free
-- `gpt-oss` → openai/gpt-oss-120b:free
+- `default` / `nemotron` → nvidia/nemotron-3.5-lightning:free
+- `free` → openrouter/free
+- `ultra` → nvidia/nemotron-3-ultra-550b-a55b:free
+- `minimax` → minimax/minimax-m3:free
+- `glm` → z-ai/glm-5.2:free
+- `gemma` → google/gemma-4-31b-it:free
+- `code` → cohere/north-mini-code:free
+
+`:free` 模型走每日限额（未充值 50 次/天；账户累计充值 ≥ $10 后 1000 次/天）。DS / Claude / GPT 官方模型目前没有 `:free` 变体，会扣 credits。
 
 > Note: OpenRouter uses OpenAI-compatible API. `cc` (Claude Code) and `gemini` (Gemini CLI) are skipped because they require Anthropic / Google native API formats.
 
