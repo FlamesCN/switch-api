@@ -595,6 +595,55 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertEqual(deepseek["max_context_window"], 1_048_576)
 
     @patch("subprocess.run")
+    def test_switch_codex_flames_accepts_gpt_6_astra_with_official_metadata(self, run):
+        self.mock_codex_bundled_catalog(run)
+
+        self.mod.switch_codex(
+            "flames",
+            self.cfg,
+            {"flames": "dummy"},
+            model="gpt-6-astra",
+        )
+
+        text = self.cfg.cx_config.read_text(encoding="utf-8")
+        self.assertIn('model = "gpt-6-astra"', text)
+        self.assertIn(
+            f'model_catalog_json = "{self.cfg.codex_flames_catalog}"',
+            text,
+        )
+        catalog = json.loads(self.cfg.codex_flames_catalog.read_text(encoding="utf-8"))
+        astra = next(model for model in catalog["models"] if model["slug"] == "gpt-6-astra")
+        self.assertEqual(astra["display_name"], "GPT-6 Astra")
+        self.assertEqual(astra["context_window"], 1_050_000)
+        self.assertEqual(astra["max_context_window"], 1_050_000)
+        self.assertEqual(astra["input_modalities"], ["text", "image"])
+        self.assertEqual(
+            [level["effort"] for level in astra["supported_reasoning_levels"]],
+            ["low", "medium", "high", "xhigh", "max"],
+        )
+
+    def test_flames_catalog_accepts_primary_codex_models(self):
+        for model in self.mod.FLAMES_CODEX_PRIMARY_MODELS:
+            with self.subTest(model=model):
+                self.assertTrue(self.mod.model_in_provider(model, "flames", cfg=self.cfg))
+
+    @patch("subprocess.run")
+    def test_switch_codex_flames_repairs_stale_primary_catalog(self, run):
+        self.mock_codex_bundled_catalog(run)
+        self.cfg.cx_config.write_text(
+            f'model_catalog_json = "{self.cfg.codex_flames_catalog}"\n'
+            'model_provider = "flames_newapi"\n'
+            'model = "gpt-5.6-sol"\n',
+            encoding="utf-8",
+        )
+        self.cfg.codex_flames_catalog.parent.mkdir(parents=True, exist_ok=True)
+        self.cfg.codex_flames_catalog.write_text('{"models": []}\n', encoding="utf-8")
+
+        self.assertFalse(
+            self.mod.skip_redundant_switch("codex", "flames", self.cfg, "gpt-5.6-sol")
+        )
+
+    @patch("subprocess.run")
     def test_switch_codex_flames_accepts_deepseek_v4_pro(self, run):
         self.mock_codex_bundled_catalog(run)
 
@@ -677,8 +726,9 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         catalog = json.loads(self.cfg.codex_flames_catalog.read_text(encoding="utf-8"))
         slugs = [model["slug"] for model in catalog["models"]]
         self.assertEqual(
-            slugs[:7],
+            slugs[:8],
             [
+                "gpt-6-astra",
                 "gpt-5.6-sol",
                 "gpt-5.6-terra",
                 "gpt-5.6-luna",
