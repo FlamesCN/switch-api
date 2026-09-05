@@ -4532,8 +4532,23 @@ def build_deepseek_codex_catalog(cfg: Config | None = None) -> Dict[str, Any]:
     return catalog
 
 
+def flames_codex_model_group(slug: str) -> int:
+    """Order Flames Codex models by paid family, keeping all free models last."""
+    normalized = slug.split("/")[-1]
+    family = model_family(slug)
+    if is_openrouter_free_model(slug):
+        return 4
+    if family == "gpt" or slug == "codex-auto-review":
+        return 0
+    if family == "deepseek":
+        return 1
+    if normalized.startswith("glm-"):
+        return 2
+    return 3
+
+
 def build_flames_codex_catalog(cfg: Config) -> Dict[str, Any]:
-    """Build the Flames catalog with Codex, DeepSeek, then registered models."""
+    """Build the Flames catalog ordered as GPT, DeepSeek, GLM, then free models."""
     catalog = load_codex_bundled_catalog()
     models = [model for model in catalog["models"] if isinstance(model, dict)]
     template = next(
@@ -4639,13 +4654,17 @@ def build_flames_codex_catalog(cfg: Config) -> Dict[str, Any]:
         | set(registered_slugs)
         | set(FLAMES_OPENROUTER_MODELS)
     )
-    catalog["models"] = [astra_model] + [
+    catalog_models = [astra_model] + [
         model for slug in FLAMES_CODEX_PRIMARY_MODELS if slug != "gpt-6-astra"
         for model in models
         if model.get("slug") == slug
     ] + deepseek_models + registered_models + openrouter_models + [
         model for model in models if model.get("slug") not in preferred_slugs
     ]
+    catalog["models"] = sorted(
+        catalog_models,
+        key=lambda model: flames_codex_model_group(str(model.get("slug") or "")),
+    )
     return catalog
 
 
@@ -4712,14 +4731,17 @@ def codex_flames_catalog_is_ready(cfg: Config, text: str) -> bool:
         and model_id not in FLAMES_CODEX_PRIMARY_MODELS
         and model_id != FLAMES_KIMI_CODEX_MODEL
     ]
-    expected_prefix = [
+    required_slugs = {
         *FLAMES_CODEX_PRIMARY_MODELS,
         *DEEPSEEK_CODEX_AVAILABLE_MODELS,
         *extra_deepseek,
         *registered,
         *FLAMES_OPENROUTER_MODELS,
-    ]
-    return catalog_slugs[:len(expected_prefix)] == expected_prefix
+    }
+    return required_slugs.issubset(catalog_slugs) and all(
+        flames_codex_model_group(left) <= flames_codex_model_group(right)
+        for left, right in zip(catalog_slugs, catalog_slugs[1:])
+    )
 
 
 def build_openrouter_codex_catalog(cfg: Config | None = None) -> Dict[str, Any]:

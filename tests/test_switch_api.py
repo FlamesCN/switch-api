@@ -725,18 +725,19 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         )
         catalog = json.loads(self.cfg.codex_flames_catalog.read_text(encoding="utf-8"))
         slugs = [model["slug"] for model in catalog["models"]]
-        self.assertEqual(
-            slugs[:8],
-            [
-                "gpt-6-astra",
-                "gpt-5.6-sol",
-                "gpt-5.6-terra",
-                "gpt-5.6-luna",
-                "deepseek-v4-flash",
-                "deepseek-v4-flash-vision-exp",
-                "deepseek-v4-pro",
-                "glm-5.3-flash",
-            ],
+        groups = [self.mod.flames_codex_model_group(slug) for slug in slugs]
+        self.assertEqual(groups, sorted(groups))
+        self.assertLess(
+            slugs.index("gpt-5.4"),
+            slugs.index("deepseek-v4-flash"),
+        )
+        self.assertLess(
+            slugs.index("deepseek/deepseek-v4-pro"),
+            slugs.index("glm-5.3-flash"),
+        )
+        self.assertLess(
+            slugs.index("glm-5.3-flash"),
+            slugs.index("nvidia/nemotron-3.5-lightning:free"),
         )
 
 
