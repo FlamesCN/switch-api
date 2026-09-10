@@ -4370,6 +4370,23 @@ def load_codex_bundled_catalog() -> Dict[str, Any]:
     return catalog
 
 
+def codex_identity_instructions(template_instructions: str, display_name: str, slug: str) -> str:
+    """Rewrite the bundled GPT identity line for non-GPT Codex models.
+
+    Cloned catalog entries reuse a GPT template whose base instructions open
+    with "You are Codex, a coding agent based on GPT-5.".  Served through the
+    relay, a non-GPT model would otherwise introduce itself as GPT.
+    """
+    if model_family(slug) == "gpt":
+        return template_instructions
+    return re.sub(
+        r"based on GPT-[\w.]+",
+        f"powered by {display_name}",
+        template_instructions,
+        count=1,
+    )
+
+
 def build_flames_kimi_codex_catalog() -> Dict[str, Any]:
     catalog = load_codex_bundled_catalog()
     models = [model for model in catalog["models"] if isinstance(model, dict)]
@@ -4405,7 +4422,9 @@ def build_flames_kimi_codex_catalog() -> Dict[str, Any]:
         "default_service_tier": None,
         "availability_nux": None,
         "upgrade": None,
-        "base_instructions": template["base_instructions"],
+        "base_instructions": codex_identity_instructions(
+            template["base_instructions"], "Kimi K3", FLAMES_KIMI_CODEX_MODEL
+        ),
         "model_messages": None,
         "include_skills_usage_instructions": False,
         "supports_reasoning_summary_parameter": True,
@@ -4444,6 +4463,9 @@ def _build_deepseek_codex_model(
 ) -> Dict[str, Any]:
     """Build a DeepSeek Codex model entry on top of a bundled template."""
     is_vision_model = vision or slug.endswith("-vision-exp")
+    instructions = codex_identity_instructions(
+        template["base_instructions"], display_name, slug
+    )
     deepseek_model = {
         "slug": slug,
         "prefer_websockets": False,
@@ -4482,8 +4504,8 @@ def _build_deepseek_codex_model(
         "availability_nux": None,
         "upgrade": None,
         "priority": 1,
-        "base_instructions": template["base_instructions"],
-        "model_messages": {"instructions_template": template["base_instructions"]},
+        "base_instructions": instructions,
+        "model_messages": {"instructions_template": instructions},
     }
     # Preserve any schema fields newly required by the installed Codex version.
     for key, value in template.items():

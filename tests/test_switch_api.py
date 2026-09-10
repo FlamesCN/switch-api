@@ -931,6 +931,27 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         model = next(item for item in catalog["models"] if item["slug"] == "deepseek-v4-flash-next")
         self.assertEqual(model["input_modalities"], ["text", "image"])
 
+    def test_build_deepseek_codex_model_rewrites_gpt_identity(self):
+        template = {
+            "base_instructions": "You are Codex, a coding agent based on GPT-5. Work."
+        }
+        entry = self.mod._build_deepseek_codex_model(
+            "deepseek-v4-flash", "DeepSeek-V4-Flash", template
+        )
+        self.assertIn("powered by DeepSeek-V4-Flash", entry["base_instructions"])
+        self.assertNotIn("GPT-5", entry["base_instructions"])
+        self.assertIn(
+            "powered by DeepSeek-V4-Flash",
+            entry["model_messages"]["instructions_template"],
+        )
+
+    def test_build_deepseek_codex_model_keeps_gpt_identity(self):
+        template = {
+            "base_instructions": "You are Codex, a coding agent based on GPT-5. Work."
+        }
+        entry = self.mod._build_deepseek_codex_model("gpt-5.4", "GPT-5.4", template)
+        self.assertIn("based on GPT-5", entry["base_instructions"])
+
     def test_model_override_supports_other_builtin_provider_and_tool_scope(self):
         self.mod.cmd_model_override_add(
             self.cfg,
