@@ -31,6 +31,12 @@ switch-api key list
 
 ## 自定义 OpenAI-compatible provider
 
+AnyRouter 的维护预设（同时注册 Codex + Claude Code）:
+
+```bash
+switch-api provider add-anyrouter
+```
+
 ```bash
 switch-api provider add-openai <name> <base_url> <env_key> <default_model>
 switch-api provider add-openai myrelay https://relay.example.com/v1 MY_RELAY_API_KEY gpt-5.4 --disable-image-generation
@@ -49,7 +55,7 @@ switch-api provider add-openai myrelay https://relay.example.com/v1 MY_RELAY_API
 ```bash
 switch-api provider add-anthropic <name> <base_url> <env_key> <default_model>
 switch-api provider add-anthropic myrelay https://relay.example.com/anthropic MY_RELAY_CC_API_KEY claude-sonnet-4-6 --env CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
-switch-api provider add-anthropic anyrouter https://anyrouter.top ANYROUTER_API_KEY claude-opus-4-8 --env ANTHROPIC_BETAS=context-1m-2025-08-07
+switch-api provider add-anthropic anyrouter https://anyrouter.top ANYROUTER_API_KEY claude-opus-4-7 --env ANTHROPIC_BETAS=context-1m-2025-08-07
 ```
 
 适用工具：

@@ -320,6 +320,31 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
             ["bearer", "anthropic", "none"],
         )
 
+        action, provider, spec = self.mod.parse_args(["provider", "add-anyrouter"])
+        self.assertEqual(action, "provider-add-anyrouter")
+        self.assertEqual(provider, "anyrouter")
+        self.assertEqual(spec["openai"]["default_model"], "gpt-6-astra")
+        self.assertEqual(spec["openai"]["tools"], ["codex"])
+        self.assertEqual(spec["anthropic"]["default_model"], "claude-opus-4-7")
+        self.assertEqual(
+            spec["anthropic"]["extra_env"]["ANTHROPIC_BETAS"],
+            "context-1m-2025-08-07",
+        )
+
+        action, provider, spec = self.mod.parse_args(
+            [
+                "provider",
+                "add-anyrouter",
+                "--codex-model",
+                "gpt-custom",
+                "--cc-model=claude-custom",
+            ]
+        )
+        self.assertEqual(action, "provider-add-anyrouter")
+        self.assertEqual(provider, "anyrouter")
+        self.assertEqual(spec["openai"]["default_model"], "gpt-custom")
+        self.assertEqual(spec["anthropic"]["default_model"], "claude-custom")
+
     def test_sync_custom_provider_model_cache_discovers_models_and_updates_catalog(self):
         openai_spec = self.mod.normalize_custom_openai_provider_spec(
             "anyrouter",
@@ -425,6 +450,79 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
                 "myrelay",
                 doctor=True,
             )
+
+    def test_probe_custom_openai_only_checks_enabled_protocols(self):
+        spec = self.mod.anyrouter_provider_spec()
+        with patch.object(
+            self.mod,
+            "fetch_remote_model_catalog",
+            return_value=(["gpt-6-astra"], "bearer", ""),
+        ), patch.object(
+            self.mod,
+            "perform_json_http_request",
+            return_value=(True, 200, '{"ok":true}'),
+        ) as request:
+            results = self.mod.probe_custom_openai_provider(
+                spec,
+                {"ANYROUTER_API_KEY": "dummy"},
+            )
+
+        self.assertEqual(
+            [label for label, _ok, _detail in results],
+            ["openai /models", "openai /responses"],
+        )
+        self.assertEqual(request.call_count, 1)
+        self.assertTrue(request.call_args.args[1].endswith("/v1/responses"))
+        headers = request.call_args.args[2]
+        payload = request.call_args.args[3]
+        self.assertEqual(headers["Originator"], "codex_exec")
+        self.assertEqual(headers["X-OpenAI-Internal-Codex-Responses-Lite"], "true")
+        self.assertTrue(payload["stream"])
+        self.assertEqual(payload["include"], ["reasoning.encrypted_content"])
+        self.assertEqual(payload["input"][0]["role"], "developer")
+        self.assertEqual(payload["input"][1]["role"], "user")
+        self.assertEqual(payload["reasoning"]["effort"], "low")
+
+    def test_cmd_provider_add_anyrouter_writes_dual_protocol_preset(self):
+        self.mod.cmd_provider_add_anyrouter(self.cfg, self.mod.anyrouter_provider_spec())
+
+        saved = self.mod.load_custom_provider_store(self.cfg.custom_providers_file)
+        spec = saved["providers"]["anyrouter"]
+        self.assertEqual(spec["tools"], ["cc", "codex"])
+        self.assertEqual(spec["openai"]["default_model"], "gpt-6-astra")
+        self.assertEqual(spec["anthropic"]["default_model"], "claude-opus-4-7")
+        self.assertEqual(
+            spec["anthropic"]["extra_env"]["ANTHROPIC_BETAS"],
+            "context-1m-2025-08-07",
+        )
+
+    def test_switch_custom_codex_repairs_legacy_catalog_when_provider_is_unchanged(self):
+        legacy_path = str(
+            self.cfg.codex_home
+            / "model-catalogs"
+            / "switch-api-flames-glm-5.3-flash.json"
+        )
+        self.write(
+            self.cfg.cx_config,
+            (
+                f'model_catalog_json = "{legacy_path}"\n'
+                'model_provider = "anyrouter"\n'
+                'model = "gpt-6-astra"\n'
+            ),
+        )
+        self.write_json(
+            self.cfg.codex_catalog_state,
+            {"previous_model_catalog_json": legacy_path},
+        )
+
+        self.mod.switch_custom_codex_provider(
+            self.mod.anyrouter_provider_spec(),
+            self.cfg,
+            {"ANYROUTER_API_KEY": "dummy"},
+        )
+
+        text = self.cfg.cx_config.read_text(encoding="utf-8")
+        self.assertNotIn("model_catalog_json", text)
 
     def test_switch_openclaw_flames_updates_all_agents_by_default(self):
         self.write_json(
@@ -547,6 +645,28 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         backups = list(self.cfg.codex_backup_dir.glob("config.toml.bak.switch-*"))
         self.assertEqual(len(backups), 1)
         self.assertEqual(list(self.cfg.codex_home.glob("config.toml.bak.switch-*")), [])
+
+    def test_restore_codex_model_catalog_removes_legacy_self_reference(self):
+        legacy_path = str(
+            self.cfg.codex_home
+            / "model-catalogs"
+            / "switch-api-flames-glm-5.3-flash.json"
+        )
+        self.write(
+            self.cfg.cx_config,
+            f'model_catalog_json = "{legacy_path}"\nmodel = "gpt-6-astra"\n',
+        )
+        self.write_json(
+            self.cfg.codex_catalog_state,
+            {"previous_model_catalog_json": legacy_path},
+        )
+
+        restored = self.mod.restore_codex_model_catalog(
+            self.cfg,
+            self.cfg.cx_config.read_text(encoding="utf-8"),
+        )
+
+        self.assertNotIn("model_catalog_json", restored)
 
     def test_switch_codex_named_openai_uses_flames_newapi_env_slot(self):
         self.mod.switch_codex("openai_V420", self.cfg, {"openai_V420": "dummy"}, model="")

@@ -34,6 +34,7 @@ import shutil
 import subprocess
 import sys
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
@@ -51,6 +52,14 @@ QUOTIO_BASE_URL_V1BETA = "https://api.ancientechoes.ai/v1beta"
 QUOTIO_LOCAL_BASE_URL = "http://127.0.0.1:8317"
 QUOTIO_LOCAL_BASE_URL_V1 = "http://127.0.0.1:8317/v1"
 QUOTIO_LOCAL_DROID_MODEL = "gpt-5.3-codex"
+
+# AnyRouter preset (OpenAI Responses + Anthropic Messages)
+ANYROUTER_BASE_URL = "https://anyrouter.top"
+ANYROUTER_OPENAI_BASE_URL = ANYROUTER_BASE_URL + "/v1"
+ANYROUTER_API_KEY_ENV = "ANYROUTER_API_KEY"
+ANYROUTER_CODEX_DEFAULT_MODEL = "gpt-6-astra"
+ANYROUTER_CC_DEFAULT_MODEL = "claude-opus-4-7"
+ANYROUTER_ANTHROPIC_BETA = "context-1m-2025-08-07"
 
 # Quotio model catalog (fetched 2026-02-28)
 QUOTIO_AVAILABLE_MODELS = (
@@ -812,7 +821,7 @@ CC_ONLY_PROVIDERS = ("duck_cc1", "duck_codex2cc")
 OPENCLAW_CLAUDE_PROVIDERS = ("duck", "quotio", "antigravity", "icodeeasy")
 OPENCLAW_GEMINI_PROFILES = frozenset(("gemini", "gemini3", "gemini-3", "gemini3-pro-high"))
 
-APP_VERSION = "2.1.0"
+APP_VERSION = "2.1.1"
 HTTP_USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
@@ -1945,6 +1954,74 @@ def anthropic_extra_headers(extra_env: Dict[str, str] | None = None) -> Dict[str
     return payload
 
 
+def anyrouter_codex_probe_request(model: str) -> Tuple[Dict[str, str], Dict[str, Any]]:
+    """Build the Codex-shaped envelope required by AnyRouter's Responses gateway.
+
+    AnyRouter does not accept a generic OpenAI Responses smoke-test payload.  Its
+    Codex route expects the same metadata and message envelope emitted by the
+    Codex CLI, even for a one-token probe.
+    """
+    thread_id = str(uuid.uuid4())
+    turn_id = str(uuid.uuid4())
+    installation_id = str(uuid.uuid4())
+    window_id = f"{thread_id}:0"
+    turn_metadata = {
+        "installation_id": installation_id,
+        "session_id": thread_id,
+        "thread_id": thread_id,
+        "turn_id": turn_id,
+        "request_kind": "turn",
+    }
+    turn_metadata_json = json.dumps(turn_metadata, separators=(",", ":"))
+    client_metadata = {
+        "root_turn_id": turn_id,
+        "session_id": thread_id,
+        "thread_id": thread_id,
+        "turn_id": turn_id,
+        "x-codex-installation-id": installation_id,
+        "x-codex-turn-metadata": turn_metadata_json,
+        "x-codex-window-id": window_id,
+    }
+    headers = {
+        "Accept": "text/event-stream",
+        "Originator": "codex_exec",
+        "Session-Id": thread_id,
+        "Thread-Id": thread_id,
+        "X-Client-Request-Id": thread_id,
+        "X-Codex-Beta-Features": "remote_compaction_v2",
+        "X-Codex-Turn-Metadata": turn_metadata_json,
+        "X-Codex-Window-Id": window_id,
+        "X-OpenAI-Internal-Codex-Responses-Lite": "true",
+    }
+    payload = {
+        "client_metadata": client_metadata,
+        "include": ["reasoning.encrypted_content"],
+        "input": [
+            {
+                "id": f"msg_{uuid.uuid4()}",
+                "role": "developer",
+                "type": "message",
+                "content": [{"type": "input_text", "text": "You are a coding agent."}],
+            },
+            {
+                "id": f"msg_{uuid.uuid4()}",
+                "role": "user",
+                "type": "message",
+                "content": [{"type": "input_text", "text": "Reply with exactly: ok"}],
+            },
+        ],
+        "model": model,
+        "parallel_tool_calls": False,
+        "prompt_cache_key": thread_id,
+        "reasoning": {"context": "all_turns", "effort": "low", "summary": "auto"},
+        "store": False,
+        "stream": True,
+        "text": {"verbosity": "low"},
+        "tool_choice": "auto",
+    }
+    return headers, payload
+
+
 def probe_custom_openai_provider(spec: Dict[str, Any], store: Dict[str, str]) -> List[Tuple[str, bool, str]]:
     provider_name = spec["name"]
     openai_cfg = spec.get("openai") if isinstance(spec.get("openai"), dict) else None
@@ -1969,28 +2046,36 @@ def probe_custom_openai_provider(spec: Dict[str, Any], store: Dict[str, str]) ->
             results.append(("openai /models", False, error_text))
 
     target_model = str(openai_cfg.get("default_model") or "").strip()
-    ok_chat, status_chat, detail_chat = perform_json_http_request(
-        "POST",
-        derive_openai_chat_completions_url(openai_cfg["base_url"]),
-        {"Authorization": f"Bearer {api_key}"},
-        {
-            "model": target_model,
-            "messages": [{"role": "user", "content": "Reply with exactly: ok"}],
-            "max_tokens": 1,
-        },
-    )
-    results.append(("openai /chat/completions", ok_chat, f"HTTP {status_chat}: {detail_chat[:220]}"))
-
-    if str(openai_cfg.get("codex_wire_api") or "") == "responses":
-        ok_resp, status_resp, detail_resp = perform_json_http_request(
+    enabled_tools = set(openai_cfg.get("tools") or [])
+    if enabled_tools.intersection({"openclaw", "droid", "hermes", "grok"}):
+        ok_chat, status_chat, detail_chat = perform_json_http_request(
             "POST",
-            derive_openai_responses_url(openai_cfg["base_url"]),
+            derive_openai_chat_completions_url(openai_cfg["base_url"]),
             {"Authorization": f"Bearer {api_key}"},
             {
                 "model": target_model,
-                "input": "Reply with exactly: ok",
-                "max_output_tokens": 1,
+                "messages": [{"role": "user", "content": "Reply with exactly: ok"}],
+                "max_tokens": 1,
             },
+        )
+        results.append(("openai /chat/completions", ok_chat, f"HTTP {status_chat}: {detail_chat[:220]}"))
+
+    if "codex" in enabled_tools and str(openai_cfg.get("codex_wire_api") or "") == "responses":
+        response_headers: Dict[str, str] = {"Authorization": f"Bearer {api_key}"}
+        response_payload: Dict[str, Any] = {
+            "model": target_model,
+            "input": "Reply with exactly: ok",
+            "max_output_tokens": 1,
+        }
+        if provider_name == "anyrouter":
+            anyrouter_headers, anyrouter_payload = anyrouter_codex_probe_request(target_model)
+            response_headers.update(anyrouter_headers)
+            response_payload = anyrouter_payload
+        ok_resp, status_resp, detail_resp = perform_json_http_request(
+            "POST",
+            derive_openai_responses_url(openai_cfg["base_url"]),
+            response_headers,
+            response_payload,
         )
         results.append(("openai /responses", ok_resp, f"HTTP {status_resp}: {detail_resp[:220]}"))
 
@@ -3210,6 +3295,20 @@ def cmd_provider_add_anthropic(cfg: Config, spec: Dict[str, Any]) -> None:
     if anthropic_cfg.get("extra_env"):
         info("extra_env=" + ",".join(f"{key}={value}" for key, value in sorted(anthropic_cfg["extra_env"].items())))
     info("tools=cc")
+
+
+def cmd_provider_add_anyrouter(cfg: Config, spec: Dict[str, Any]) -> None:
+    store = load_custom_provider_store(cfg.custom_providers_file)
+    providers = custom_provider_map(store)
+    providers[spec["name"]] = merge_custom_provider_record(providers.get(spec["name"], {}), spec)
+    save_custom_provider_store(cfg.custom_providers_file, {"providers": providers})
+
+    openai_cfg = providers[spec["name"]]["openai"]
+    anthropic_cfg = providers[spec["name"]]["anthropic"]
+    ok("Saved AnyRouter provider preset → anyrouter")
+    info(f"openai={openai_cfg['base_url']} model={openai_cfg['default_model']} tools={','.join(openai_cfg['tools'])}")
+    info(f"anthropic={anthropic_cfg['base_url']} model={anthropic_cfg['default_model']}")
+    info(f"env_key={ANYROUTER_API_KEY_ENV}")
 
 
 def sync_custom_provider_specs(
@@ -4882,14 +4981,35 @@ def activate_openrouter_codex_catalog(cfg: Config, text: str) -> str:
     return set_codex_top_level_string(text, "model_catalog_json", managed_path)
 
 
-def restore_codex_model_catalog(cfg: Config, text: str) -> str:
+def codex_catalog_path_is_managed(cfg: Config, raw_path: str) -> bool:
+    """Recognize catalogs generated by switch-api, including legacy filenames."""
+    path_text = str(raw_path or "").strip()
+    if not path_text:
+        return False
+
     managed_paths = {
         str(cfg.codex_kimi_catalog),
         str(cfg.codex_flames_catalog),
         str(cfg.codex_deepseek_catalog),
         str(cfg.codex_openrouter_catalog),
     }
-    if read_codex_top_level_string(text, "model_catalog_json") not in managed_paths:
+    if path_text in managed_paths:
+        return True
+
+    path = Path(path_text).expanduser()
+    if not path.is_absolute():
+        path = cfg.codex_home / path
+    catalog_dir = cfg.codex_home / "model-catalogs"
+    return (
+        path.parent == catalog_dir
+        and path.name.startswith("switch-api-")
+        and path.suffix == ".json"
+    )
+
+
+def restore_codex_model_catalog(cfg: Config, text: str) -> str:
+    current_path = read_codex_top_level_string(text, "model_catalog_json")
+    if not codex_catalog_path_is_managed(cfg, current_path):
         return text
 
     previous_path = ""
@@ -4899,6 +5019,8 @@ def restore_codex_model_catalog(cfg: Config, text: str) -> str:
             previous_path = str(state.get("previous_model_catalog_json") or "").strip()
         except SwitchError:
             previous_path = ""
+    if previous_path == current_path:
+        previous_path = ""
     if previous_path:
         return set_codex_top_level_string(text, "model_catalog_json", previous_path)
     return remove_codex_top_level_string(text, "model_catalog_json")
@@ -6886,7 +7008,16 @@ def switch_custom_openclaw_provider(
 def switch_custom_codex_provider(spec: Dict[str, Any], cfg: Config, store: Dict[str, str], model: str = "") -> None:
     provider_name = spec["name"]
     if skip_redundant_switch("codex", provider_name, cfg, model):
-        return
+        current_catalog = ""
+        try:
+            current_catalog = read_codex_top_level_string(
+                read_text(cfg.cx_config),
+                "model_catalog_json",
+            )
+        except SwitchError:
+            pass
+        if not codex_catalog_path_is_managed(cfg, current_catalog):
+            return
     info(f"Switching Codex → {provider_name}")
     codex_backup(cfg, cfg.cx_config)
 
@@ -8027,6 +8158,7 @@ def usage() -> None:
     print("  switch-api key list")
     print("  switch-api key set <ENV_KEY> <VALUE>")
     print("  switch-api provider list")
+    print("  switch-api provider add-anyrouter [--codex-model MODEL] [--cc-model MODEL]")
     print("  switch-api provider add-openai <name> <base_url> <env_key> <default_model> [options]")
     print("  switch-api provider add-anthropic <name> <base_url> <env_key> <default_model> [options]")
     print("  switch-api provider sync-models [name]")
@@ -8068,7 +8200,8 @@ def usage() -> None:
     print("       switch-api provider add-openai myrelay https://relay.example.com/v1 MYRELAY_API_KEY gpt-5.4")
     print("       switch-api provider add-openai myrelay https://relay.example.com/v1 MYRELAY_API_KEY gpt-5.4 --disable-image-generation")
     print("       switch-api provider add-anthropic myrelay https://relay.example.com/anthropic MYRELAY_CC_API_KEY claude-sonnet-4-6 --env CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")
-    print("       switch-api provider add-anthropic anyrouter https://anyrouter.top MY_RELAY_API_KEY claude-opus-4-8 --env ANTHROPIC_BETAS=context-1m-2025-08-07")
+    print("       switch-api provider add-anyrouter")
+    print("       switch-api provider add-anyrouter --codex-model gpt-6-astra --cc-model claude-opus-4-7")
     print("       switch-api provider sync-models anyrouter")
     print("       switch-api probe anyrouter")
     print("       switch-api doctor anyrouter")
@@ -8182,6 +8315,7 @@ def usage() -> None:
     print("  switch-api check [--online]            # 检查当前模型状态")
     print("  switch-api codex-account use <name>    # 切换 accounts/auth.json_* 或官方账号目录")
     print("  switch-api key set <ENV_KEY> <VALUE>   # 写入 credentials.json + ~/.env，并确保 shell source ~/.env")
+    print("  switch-api provider add-anyrouter       # 注册 AnyRouter 的 Codex + Claude Code 双协议预设")
     print("  switch-api provider add-openai ...     # 注册自定义 OpenAI-compatible provider（codex/openclaw/droid/hermes/grok）")
     print("  switch-api provider add-anthropic ...  # 注册自定义 Anthropic-compatible provider（cc）")
     print("  switch-api provider sync-models ...    # 同步 custom provider 的 /models 列表到 provider-models.json")
@@ -8299,6 +8433,78 @@ def parse_custom_env_kv(arg: str) -> Tuple[str, str]:
     key, value = arg.split("=", 1)
     env_key = validate_env_key_name(key.strip())
     return env_key, value
+
+
+def anyrouter_provider_spec(
+    *,
+    codex_model: str = ANYROUTER_CODEX_DEFAULT_MODEL,
+    cc_model: str = ANYROUTER_CC_DEFAULT_MODEL,
+) -> Dict[str, Any]:
+    """Return the maintained AnyRouter dual-protocol provider preset."""
+    discovery_url = ANYROUTER_OPENAI_BASE_URL + "/models"
+    return normalize_custom_provider_spec(
+        "anyrouter",
+        {
+            "name": "anyrouter",
+            "openai": {
+                "name": "anyrouter",
+                "base_url": ANYROUTER_OPENAI_BASE_URL,
+                "env_key": ANYROUTER_API_KEY_ENV,
+                "default_model": codex_model,
+                "tools": ["codex"],
+                "model_discovery": {
+                    "models_url": discovery_url,
+                    "auth_modes": ["bearer"],
+                },
+            },
+            "anthropic": {
+                "name": "anyrouter",
+                "base_url": ANYROUTER_BASE_URL,
+                "env_key": ANYROUTER_API_KEY_ENV,
+                "default_model": cc_model,
+                "extra_env": {
+                    "ANTHROPIC_BETAS": ANYROUTER_ANTHROPIC_BETA,
+                },
+                "model_discovery": {
+                    "models_url": discovery_url,
+                    "auth_modes": ["bearer", "anthropic"],
+                },
+            },
+        },
+    )
+
+
+def parse_provider_add_anyrouter_args(args: List[str]) -> Dict[str, Any]:
+    codex_model = ANYROUTER_CODEX_DEFAULT_MODEL
+    cc_model = ANYROUTER_CC_DEFAULT_MODEL
+    idx = 0
+    while idx < len(args):
+        arg = args[idx]
+        if arg.startswith("--codex-model="):
+            codex_model = arg.split("=", 1)[1].strip()
+            idx += 1
+            continue
+        if arg == "--codex-model":
+            if idx + 1 >= len(args):
+                raise SwitchError("Missing value for --codex-model")
+            codex_model = args[idx + 1].strip()
+            idx += 2
+            continue
+        if arg.startswith("--cc-model="):
+            cc_model = arg.split("=", 1)[1].strip()
+            idx += 1
+            continue
+        if arg == "--cc-model":
+            if idx + 1 >= len(args):
+                raise SwitchError("Missing value for --cc-model")
+            cc_model = args[idx + 1].strip()
+            idx += 2
+            continue
+        raise SwitchError(f"Unknown AnyRouter preset option: {arg}")
+
+    if not codex_model or not cc_model:
+        raise SwitchError("AnyRouter preset models must not be empty")
+    return anyrouter_provider_spec(codex_model=codex_model, cc_model=cc_model)
 
 
 def parse_provider_add_openai_args(args: List[str]) -> Dict[str, Any]:
@@ -8597,6 +8803,14 @@ def parse_args(argv: Iterable[str], known_providers: Iterable[str] | None = None
             return ("provider-sync-models", args[2], "")
         if len(args) == 3 and args[1] in ("rm", "remove", "delete"):
             return ("provider-remove", args[2], "")
+        if len(args) >= 2 and args[1] == "add-anyrouter":
+            try:
+                spec = parse_provider_add_anyrouter_args(args[2:])
+            except SwitchError as ex:
+                err(str(ex))
+                usage()
+                raise SystemExit(1)
+            return ("provider-add-anyrouter", "anyrouter", spec)
         if len(args) >= 6 and args[1] == "add-openai":
             try:
                 spec = parse_provider_add_openai_args(args[2:])
@@ -8637,7 +8851,7 @@ def parse_args(argv: Iterable[str], known_providers: Iterable[str] | None = None
                 usage()
                 raise SystemExit(1)
             return ("provider-import", payload["path"], payload)
-        err("Usage: switch-api provider <list|sync-models|rm|add-openai|add-anthropic|export|export-all|import> ...")
+        err("Usage: switch-api provider <list|sync-models|rm|add-anyrouter|add-openai|add-anthropic|export|export-all|import> ...")
         usage()
         raise SystemExit(1)
 
@@ -8874,6 +9088,14 @@ def main() -> int:
 
     if tool == "provider-list":
         cmd_provider_list(cfg)
+        return 0
+
+    if tool == "provider-add-anyrouter":
+        cmd_provider_add_anyrouter(cfg, profile)
+        if resolve_store_secret(store, ANYROUTER_API_KEY_ENV):
+            sync_custom_provider_specs(cfg, store, provider_name=provider)
+        else:
+            save_provider_model_catalog(cfg.provider_models_file, load_custom_provider_store(cfg.custom_providers_file))
         return 0
 
     if tool == "provider-sync-models":

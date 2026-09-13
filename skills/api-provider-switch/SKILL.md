@@ -96,12 +96,14 @@ switch-api provider import ./providers.bundle.json
 
 ```bash
 switch-api key set ANYROUTER_API_KEY sk-xxx
-switch-api provider add-openai anyrouter https://anyrouter.top/v1 ANYROUTER_API_KEY gpt-5.5
-switch-api provider add-anthropic anyrouter https://anyrouter.top ANYROUTER_API_KEY claude-opus-4-8 --env ANTHROPIC_BETAS=context-1m-2025-08-07
+switch-api provider add-anyrouter
 switch-api list anyrouter --online
 switch-api doctor anyrouter
+switch-api codex anyrouter
 switch-api cc anyrouter
 ```
+
+默认模型为 `gpt-6-astra`（Codex Responses）和 `claude-opus-4-7`（Claude Code Messages）；Claude Code 会自动带上 AnyRouter 要求的 1M context beta。
 
 说明：
 - custom provider 现在会自动探测 `/v1/models`

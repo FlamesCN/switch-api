@@ -61,11 +61,13 @@ switch-api key set MY_RELAY_API_KEY sk-xxx
 switch-api key set MY_RELAY_CC_API_KEY sk-ant-xxx
 switch-api key list
 
+switch-api provider add-anyrouter
+switch-api provider add-anyrouter --codex-model gpt-6-astra --cc-model claude-opus-4-7
 switch-api provider add-openai myrelay https://relay.example.com/v1 MY_RELAY_API_KEY gpt-5.4
 switch-api provider add-openai myrelay https://relay.example.com/v1 MY_RELAY_API_KEY gpt-5.4 --disable-image-generation
 switch-api provider add-anthropic myrelay https://relay.example.com/anthropic MY_RELAY_CC_API_KEY claude-sonnet-4-6
 switch-api provider add-anthropic myrelay https://relay.example.com/anthropic MY_RELAY_CC_API_KEY claude-sonnet-4-6 --env CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
-switch-api provider add-anthropic anyrouter https://anyrouter.top ANYROUTER_API_KEY claude-opus-4-8 --env ANTHROPIC_BETAS=context-1m-2025-08-07
+switch-api provider add-anthropic anyrouter https://anyrouter.top ANYROUTER_API_KEY claude-opus-4-7 --env ANTHROPIC_BETAS=context-1m-2025-08-07
 switch-api provider sync-models anyrouter
 switch-api model list
 switch-api model add flames deepseek-v4-flash-vision-exp --tools cc,codex --vision
