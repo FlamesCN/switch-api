@@ -592,6 +592,7 @@ DEEPSEEK_CC_MODEL_ALIASES = {
     "CLAUDE_CODE_SUBAGENT_MODEL": "deepseek-v4-flash",
 }
 MODEL_OVERRIDES_FILENAME = "model-overrides.json"
+MODEL_SYNC_STATE_FILENAME = "model-sync-state.json"
 
 # OpenAI named accounts: same base URL, different keys (tag = first 4 chars of key after sk-proj-)
 OPENAI_NAMED_PROVIDERS = ("openai_Gq80", "openai_V420")
@@ -821,7 +822,7 @@ CC_ONLY_PROVIDERS = ("duck_cc1", "duck_codex2cc")
 OPENCLAW_CLAUDE_PROVIDERS = ("duck", "quotio", "antigravity", "icodeeasy")
 OPENCLAW_GEMINI_PROFILES = frozenset(("gemini", "gemini3", "gemini-3", "gemini3-pro-high"))
 
-APP_VERSION = "2.1.1"
+APP_VERSION = "2.2.0"
 HTTP_USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
@@ -3519,6 +3520,156 @@ def cmd_model_override_list(cfg: Config) -> None:
             )
 
 
+def load_model_sync_state(cfg: "Config") -> Dict[str, Dict[str, Dict[str, Any]]]:
+    path = cfg.model_sync_state_file
+    if not path.exists():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    providers = raw.get("providers") if isinstance(raw, dict) else None
+    if not isinstance(providers, dict):
+        return {}
+    result: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    for provider, models in providers.items():
+        if not isinstance(models, dict):
+            continue
+        result[str(provider)] = {}
+        for model, spec in models.items():
+            model_id = str(model).strip()
+            if not model_id or not isinstance(spec, dict):
+                continue
+            result[str(provider)][model_id] = dict(spec)
+    return result
+
+
+def save_model_sync_state(cfg: "Config", state: Dict[str, Any]) -> None:
+    cfg.model_sync_state_file.parent.mkdir(parents=True, exist_ok=True)
+    tmp = cfg.model_sync_state_file.with_suffix(".tmp")
+    tmp.write_text(
+        json.dumps({"providers": state}, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    try:
+        tmp.chmod(0o600)
+    except Exception:
+        pass
+    os.replace(tmp, cfg.model_sync_state_file)
+
+
+def infer_builtin_sync_tools(provider: str, model_id: str) -> List[str]:
+    """Infer override tools for an upstream model id.
+
+    Intersection of the model family default tools with the tools the
+    built-in provider supports. Empty means the model is not usable by any
+    tool through this provider (family 'other').
+    Flames exception: its Claude Code entry relays arbitrary models through
+    ANTHROPIC_CUSTOM_MODEL_OPTION (see the flames/cc/gpt exception in
+    validate_model_for_tool), so gpt models are also usable from cc.
+    """
+    supported = BUILTIN_PROVIDER_TOOLS.get(provider, ())
+    fams = list(FAMILY_TOOLS.get(model_family(model_id), ()))
+    if provider == "flames" and model_family(model_id) == "gpt" and "cc" in supported:
+        fams = ["cc"] + [tool for tool in fams if tool != "cc"]
+    return [tool for tool in fams if tool in supported]
+
+
+def cmd_model_sync(
+    cfg: "Config",
+    store: Dict[str, str],
+    provider: str,
+    *,
+    tools: List[str] | None = None,
+    dry_run: bool = False,
+    prune: bool = False,
+) -> None:
+    if provider != "flames":
+        raise SwitchError("Model sync currently supports: flames")
+    wanted = normalize_model_override_tools(tools or ["all"], provider)
+    api_key = get_keys(store).get("flames", "")
+    if not api_key:
+        raise SwitchError("FLAMES_API_KEY is not set! Edit ~/.env and run: source ~/.zshrc")
+    models_url = FLAMES_NEWAPI_BASE_URL_V1 + "/models"
+    info(f"Fetching upstream models ← {models_url}")
+    models, auth_mode, error = fetch_remote_model_catalog(
+        models_url, api_key, ("bearer",), timeout=20
+    )
+    if not models:
+        raise SwitchError(f"Upstream model sync failed: {error}")
+    info(f"Upstream models: {len(models)} (auth={auth_mode}) tools={','.join(wanted)}")
+
+    overrides = load_model_overrides(cfg)
+    known = set(FLAMES_AVAILABLE_MODELS) | set(overrides.get(provider, {}))
+    added: List[Tuple[str, List[str]]] = []
+    skipped: List[str] = []
+    out_of_scope = 0
+    existed = 0
+    for model_id in models:
+        if model_id in known:
+            existed += 1
+            continue
+        scoped = [tool for tool in infer_builtin_sync_tools(provider, model_id) if tool in wanted]
+        if not scoped:
+            if infer_builtin_sync_tools(provider, model_id):
+                out_of_scope += 1
+            else:
+                skipped.append(model_id)
+            continue
+        added.append((model_id, scoped))
+
+    state = load_model_sync_state(cfg)
+    synced = state.setdefault(provider, {})
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    pruned: List[str] = []
+    if prune:
+        upstream = set(models)
+        for model_id in list(synced):
+            if model_id not in upstream:
+                if model_id in overrides.get(provider, {}):
+                    if dry_run:
+                        pruned.append(model_id)
+                    else:
+                        del overrides[provider][model_id]
+                        pruned.append(model_id)
+                if not dry_run:
+                    del synced[model_id]
+        if not dry_run and provider in overrides and not overrides[provider]:
+            del overrides[provider]
+
+    if dry_run:
+        for model_id, tools in added:
+            vision = "vision" in model_id.lower()
+            print(f"  + {model_id} tools={','.join(tools)} vision={'on' if vision else 'off'}")
+        for model_id in pruned:
+            print(f"  - {model_id} (no longer upstream)")
+        ok(f"Dry run: +{len(added)} -{len(pruned)} ={existed} out-of-scope={out_of_scope} skipped={len(skipped)} (no changes written)")
+        if skipped:
+            info("Skipped (no usable tool mapping): " + ", ".join(skipped))
+        return
+
+    for model_id, tools in added:
+        overrides.setdefault(provider, {})[model_id] = {
+            "tools": tools,
+            "vision": "vision" in model_id.lower(),
+        }
+        synced[model_id] = {"synced_at": now}
+    save_model_overrides(cfg, overrides)
+    save_model_sync_state(cfg, state)
+    ok(
+        f"Synced {provider} models: +{len(added)} -{len(pruned)} "
+        f"={existed} out-of-scope={out_of_scope} skipped={len(skipped)}"
+    )
+    for model_id, tools in added:
+        info(f"  + {model_id} tools={','.join(tools)}")
+    for model_id in pruned:
+        info(f"  - {model_id} (no longer upstream)")
+    if skipped:
+        info("Skipped (no usable tool mapping): " + ", ".join(skipped))
+    info("Now switch directly, e.g.: switch-api cc flames <model>")
+
+
 def resolve_cc_model_for_quotio(current_model: str) -> Tuple[str, str]:
     m = (current_model or "").strip()
     if not m:
@@ -3752,6 +3903,7 @@ class Config:
         self.custom_providers_file = self.switch_dir / "custom-providers.json"
         self.provider_models_file = self.switch_dir / "provider-models.json"
         self.model_overrides_file = self.switch_dir / MODEL_OVERRIDES_FILENAME
+        self.model_sync_state_file = self.switch_dir / MODEL_SYNC_STATE_FILENAME
         self.codex_accounts_file = self.switch_dir / "codex-accounts.json"
 
 
@@ -8171,6 +8323,7 @@ def usage() -> None:
     print("  switch-api model list")
     print("  switch-api model add <provider> <model> [--tools cc,codex,...|all] [--vision]")
     print("  switch-api model rm <provider> <model>")
+    print("  switch-api model sync flames [--tools cc,codex,...|all] [--dry-run] [--prune]")
     print("  switch-api <provider>")
     print("  switch-api all <provider>")
     print("  switch-api <tool> <provider>")
@@ -8211,6 +8364,10 @@ def usage() -> None:
     print("       switch-api provider import ./providers.bundle.json")
     print("       switch-api model add flames deepseek-v4-flash-vision-exp --tools cc,codex --vision")
     print("       switch-api model add xingyun gpt-next --tools codex,openclaw")
+    print("       switch-api model sync flames             # 拉取上游 /v1/models，自动登记缺失模型")
+    print("       switch-api model sync flames --tools cc    # 只同步 cc 能用的模型")
+    print("       switch-api model sync flames --dry-run   # 只预览，不写入")
+    print("       switch-api model sync flames --prune     # 同时清理已下线且经 sync 登记的模型")
     print("       # --tools all expands to tools supported by that built-in provider")
     print("       # registration adds model IDs; it does not add provider protocols or credentials")
     print("       switch-api cc myrelay")
@@ -8772,6 +8929,40 @@ def parse_model_override_add_args(args: List[str]) -> Dict[str, Any]:
     return {"provider": provider, "model": model, "tools": tools, "vision": vision}
 
 
+def parse_model_sync_args(args: List[str]) -> Dict[str, Any]:
+    if not args:
+        raise SwitchError(
+            "Usage: switch-api model sync <provider> [--tools cc,codex,...|all] [--dry-run] [--prune]"
+        )
+    provider = args[0]
+    tools: List[str] = ["all"]
+    dry_run = False
+    prune = False
+    idx = 1
+    while idx < len(args):
+        arg = args[idx]
+        if arg == "--dry-run":
+            dry_run = True
+            idx += 1
+            continue
+        if arg == "--prune":
+            prune = True
+            idx += 1
+            continue
+        if arg.startswith("--tools="):
+            tools = [part.strip() for part in arg.split("=", 1)[1].split(",") if part.strip()]
+            idx += 1
+            continue
+        if arg == "--tools":
+            if idx + 1 >= len(args):
+                raise SwitchError("Missing value for --tools")
+            tools = [part.strip() for part in args[idx + 1].split(",") if part.strip()]
+            idx += 2
+            continue
+        raise SwitchError(f"Unknown model sync option: {arg}")
+    return {"provider": provider, "tools": tools, "dry_run": dry_run, "prune": prune}
+
+
 def parse_args(argv: Iterable[str], known_providers: Iterable[str] | None = None) -> Tuple[str, str, Any]:
     """Returns (action, provider, profile_or_model).
     action can be: status, check, check-online, list, list-<provider>,
@@ -8860,6 +9051,14 @@ def parse_args(argv: Iterable[str], known_providers: Iterable[str] | None = None
             return ("model-override-list", "", "")
         if len(args) == 4 and args[1] in ("rm", "remove", "delete"):
             return ("model-override-remove", args[2], args[3])
+        if len(args) >= 3 and args[1] == "sync":
+            try:
+                payload = parse_model_sync_args(args[2:])
+            except SwitchError as ex:
+                err(str(ex))
+                usage()
+                raise SystemExit(1)
+            return ("model-sync", payload["provider"], payload)
         if len(args) >= 4 and args[1] == "add":
             try:
                 payload = parse_model_override_add_args(args[2:])
@@ -8868,7 +9067,7 @@ def parse_args(argv: Iterable[str], known_providers: Iterable[str] | None = None
                 usage()
                 raise SystemExit(1)
             return ("model-override-add", payload["provider"], payload)
-        err("Usage: switch-api model <list|add|rm> ...")
+        err("Usage: switch-api model <list|add|rm|sync> ...")
         usage()
         raise SystemExit(1)
 
@@ -9164,6 +9363,17 @@ def main() -> int:
             str(profile["model"]),
             list(profile["tools"]),
             bool(profile["vision"]),
+        )
+        return 0
+
+    if tool == "model-sync":
+        cmd_model_sync(
+            cfg,
+            store,
+            provider,
+            tools=list(profile["tools"]),
+            dry_run=bool(profile["dry_run"]),
+            prune=bool(profile["prune"]),
         )
         return 0
 

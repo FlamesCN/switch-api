@@ -2514,5 +2514,134 @@ class SwitchApiCodexOpenAITest(unittest.TestCase):
         self.assertEqual(auth["tokens"]["account_id"], "acct-demo")
 
 
+class SwitchApiModelSyncTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = load_switch_api_module()
+
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.home = Path(self.tempdir.name)
+        self.cfg = self.mod.Config(self.home)
+        self.store = {"flames": "sk-test-dummy"}
+
+    def tearDown(self):
+        self.tempdir.cleanup()
+
+    def test_parse_model_sync_args(self):
+        payload = self.mod.parse_model_sync_args(["flames"])
+        self.assertEqual(
+            payload,
+            {"provider": "flames", "tools": ["all"], "dry_run": False, "prune": False},
+        )
+        payload = self.mod.parse_model_sync_args(["flames", "--tools", "cc", "--dry-run", "--prune"])
+        self.assertEqual(
+            payload,
+            {"provider": "flames", "tools": ["cc"], "dry_run": True, "prune": True},
+        )
+        payload = self.mod.parse_model_sync_args(["flames", "--tools=cc,codex"])
+        self.assertEqual(payload["tools"], ["cc", "codex"])
+        with self.assertRaises(self.mod.SwitchError):
+            self.mod.parse_model_sync_args([])
+        with self.assertRaises(self.mod.SwitchError):
+            self.mod.parse_model_sync_args(["flames", "--bogus"])
+
+    def test_parse_args_routes_model_sync(self):
+        action, provider, payload = self.mod.parse_args(["model", "sync", "flames", "--dry-run"])
+        self.assertEqual(action, "model-sync")
+        self.assertEqual(provider, "flames")
+        self.assertTrue(payload["dry_run"])
+
+    def test_model_sync_rejects_non_flames_provider(self):
+        with self.assertRaises(self.mod.SwitchError):
+            self.mod.cmd_model_sync(self.cfg, self.store, "duck")
+
+    def test_infer_builtin_sync_tools(self):
+        self.assertEqual(
+            self.mod.infer_builtin_sync_tools("flames", "claude-opus-5-5"),
+            ["cc", "openclaw"],
+        )
+        self.assertEqual(
+            self.mod.infer_builtin_sync_tools("flames", "gpt-6-astra"),
+            ["cc", "codex", "openclaw", "hermes", "grok"],
+        )
+        self.assertEqual(self.mod.infer_builtin_sync_tools("flames", "zzz-unknown-9"), [])
+
+    def test_model_sync_tools_filter_scopes_registration(self):
+        upstream = ["claude-opus-5-5", "gpt-5.5-test", "grok-imagine-test"]
+        with patch.object(
+            self.mod, "fetch_remote_model_catalog", return_value=(upstream, "bearer", "")
+        ):
+            self.mod.cmd_model_sync(self.cfg, self.store, "flames", tools=["cc"])
+        overrides = self.mod.load_model_overrides(self.cfg)
+        # claude → cc kept; gpt → cc kept via the flames cc-relay exception
+        self.assertEqual(overrides["flames"]["claude-opus-5-5"]["tools"], ["cc"])
+        self.assertEqual(overrides["flames"]["gpt-5.5-test"]["tools"], ["cc"])
+        # grok family has no cc mapping: out of scope, not registered
+        self.assertNotIn("grok-imagine-test", overrides.get("flames", {}))
+
+    def test_model_sync_rejects_unsupported_tools(self):
+        with patch.object(
+            self.mod, "fetch_remote_model_catalog", return_value=(["claude-opus-5-5"], "bearer", "")
+        ):
+            with self.assertRaises(self.mod.SwitchError):
+                self.mod.cmd_model_sync(self.cfg, self.store, "flames", tools=["droid"])
+
+    def test_model_sync_registers_missing_models(self):
+        upstream = ["claude-opus-4-8", "claude-opus-5-5", "zzz-unknown-9"]
+        with patch.object(
+            self.mod, "fetch_remote_model_catalog", return_value=(upstream, "bearer", "")
+        ):
+            self.mod.cmd_model_sync(self.cfg, self.store, "flames")
+        overrides = self.mod.load_model_overrides(self.cfg)
+        # claude-opus-4-8 is already built-in: must not be duplicated as override
+        self.assertNotIn("claude-opus-4-8", overrides.get("flames", {}))
+        self.assertEqual(
+            overrides["flames"]["claude-opus-5-5"]["tools"], ["cc", "openclaw"]
+        )
+        # family 'other' has no usable tool mapping: skipped, not registered
+        self.assertNotIn("zzz-unknown-9", overrides.get("flames", {}))
+        state = self.mod.load_model_sync_state(self.cfg)
+        self.assertIn("claude-opus-5-5", state.get("flames", {}))
+        # newly synced model passes catalog validation for cc
+        self.assertTrue(self.mod.model_in_provider("claude-opus-5-5", "flames", cfg=self.cfg))
+
+    def test_model_sync_dry_run_writes_nothing(self):
+        upstream = ["claude-opus-5-5"]
+        with patch.object(
+            self.mod, "fetch_remote_model_catalog", return_value=(upstream, "bearer", "")
+        ):
+            self.mod.cmd_model_sync(self.cfg, self.store, "flames", dry_run=True)
+        self.assertFalse(self.cfg.model_overrides_file.exists())
+        self.assertFalse(self.cfg.model_sync_state_file.exists())
+
+    def test_model_sync_prune_keeps_manual_entries(self):
+        self.mod.cmd_model_override_add(self.cfg, "flames", "manual-keep-1", ["cc"], False)
+        upstream_first = ["claude-opus-5-5", "manual-keep-1"]
+        with patch.object(
+            self.mod, "fetch_remote_model_catalog", return_value=(upstream_first, "bearer", "")
+        ):
+            self.mod.cmd_model_sync(self.cfg, self.store, "flames")
+        # manual-keep-1 was already an override: not tracked as auto-synced
+        state = self.mod.load_model_sync_state(self.cfg)
+        self.assertIn("claude-opus-5-5", state.get("flames", {}))
+        self.assertNotIn("manual-keep-1", state.get("flames", {}))
+        # upstream drops claude-opus-5-5: prune removes the auto-synced entry only
+        with patch.object(
+            self.mod, "fetch_remote_model_catalog", return_value=(["manual-keep-1"], "bearer", "")
+        ):
+            self.mod.cmd_model_sync(self.cfg, self.store, "flames", prune=True)
+        overrides = self.mod.load_model_overrides(self.cfg)
+        self.assertNotIn("claude-opus-5-5", overrides.get("flames", {}))
+        self.assertIn("manual-keep-1", overrides.get("flames", {}))
+
+    def test_model_sync_fails_when_upstream_empty(self):
+        with patch.object(
+            self.mod, "fetch_remote_model_catalog", return_value=([], "", "boom")
+        ):
+            with self.assertRaises(self.mod.SwitchError):
+                self.mod.cmd_model_sync(self.cfg, self.store, "flames")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -438,7 +438,17 @@ switch-api codex duck gpt-5.3-codex-high
 switch-api model add <provider> <model> --tools cc,codex [--vision]
 switch-api model list
 switch-api model rm flames <model>
+# 上游同步（目前支持 flames）：拉取中转 /v1/models，自动登记缺失模型，之后可直接切换
+switch-api model sync flames [--tools cc,codex,...|all] [--dry-run] [--prune]
 ```
+
+`model sync flames` 用 `FLAMES_API_KEY` 拉取 `https://www.flamescn.vip/v1/models`，
+即该 key 所在分组（vip）可见的全部渠道模型并集，按模型 family 自动推断 tools
+（claude→cc,openclaw；gpt→cc,codex,openclaw,hermes,grok；…；flames 不支持 droid 会自动排除）。
+`--tools cc` 可只同步某工具能用的模型；`--prune` 只清理曾经由 sync 登记、
+现已下线的模型，手工 `model add` 的条目不受影响；同步记录在 `model-sync-state.json`。
+登记后切换时的 family 校验仍然生效（如 codex 配 claude 会被拦），
+`list flames` 按 family 分组显示，codex 的模型目录只收录含 codex 的条目。
 
 登记保存在 `~/.config/switch-api/model-overrides.json`。它只扩展模型 ID，不会新增 API 协议、工具适配或凭据；不受 provider 支持的工具会在登记时直接拒绝。当前内置能力分组如下：
 
